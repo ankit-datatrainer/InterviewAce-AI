@@ -9,12 +9,26 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@mediapipe/tasks-vision": "^0.10.35",
+    "@supabase/ssr": "^0.12.0",
+    "@supabase/supabase-js": "^2.108.1",
+    "@types/file-saver": "^2.0.7",
+    "@types/nodemailer": "^8.0.1",
+    "docx": "^9.7.1",
+    "file-saver": "^2.0.5",
+    "html2pdf.js": "^0.14.0",
+    "lucide-react": "^1.18.0",
+    "mammoth": "^1.12.0",
     "next": "16.2.9",
+    "nodemailer": "^8.0.11",
+    "pdf-parse": "^2.4.5",
+    "razorpay": "^2.9.6",
     "react": "19.2.4",
     "react-dom": "19.2.4"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@types/html2pdf.js": "^0.10.0",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
