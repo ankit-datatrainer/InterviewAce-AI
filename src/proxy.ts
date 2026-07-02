@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
+import { resolveRole, homePathForRole } from '@/lib/roles'
 
 export async function proxy(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
@@ -35,22 +36,47 @@ export async function proxy(request: NextRequest) {
   } = await supabase.auth.getUser()
 
   const { pathname } = request.nextUrl
-
-  // Hardcoded Admin Bypass check
   const hasAdminBypass = request.cookies.get('admin_bypass')?.value === 'true'
 
-  // If user is NOT authenticated and tries to access /dashboard or /admin, redirect to /login
-  if (!user && !hasAdminBypass && (pathname.startsWith('/dashboard') || pathname.startsWith('/admin'))) {
+  const isDashboardRoute = pathname.startsWith('/dashboard')
+  const isAdminRoute = pathname.startsWith('/admin')
+  const isCoachRoute = pathname.startsWith('/coach')
+  const isAuthRoute = pathname === '/login' || pathname === '/signup'
+  const isProtectedRoute = isDashboardRoute || isAdminRoute || isCoachRoute
+
+  // If user is NOT authenticated and tries to access a protected area, redirect to /login
+  if (!user && !hasAdminBypass && isProtectedRoute) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     return NextResponse.redirect(url)
   }
 
-  // If user IS authenticated and hits /login or /signup, redirect to /dashboard
-  if (user && (pathname === '/login' || pathname === '/signup')) {
-    const url = request.nextUrl.clone()
-    url.pathname = '/dashboard'
-    return NextResponse.redirect(url)
+  // If user IS authenticated, route them to the panel that matches their role.
+  if (user) {
+    let profileRole: string | null = null
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single()
+    profileRole = profile?.role ?? null
+
+    const role = resolveRole(user.email, profileRole)
+    const home = homePathForRole(role)
+
+    const allowed =
+      role === 'admin'
+        ? isAdminRoute
+        : role === 'coach'
+          ? isCoachRoute
+          : isDashboardRoute
+
+    // Send users away from auth pages and from panels that aren't theirs.
+    if (isAuthRoute || (isProtectedRoute && !allowed)) {
+      const url = request.nextUrl.clone()
+      url.pathname = home
+      return NextResponse.redirect(url)
+    }
   }
 
   return supabaseResponse
@@ -60,6 +86,7 @@ export const config = {
   matcher: [
     '/dashboard/:path*',
     '/admin/:path*',
+    '/coach/:path*',
     '/login',
     '/signup',
   ],

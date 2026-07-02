@@ -236,7 +236,7 @@ export default function DashboardPage() {
             </div>
           ) : (
             upcomingBookings.map((booking) => (
-              <div className="list-row" key={booking.id}>
+              <div className="list-row" key={booking.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center' }}>
                   <GraduationCap size={18} style={{ color: 'var(--blue)', flexShrink: 0 }} />
                   <div>
@@ -244,7 +244,14 @@ export default function DashboardPage() {
                     <div className="meta">{new Date(booking.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} &middot; {booking.timeSlot}</div>
                   </div>
                 </div>
-                <span className="tag blue">{booking.coachCategory}</span>
+                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                  <span className="tag blue">{booking.coachCategory}</span>
+                  {booking.roomId && (
+                    <Link href={`/dashboard/coaching/room/${booking.roomId}`} className="btn btn-primary btn-sm" style={{ padding: '0.25rem 0.6rem', fontSize: '0.8rem' }}>
+                      Join Live
+                    </Link>
+                  )}
+                </div>
               </div>
             ))
           )}

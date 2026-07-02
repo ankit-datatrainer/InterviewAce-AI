@@ -17,9 +17,17 @@ export async function POST(request: Request) {
       );
     }
 
-    // Using Deepgram's Aura Asteria (high-quality female English voice)
+    // ?format=pcm returns raw 24kHz linear16 PCM (used to drive the LiveAvatar
+    // lip-sync via repeatAudio). Default returns MP3 for normal <audio> playback.
+    const url = new URL(request.url);
+    const pcm = url.searchParams.get('format') === 'pcm';
+
+    const dgQuery = pcm
+      ? 'model=aura-orion-en&encoding=linear16&sample_rate=24000&container=none'
+      : 'model=aura-orion-en';
+
     const response = await fetch(
-      `https://api.deepgram.com/v1/speak?model=aura-asteria-en`,
+      `https://api.deepgram.com/v1/speak?${dgQuery}`,
       {
         method: "POST",
         headers: {
@@ -45,7 +53,7 @@ export async function POST(request: Request) {
     return new Response(audioBuffer, {
       status: 200,
       headers: {
-        "Content-Type": "audio/mpeg",
+        "Content-Type": pcm ? "audio/L16" : "audio/mpeg",
       },
     });
   } catch (error) {

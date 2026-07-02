@@ -1,5 +1,4 @@
-// ── Admin Data Store ──
-// Manages all admin data in localStorage with demo seed data
+import { createClient } from '@/lib/supabase';
 
 export interface AdminUser {
   id: string;
@@ -7,10 +6,10 @@ export interface AdminUser {
   email: string;
   initials: string;
   color: string;
-  plan: 'Free' | 'Pro' | 'Premium';
+  plan: string;
   interviews: number;
   joined: string;
-  status: 'Active' | 'Trial' | 'Payment due' | 'Suspended';
+  status: string;
 }
 
 export interface AdminInterview {
@@ -44,7 +43,9 @@ export interface AdminCoach {
   rating: number;
   sessions: number;
   payoutDue: string;
-  status: 'Verified' | 'Docs pending' | 'Paused';
+  status: string;
+  email?: string;
+  linked?: boolean;
 }
 
 export interface AdminPayment {
@@ -53,7 +54,7 @@ export interface AdminPayment {
   item: string;
   amount: string;
   method: string;
-  status: 'Paid' | 'Failed' | 'Refund req.';
+  status: string;
   date: string;
 }
 
@@ -61,206 +62,489 @@ export interface AdminTicket {
   id: string;
   userName: string;
   subject: string;
-  priority: 'High' | 'Medium' | 'Low';
+  priority: string;
   age: string;
-  status: 'Open' | 'In progress' | 'Resolved' | 'Escalated';
+  status: string;
 }
 
-// ── Storage keys ──
-const KEYS = {
-  users: 'interviewace_admin_users',
-  interviews: 'interviewace_admin_interviews',
-  resumes: 'interviewace_admin_resumes',
-  coaches: 'interviewace_admin_coaches',
-  payments: 'interviewace_admin_payments',
-  tickets: 'interviewace_admin_tickets',
-};
+function getInitials(name: string) {
+  return name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase() || 'U';
+}
 
-// ── Seed data ──
+function getColorForId(id: string) {
+  const colors = ['#2563EB', '#7C3AED', '#059669', '#DC2626', '#EA580C', '#0891B2', '#4338CA', '#BE185D', '#15803D', '#9333EA'];
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) hash = id.charCodeAt(i) + ((hash << 5) - hash);
+  return colors[Math.abs(hash) % colors.length];
+}
 
-const seedUsers: AdminUser[] = [
-  { id: 'u1', name: 'Aarav Sharma', email: 'aarav.sharma@gmail.com', initials: 'AS', color: '#2563EB', plan: 'Pro', interviews: 14, joined: '2026-01-12', status: 'Active' },
-  { id: 'u2', name: 'Priya Patel', email: 'priya.patel@outlook.com', initials: 'PP', color: '#7C3AED', plan: 'Premium', interviews: 28, joined: '2025-11-05', status: 'Active' },
-  { id: 'u3', name: 'Rohan Mehta', email: 'rohan.mehta@yahoo.com', initials: 'RM', color: '#059669', plan: 'Free', interviews: 3, joined: '2026-04-22', status: 'Trial' },
-  { id: 'u4', name: 'Ananya Desai', email: 'ananya.d@gmail.com', initials: 'AD', color: '#DC2626', plan: 'Pro', interviews: 9, joined: '2026-02-18', status: 'Active' },
-  { id: 'u5', name: 'Vikram Singh', email: 'vikram.singh@proton.me', initials: 'VS', color: '#EA580C', plan: 'Premium', interviews: 21, joined: '2025-12-09', status: 'Payment due' },
-  { id: 'u6', name: 'Sneha Iyer', email: 'sneha.iyer@gmail.com', initials: 'SI', color: '#0891B2', plan: 'Free', interviews: 1, joined: '2026-05-30', status: 'Trial' },
-  { id: 'u7', name: 'Karthik Nair', email: 'karthik.n@hotmail.com', initials: 'KN', color: '#4338CA', plan: 'Pro', interviews: 17, joined: '2026-01-28', status: 'Active' },
-  { id: 'u8', name: 'Meera Joshi', email: 'meera.joshi@gmail.com', initials: 'MJ', color: '#BE185D', plan: 'Premium', interviews: 32, joined: '2025-10-15', status: 'Active' },
-  { id: 'u9', name: 'Arjun Reddy', email: 'arjun.reddy@gmail.com', initials: 'AR', color: '#15803D', plan: 'Free', interviews: 5, joined: '2026-03-11', status: 'Suspended' },
-  { id: 'u10', name: 'Divya Krishnan', email: 'divya.k@outlook.com', initials: 'DK', color: '#9333EA', plan: 'Pro', interviews: 11, joined: '2026-02-04', status: 'Active' },
-];
+export async function getAdminUsers(): Promise<AdminUser[]> {
+  const supabase = createClient();
+  const { data: profiles } = await supabase.from('profiles').select('*').order('created_at', { ascending: false });
+  const { data: interviews } = await supabase.from('interviews').select('user_id');
+  
+  if (!profiles) return [];
+  
+  return profiles.map((p: any) => {
+    const userInterviews = interviews?.filter((i: any) => i.user_id === p.id).length || 0;
+    return {
+      id: p.id,
+      name: p.full_name || 'Unknown User',
+      email: p.email,
+      initials: getInitials(p.full_name || 'U'),
+      color: getColorForId(p.id),
+      plan: p.plan === 'pro' ? 'Pro' : p.plan === 'premium' ? 'Premium' : 'Free',
+      interviews: userInterviews,
+      joined: new Date(p.created_at).toISOString().split('T')[0],
+      status: 'Active'
+    };
+  });
+}
 
-const seedInterviews: AdminInterview[] = [
-  { id: 'i1', userId: 'u1', userName: 'Aarav Sharma', type: 'Technical — React', duration: '28 min', score: '82%', flag: 'Passed', flagTag: 'green', date: '2026-06-11' },
-  { id: 'i2', userId: 'u2', userName: 'Priya Patel', type: 'Behavioral — Leadership', duration: '22 min', score: '91%', flag: 'Excellent', flagTag: 'green', date: '2026-06-11' },
-  { id: 'i3', userId: 'u4', userName: 'Ananya Desai', type: 'Technical — DSA', duration: '35 min', score: '67%', flag: 'Needs work', flagTag: 'amber', date: '2026-06-10' },
-  { id: 'i4', userId: 'u7', userName: 'Karthik Nair', type: 'HR — Salary negotiation', duration: '18 min', score: '78%', flag: 'Passed', flagTag: 'green', date: '2026-06-10' },
-  { id: 'i5', userId: 'u8', userName: 'Meera Joshi', type: 'System Design', duration: '40 min', score: '88%', flag: 'Excellent', flagTag: 'green', date: '2026-06-09' },
-  { id: 'i6', userId: 'u3', userName: 'Rohan Mehta', type: 'Technical — Python', duration: '25 min', score: '54%', flag: 'Failed', flagTag: 'red', date: '2026-06-09' },
-  { id: 'i7', userId: 'u5', userName: 'Vikram Singh', type: 'Behavioral — Teamwork', duration: '20 min', score: '85%', flag: 'Passed', flagTag: 'green', date: '2026-06-08' },
-  { id: 'i8', userId: 'u10', userName: 'Divya Krishnan', type: 'Technical — Java', duration: '30 min', score: '73%', flag: 'Needs work', flagTag: 'amber', date: '2026-06-08' },
-];
-
-const seedResumes: AdminResume[] = [
-  { id: 'r1', fileName: 'Aarav_Sharma_Resume.pdf', userName: 'Aarav Sharma', targetRole: 'Frontend Developer', atsScore: 87, uploads: 3, date: '2026-06-10' },
-  { id: 'r2', fileName: 'Priya_SDE_Resume.pdf', userName: 'Priya Patel', targetRole: 'SDE-2 at Amazon', atsScore: 92, uploads: 5, date: '2026-06-09' },
-  { id: 'r3', fileName: 'Rohan_DS_CV.pdf', userName: 'Rohan Mehta', targetRole: 'Data Scientist', atsScore: 64, uploads: 1, date: '2026-06-08' },
-  { id: 'r4', fileName: 'Ananya_PM_Resume.pdf', userName: 'Ananya Desai', targetRole: 'Product Manager', atsScore: 78, uploads: 2, date: '2026-06-07' },
-  { id: 'r5', fileName: 'Karthik_Backend.pdf', userName: 'Karthik Nair', targetRole: 'Backend Engineer', atsScore: 83, uploads: 4, date: '2026-06-06' },
-  { id: 'r6', fileName: 'Meera_FullStack.pdf', userName: 'Meera Joshi', targetRole: 'Full Stack Developer', atsScore: 95, uploads: 6, date: '2026-06-05' },
-];
-
-const seedCoaches: AdminCoach[] = [
-  { id: 'c1', name: 'Rajesh Kumar', initials: 'RK', color: '#2563EB', category: 'Technical', rating: 4.9, sessions: 142, payoutDue: '18,500', status: 'Verified' },
-  { id: 'c2', name: 'Sunita Agarwal', initials: 'SA', color: '#7C3AED', category: 'HR / Behavioral', rating: 4.8, sessions: 98, payoutDue: '12,200', status: 'Verified' },
-  { id: 'c3', name: 'Amit Choudhary', initials: 'AC', color: '#059669', category: 'System Design', rating: 4.7, sessions: 76, payoutDue: '9,800', status: 'Docs pending' },
-  { id: 'c4', name: 'Neha Gupta', initials: 'NG', color: '#DC2626', category: 'Product Management', rating: 4.6, sessions: 54, payoutDue: '7,400', status: 'Verified' },
-  { id: 'c5', name: 'Deepak Verma', initials: 'DV', color: '#EA580C', category: 'Data Science', rating: 4.5, sessions: 41, payoutDue: '5,100', status: 'Paused' },
-  { id: 'c6', name: 'Kavita Rao', initials: 'KR', color: '#0891B2', category: 'Technical', rating: 4.8, sessions: 110, payoutDue: '14,300', status: 'Verified' },
-];
-
-const seedPayments: AdminPayment[] = [
-  { id: 'p1', userName: 'Priya Patel', item: 'Premium plan — Annual', amount: '8,999', method: 'UPI', status: 'Paid', date: '2026-06-10' },
-  { id: 'p2', userName: 'Vikram Singh', item: 'Premium plan — Monthly', amount: '999', method: 'Card', status: 'Failed', date: '2026-06-09' },
-  { id: 'p3', userName: 'Aarav Sharma', item: 'Pro plan — Monthly', amount: '499', method: 'UPI', status: 'Paid', date: '2026-06-08' },
-  { id: 'p4', userName: 'Karthik Nair', item: 'Coaching session — Rajesh Kumar', amount: '1,200', method: 'Card', status: 'Paid', date: '2026-06-07' },
-  { id: 'p5', userName: 'Meera Joshi', item: 'Premium plan — Annual', amount: '8,999', method: 'Net Banking', status: 'Refund req.', date: '2026-06-06' },
-  { id: 'p6', userName: 'Divya Krishnan', item: 'Pro plan — Monthly', amount: '499', method: 'UPI', status: 'Paid', date: '2026-06-05' },
-];
-
-const seedTickets: AdminTicket[] = [
-  { id: 't1', userName: 'Vikram Singh', subject: 'Payment failed but amount debited', priority: 'High', age: '2h', status: 'Open' },
-  { id: 't2', userName: 'Rohan Mehta', subject: 'Interview recording not available', priority: 'Medium', age: '6h', status: 'In progress' },
-  { id: 't3', userName: 'Ananya Desai', subject: 'ATS score seems incorrect', priority: 'Low', age: '1d', status: 'Resolved' },
-  { id: 't4', userName: 'Meera Joshi', subject: 'Refund not processed after 7 days', priority: 'High', age: '3d', status: 'Escalated' },
-  { id: 't5', userName: 'Sneha Iyer', subject: 'Cannot schedule coaching session', priority: 'Medium', age: '12h', status: 'Open' },
-];
-
-// ── Helpers ──
-
-function load<T>(key: string, seed: T[]): T[] {
-  if (typeof window === 'undefined') return seed;
-  const raw = localStorage.getItem(key);
-  if (raw) {
-    try { return JSON.parse(raw) as T[]; } catch { /* fall through */ }
+export async function updateAdminUser(id: string, updates: Partial<AdminUser>): Promise<void> {
+  const supabase = createClient();
+  const dbUpdates: any = {};
+  if (updates.plan) dbUpdates.plan = updates.plan.toLowerCase();
+  if (updates.name) dbUpdates.full_name = updates.name;
+  
+  if (Object.keys(dbUpdates).length > 0) {
+    await supabase.from('profiles').update(dbUpdates).eq('id', id);
   }
-  localStorage.setItem(key, JSON.stringify(seed));
-  return seed;
 }
 
-function save<T>(key: string, data: T[]): void {
-  if (typeof window === 'undefined') return;
-  localStorage.setItem(key, JSON.stringify(data));
+export async function deleteAdminUser(id: string): Promise<void> {
+  const supabase = createClient();
+  await supabase.from('profiles').delete().eq('id', id);
 }
 
-// ── Users ──
-
-export function getAdminUsers(): AdminUser[] {
-  return load<AdminUser>(KEYS.users, seedUsers);
+export async function getAdminInterviews(): Promise<AdminInterview[]> {
+  const supabase = createClient();
+  const { data: interviews } = await supabase
+    .from('interviews')
+    .select('*, profiles(full_name)')
+    .order('created_at', { ascending: false });
+    
+  if (!interviews) return [];
+  
+  return interviews.map((i: any) => {
+    let flag = 'Passed';
+    let flagTag = 'green';
+    const score = i.overall_score || 0;
+    
+    if (score < 60) {
+      flag = 'Failed';
+      flagTag = 'red';
+    } else if (score < 80) {
+      flag = 'Needs work';
+      flagTag = 'amber';
+    } else if (score >= 90) {
+      flag = 'Excellent';
+      flagTag = 'green';
+    }
+    
+    return {
+      id: i.id,
+      userId: i.user_id,
+      userName: i.profiles?.full_name || 'Unknown',
+      type: `${i.interview_type?.charAt(0).toUpperCase() + i.interview_type?.slice(1)} — ${i.target_role}`,
+      duration: i.duration_seconds ? `${Math.floor(i.duration_seconds / 60)} min` : 'N/A',
+      score: i.overall_score ? `${i.overall_score}%` : 'N/A',
+      flag,
+      flagTag,
+      date: new Date(i.created_at).toISOString().split('T')[0]
+    };
+  });
 }
 
-export function updateAdminUser(id: string, updates: Partial<AdminUser>): void {
-  const users = getAdminUsers().map((u) => (u.id === id ? { ...u, ...updates } : u));
-  save(KEYS.users, users);
+export async function updateAdminInterview(id: string, updates: Partial<AdminInterview>): Promise<void> {}
+
+export async function deleteAdminInterview(id: string): Promise<void> {
+  const supabase = createClient();
+  await supabase.from('interviews').delete().eq('id', id);
 }
 
-export function deleteAdminUser(id: string): void {
-  const users = getAdminUsers().filter((u) => u.id !== id);
-  save(KEYS.users, users);
+export async function getAdminResumes(): Promise<AdminResume[]> {
+  const supabase = createClient();
+  const { data: resumes } = await supabase
+    .from('resumes')
+    .select('*, profiles(full_name)')
+    .order('created_at', { ascending: false });
+    
+  if (!resumes) return [];
+  
+  return resumes.map((r: any) => ({
+    id: r.id,
+    fileName: r.file_name,
+    userName: r.profiles?.full_name || 'Unknown',
+    targetRole: r.target_role || 'Not specified',
+    atsScore: r.ats_score || 0,
+    uploads: 1,
+    date: new Date(r.created_at).toISOString().split('T')[0]
+  }));
 }
 
-// ── Interviews ──
-
-export function getAdminInterviews(): AdminInterview[] {
-  return load<AdminInterview>(KEYS.interviews, seedInterviews);
+export async function deleteAdminResume(id: string): Promise<void> {
+  const supabase = createClient();
+  await supabase.from('resumes').delete().eq('id', id);
 }
 
-export function updateAdminInterview(id: string, updates: Partial<AdminInterview>): void {
-  const interviews = getAdminInterviews().map((i) => (i.id === id ? { ...i, ...updates } : i));
-  save(KEYS.interviews, interviews);
+export async function getAdminCoaches(): Promise<AdminCoach[]> {
+  const supabase = createClient();
+  const { data: coaches } = await supabase
+    .from('coaches')
+    .select('*')
+    .order('created_at', { ascending: false });
+    
+  if (!coaches) return [];
+  
+  return coaches.map((c: any) => {
+    const commission = (c.commission_pct ?? 20) / 100;
+    return {
+      id: c.id,
+      name: c.name,
+      initials: getInitials(c.name),
+      color: c.avatar_color || getColorForId(c.id),
+      category: c.category,
+      rating: c.rating,
+      sessions: c.total_sessions || 0,
+      payoutDue: Math.round((c.total_sessions || 0) * (c.price_per_session || 0) * (1 - commission)).toLocaleString(),
+      status: c.status === 'approved' ? 'Approved' : c.status === 'suspended' ? 'Suspended' : c.status === 'pending' ? 'Pending' : (c.is_verified ? 'Approved' : 'Pending'),
+      email: c.email || '',
+      linked: !!c.user_id,
+    };
+  });
 }
 
-export function deleteAdminInterview(id: string): void {
-  const interviews = getAdminInterviews().filter((i) => i.id !== id);
-  save(KEYS.interviews, interviews);
+export async function updateAdminCoach(id: string, updates: Partial<AdminCoach>): Promise<void> {
+  const supabase = createClient();
+  const dbUpdates: any = {};
+  if (updates.status) dbUpdates.is_verified = updates.status === 'Verified';
+  
+  if (Object.keys(dbUpdates).length > 0) {
+    await supabase.from('coaches').update(dbUpdates).eq('id', id);
+  }
 }
 
-// ── Resumes ──
-
-export function getAdminResumes(): AdminResume[] {
-  return load<AdminResume>(KEYS.resumes, seedResumes);
+export async function deleteAdminCoach(id: string): Promise<void> {
+  const supabase = createClient();
+  await supabase.from('coaches').delete().eq('id', id);
 }
 
-export function deleteAdminResume(id: string): void {
-  const resumes = getAdminResumes().filter((r) => r.id !== id);
-  save(KEYS.resumes, resumes);
+export async function getAdminPayments(): Promise<AdminPayment[]> {
+  const supabase = createClient();
+  const { data: bookings } = await supabase
+    .from('bookings')
+    .select('*, profiles(full_name), coaches(price_per_session)')
+    .order('created_at', { ascending: false });
+    
+  if (!bookings) return [];
+  
+  return bookings.map((b: any) => ({
+    id: b.id,
+    userName: b.profiles?.full_name || 'Unknown',
+    item: `Coaching Session`,
+    amount: (b.coaches?.price_per_session || 0).toLocaleString(),
+    method: 'Card',
+    status: b.payment_status === 'paid' ? 'Paid' : 'Failed',
+    date: new Date(b.created_at).toISOString().split('T')[0]
+  }));
 }
 
-// ── Coaches ──
-
-export function getAdminCoaches(): AdminCoach[] {
-  return load<AdminCoach>(KEYS.coaches, seedCoaches);
+export async function updateAdminPayment(id: string, updates: Partial<AdminPayment>): Promise<void> {
+  const supabase = createClient();
+  const dbUpdates: any = {};
+  if (updates.status) dbUpdates.payment_status = updates.status.toLowerCase();
+  
+  if (Object.keys(dbUpdates).length > 0) {
+    await supabase.from('bookings').update(dbUpdates).eq('id', id);
+  }
 }
 
-export function updateAdminCoach(id: string, updates: Partial<AdminCoach>): void {
-  const coaches = getAdminCoaches().map((c) => (c.id === id ? { ...c, ...updates } : c));
-  save(KEYS.coaches, coaches);
+export async function deleteAdminPayment(id: string): Promise<void> {
+  const supabase = createClient();
+  await supabase.from('bookings').delete().eq('id', id);
 }
 
-export function deleteAdminCoach(id: string): void {
-  const coaches = getAdminCoaches().filter((c) => c.id !== id);
-  save(KEYS.coaches, coaches);
+export async function getAdminTickets(): Promise<AdminTicket[]> {
+  const supabase = createClient();
+  const { data: messages } = await supabase
+    .from('contact_messages')
+    .select('*')
+    .order('created_at', { ascending: false });
+    
+  if (!messages) return [];
+  
+  return messages.map((m: any) => {
+    const age = Math.floor((new Date().getTime() - new Date(m.created_at).getTime()) / (1000 * 60 * 60));
+    return {
+      id: m.id,
+      userName: m.name,
+      subject: m.message.substring(0, 50) + '...',
+      priority: 'Medium',
+      age: `${age}h`,
+      status: 'Open'
+    };
+  });
 }
 
-// ── Payments ──
+export async function updateAdminTicket(id: string, updates: Partial<AdminTicket>): Promise<void> {}
 
-export function getAdminPayments(): AdminPayment[] {
-  return load<AdminPayment>(KEYS.payments, seedPayments);
+export async function deleteAdminTicket(id: string): Promise<void> {
+  const supabase = createClient();
+  await supabase.from('contact_messages').delete().eq('id', id);
 }
 
-export function updateAdminPayment(id: string, updates: Partial<AdminPayment>): void {
-  const payments = getAdminPayments().map((p) => (p.id === id ? { ...p, ...updates } : p));
-  save(KEYS.payments, payments);
+// ─────────────────────────────────────────────────────────────
+// Audit logging
+// ─────────────────────────────────────────────────────────────
+export async function logAudit(action: string, targetType: string, targetId: string, meta?: any): Promise<void> {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  await supabase.from('audit_logs').insert({
+    actor_id: user?.id ?? null,
+    actor_email: user?.email ?? null,
+    action,
+    target_type: targetType,
+    target_id: targetId,
+    meta: meta ?? null,
+  });
 }
 
-export function deleteAdminPayment(id: string): void {
-  const payments = getAdminPayments().filter((p) => p.id !== id);
-  save(KEYS.payments, payments);
+export interface AuditLog {
+  id: string;
+  actorEmail: string;
+  action: string;
+  targetType: string;
+  targetId: string;
+  date: string;
 }
 
-// ── Tickets ──
-
-export function getAdminTickets(): AdminTicket[] {
-  return load<AdminTicket>(KEYS.tickets, seedTickets);
+export async function getAuditLogs(): Promise<AuditLog[]> {
+  const supabase = createClient();
+  const { data } = await supabase.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(200);
+  if (!data) return [];
+  return data.map((l: any) => ({
+    id: l.id,
+    actorEmail: l.actor_email || 'system',
+    action: l.action,
+    targetType: l.target_type || '',
+    targetId: l.target_id || '',
+    date: new Date(l.created_at).toLocaleString(),
+  }));
 }
 
-export function updateAdminTicket(id: string, updates: Partial<AdminTicket>): void {
-  const tickets = getAdminTickets().map((t) => (t.id === id ? { ...t, ...updates } : t));
-  save(KEYS.tickets, tickets);
+// ─────────────────────────────────────────────────────────────
+// Coach onboarding + approval
+// ─────────────────────────────────────────────────────────────
+export interface NewCoachInput {
+  name: string;
+  email?: string;
+  title?: string;
+  bio?: string;
+  category: string;
+  pricePerSession: number;
+  experienceYears?: number;
+  tags?: string[];
+  commissionPct?: number;
 }
 
-export function deleteAdminTicket(id: string): void {
-  const tickets = getAdminTickets().filter((t) => t.id !== id);
-  save(KEYS.tickets, tickets);
+export async function createCoach(input: NewCoachInput): Promise<string | null> {
+  const supabase = createClient();
+  const { data, error } = await supabase.from('coaches').insert({
+    name: input.name,
+    email: input.email || null,
+    title: input.title || null,
+    description: input.bio || null,
+    bio: input.bio || null,
+    category: input.category,
+    price_per_session: input.pricePerSession,
+    experience_years: input.experienceYears ?? 0,
+    tags: input.tags ?? [],
+    commission_pct: input.commissionPct ?? 20,
+    avatar_color: getColorForId(input.name),
+    status: 'pending',
+    is_verified: false,
+  }).select('id').single();
+  if (error) {
+    console.error('createCoach error', error);
+    return null;
+  }
+  if (data?.id) await logAudit('coach.create', 'coach', data.id, { name: input.name });
+  return data?.id ?? null;
 }
 
-// ── Stats ──
+export async function setCoachStatus(id: string, status: 'pending' | 'approved' | 'suspended'): Promise<void> {
+  const supabase = createClient();
+  await supabase.from('coaches').update({ status, is_verified: status === 'approved' }).eq('id', id);
+  await logAudit(`coach.${status}`, 'coach', id);
+}
 
-export function getAdminStats(): { totalUsers: number; interviewsThisWeek: number; revenue: string; openTickets: number } {
-  const users = getAdminUsers();
-  const interviews = getAdminInterviews();
-  const tickets = getAdminTickets();
+/** Links an existing coach row to an auth user (by email) and grants the coach role. */
+export async function linkCoachToUser(coachId: string, email: string): Promise<{ ok: boolean; message: string }> {
+  const supabase = createClient();
+  const { data: profile } = await supabase.from('profiles').select('id').ilike('email', email).maybeSingle();
+  if (!profile) return { ok: false, message: 'No registered user found with that email. Ask them to sign up first.' };
+  await supabase.from('coaches').update({ user_id: profile.id, email }).eq('id', coachId);
+  await supabase.from('profiles').update({ role: 'coach' }).eq('id', profile.id);
+  await logAudit('coach.link_user', 'coach', coachId, { email });
+  return { ok: true, message: 'Coach linked to user account and granted coach access.' };
+}
+
+// ─────────────────────────────────────────────────────────────
+// Payouts
+// ─────────────────────────────────────────────────────────────
+export interface AdminPayout {
+  id: string;
+  coachId: string;
+  coachName: string;
+  amount: number;
+  status: string;
+  periodStart: string | null;
+  periodEnd: string | null;
+  paidAt: string | null;
+}
+
+export async function getAdminPayouts(): Promise<AdminPayout[]> {
+  const supabase = createClient();
+  const { data } = await supabase
+    .from('payouts')
+    .select('*, coaches(name)')
+    .order('created_at', { ascending: false });
+  if (!data) return [];
+  return data.map((p: any) => ({
+    id: p.id,
+    coachId: p.coach_id,
+    coachName: p.coaches?.name || 'Unknown',
+    amount: p.amount,
+    status: p.status,
+    periodStart: p.period_start,
+    periodEnd: p.period_end,
+    paidAt: p.paid_at,
+  }));
+}
+
+export async function createPayout(coachId: string, amount: number, periodStart?: string, periodEnd?: string): Promise<void> {
+  const supabase = createClient();
+  await supabase.from('payouts').insert({ coach_id: coachId, amount, period_start: periodStart || null, period_end: periodEnd || null, status: 'pending' });
+  await logAudit('payout.create', 'coach', coachId, { amount });
+}
+
+export async function markPayoutPaid(id: string): Promise<void> {
+  const supabase = createClient();
+  await supabase.from('payouts').update({ status: 'paid', paid_at: new Date().toISOString() }).eq('id', id);
+  await logAudit('payout.paid', 'payout', id);
+}
+
+// ─────────────────────────────────────────────────────────────
+// Announcements
+// ─────────────────────────────────────────────────────────────
+export interface Announcement {
+  id: string;
+  title: string;
+  body: string;
+  audience: string;
+  date: string;
+}
+
+export async function getAnnouncements(): Promise<Announcement[]> {
+  const supabase = createClient();
+  const { data } = await supabase.from('announcements').select('*').order('created_at', { ascending: false });
+  if (!data) return [];
+  return data.map((a: any) => ({ id: a.id, title: a.title, body: a.body, audience: a.audience, date: new Date(a.created_at).toLocaleString() }));
+}
+
+export async function createAnnouncement(title: string, body: string, audience: 'all' | 'students' | 'coaches'): Promise<void> {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  await supabase.from('announcements').insert({ title, body, audience, created_by: user?.id ?? null });
+  await logAudit('announcement.create', 'announcement', title, { audience });
+}
+
+export async function deleteAnnouncement(id: string): Promise<void> {
+  const supabase = createClient();
+  await supabase.from('announcements').delete().eq('id', id);
+}
+
+// ─────────────────────────────────────────────────────────────
+// Analytics (time series for the dashboard + analytics page)
+// ─────────────────────────────────────────────────────────────
+export interface AnalyticsData {
+  signupsByMonth: { label: string; value: number }[];
+  interviewsByMonth: { label: string; value: number }[];
+  revenueByMonth: { label: string; value: number }[];
+  planBreakdown: { plan: string; count: number }[];
+}
+
+function lastNMonths(n: number): { key: string; label: string }[] {
+  const out: { key: string; label: string }[] = [];
+  const now = new Date();
+  for (let i = n - 1; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    out.push({ key: `${d.getFullYear()}-${d.getMonth()}`, label: d.toLocaleString('en-US', { month: 'short' }) });
+  }
+  return out;
+}
+
+export async function getAnalytics(): Promise<AnalyticsData> {
+  const supabase = createClient();
+  const months = lastNMonths(6);
+  const bucket = () => Object.fromEntries(months.map((m) => [m.key, 0])) as Record<string, number>;
+
+  const [{ data: profiles }, { data: interviews }, { data: bookings }] = await Promise.all([
+    supabase.from('profiles').select('created_at, plan'),
+    supabase.from('interviews').select('created_at'),
+    supabase.from('bookings').select('created_at, payment_status, amount, coaches(price_per_session)'),
+  ]);
+
+  const signups = bucket();
+  const ivs = bucket();
+  const rev = bucket();
+  const plans: Record<string, number> = { free: 0, pro: 0, premium: 0 };
+
+  (profiles || []).forEach((p: any) => {
+    const d = new Date(p.created_at);
+    const key = `${d.getFullYear()}-${d.getMonth()}`;
+    if (key in signups) signups[key]++;
+    plans[p.plan || 'free'] = (plans[p.plan || 'free'] || 0) + 1;
+  });
+  (interviews || []).forEach((i: any) => {
+    const d = new Date(i.created_at);
+    const key = `${d.getFullYear()}-${d.getMonth()}`;
+    if (key in ivs) ivs[key]++;
+  });
+  (bookings || []).forEach((b: any) => {
+    if (b.payment_status !== 'paid') return;
+    const d = new Date(b.created_at);
+    const key = `${d.getFullYear()}-${d.getMonth()}`;
+    const amt = b.amount || b.coaches?.price_per_session || 0;
+    if (key in rev) rev[key] += amt;
+  });
+
+  return {
+    signupsByMonth: months.map((m) => ({ label: m.label, value: signups[m.key] })),
+    interviewsByMonth: months.map((m) => ({ label: m.label, value: ivs[m.key] })),
+    revenueByMonth: months.map((m) => ({ label: m.label, value: rev[m.key] })),
+    planBreakdown: Object.entries(plans).map(([plan, count]) => ({ plan, count })),
+  };
+}
+
+export async function getAdminStats(): Promise<{ totalUsers: number; interviewsThisWeek: number; revenue: string; openTickets: number }> {
+  const users = await getAdminUsers();
+  const interviews = await getAdminInterviews();
+  const tickets = await getAdminTickets();
+  const payments = await getAdminPayments();
 
   const oneWeekAgo = new Date();
   oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
   const interviewsThisWeek = interviews.filter((i) => new Date(i.date) >= oneWeekAgo).length;
   const openTickets = tickets.filter((t) => t.status === 'Open' || t.status === 'In progress' || t.status === 'Escalated').length;
+  
+  const revenueNum = payments.filter(p => p.status === 'Paid').reduce((acc, curr) => acc + parseInt(curr.amount.replace(/,/g, '') || '0', 10), 0);
 
   return {
     totalUsers: users.length,
     interviewsThisWeek,
-    revenue: '2,34,500',
+    revenue: revenueNum.toLocaleString(),
     openTickets,
   };
 }

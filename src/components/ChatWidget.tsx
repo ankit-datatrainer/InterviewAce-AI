@@ -12,6 +12,7 @@ import {
   HelpCircle,
   ChevronRight,
   Sparkles,
+  MessagesSquare,
 } from 'lucide-react';
 
 /* ======================================================
@@ -169,6 +170,8 @@ const initialChips = [
   { label: 'Help', icon: HelpCircle },
 ];
 
+import { usePathname } from 'next/navigation';
+
 /* ======================================================
    UNIQUE ID
    ====================================================== */
@@ -181,6 +184,7 @@ function uid(): string {
    COMPONENT
    ====================================================== */
 export default function ChatWidget() {
+  const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -196,6 +200,7 @@ export default function ChatWidget() {
   const [showInitialChips, setShowInitialChips] = useState(true);
   const bodyRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
 
   const scrollToBottom = useCallback(() => {
     requestAnimationFrame(() => {
@@ -255,6 +260,10 @@ export default function ChatWidget() {
 
   const lastBotMsg = [...messages].reverse().find((m) => m.sender === 'bot');
 
+  if (pathname?.startsWith('/admin') || pathname?.startsWith('/dashboard')) {
+    return null;
+  }
+
   return (
     <>
       {/* -------- FAB -------- */}
@@ -267,23 +276,7 @@ export default function ChatWidget() {
           {open ? (
             <X size={22} strokeWidth={2.5} />
           ) : (
-            /* Robot face SVG inspired by reference images */
-            <svg viewBox="0 0 36 36" width="26" height="26" fill="none">
-              <rect x="4" y="10" width="28" height="20" rx="10" fill="url(#fabGrad)" />
-              <rect x="2" y="8" width="32" height="22" rx="11" fill="none" stroke="rgba(255,255,255,.5)" strokeWidth="1.2" />
-              <circle cx="13" cy="20" r="3.5" fill="#fff" />
-              <circle cx="23" cy="20" r="3.5" fill="#fff" />
-              <circle cx="14" cy="19.5" r="1.5" fill="#0B0E14" />
-              <circle cx="24" cy="19.5" r="1.5" fill="#0B0E14" />
-              <rect x="15" y="7" width="6" height="5" rx="3" fill="url(#fabGrad)" />
-              <circle cx="18" cy="5" r="2.5" fill="url(#fabGrad)" stroke="rgba(255,255,255,.5)" strokeWidth="1" />
-              <defs>
-                <linearGradient id="fabGrad" x1="0" y1="0" x2="36" y2="36">
-                  <stop offset="0%" stopColor="#00a3ff" />
-                  <stop offset="100%" stopColor="#8b5cf6" />
-                </linearGradient>
-              </defs>
-            </svg>
+            <MessagesSquare size={24} strokeWidth={2} />
           )}
         </span>
       </button>

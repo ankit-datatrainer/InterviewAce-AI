@@ -434,53 +434,65 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Right -- room card */}
-            <div style={{ position: 'relative' }}>
-              <div className="room-card">
-                <div className="room-head">
-                  <span>
-                    <span className="dot" /> Live mock interview
-                  </span>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '.4rem' }}>
-                    <Clock size={14} /> <span className="timer">07:42</span>
-                  </span>
-                </div>
-                <div className="room-body">
-                  <div className="avatar-pane">
-                    <div className="ai-face">
-                      <Bot size={36} color="#fff" />
-                    </div>
-                    <small>Aria &middot; AI Interviewer</small>
-                    <div className="wave">
-                      <i /><i /><i /><i /><i />
-                    </div>
+            {/* Right -- side-by-side video call mockup */}
+            <div className="hero-video-call">
+              {/* Decorative backdrop elements */}
+              <div className="hero-dashed-circle" />
+              <div className="hero-dots-grid" />
+
+              {/* Video call container */}
+              <div className="vc-container">
+                {/* Header bar */}
+                <div className="vc-header">
+                  <div className="vc-header-left">
+                    <span className="vc-live-dot" />
+                    <span>Live Interview Session</span>
                   </div>
-                  <div className="transcript-pane">
-                    <div className="bubble ai">
-                      <span className="who">Aria</span>
-                      Tell me about a time you led a team through a challenging project.
-                    </div>
-                    <div className="bubble me">
-                      <span className="who">You</span>
-                      {typedText}
-                      <span className="caret" />
-                    </div>
+                  <div className="vc-header-right">
+                    <span className="vc-timer-badge">⏱ 12:34</span>
                   </div>
                 </div>
-                <div className="room-foot">
-                  <span>Question 3 of 8 &middot; Behavioural</span>
-                  <span className="score-pill">
-                    Confidence <b>82%</b>
-                  </span>
+
+                {/* Two video panels side by side */}
+                <div className="vc-panels">
+                  {/* AI Interviewer Panel */}
+                  <div className="vc-panel interviewer-panel">
+                    <div className="vc-video-wrapper">
+                      <img src="https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&q=80&w=800" alt="AI Interviewer" />
+                      <div className="vc-speaking-ring" />
+                    </div>
+                    <div className="vc-label">
+                      <span className="vc-label-dot active" />
+                      <span>Alex · AI Interviewer</span>
+                    </div>
+                  </div>
+
+                  {/* Candidate Panel */}
+                  <div className="vc-panel candidate-panel">
+                    <div className="vc-video-wrapper">
+                      <img src="/male_candidate.png" alt="Candidate" />
+                    </div>
+                    <div className="vc-label">
+                      <span className="vc-label-dot" />
+                      <span>You · Candidate</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Bottom controls bar */}
+                <div className="vc-controls">
+                  <div className="vc-ctrl-btn"><Mic size={16} /></div>
+                  <div className="vc-ctrl-btn"><Bot size={16} /></div>
+                  <div className="vc-ctrl-btn end"><Phone size={16} /></div>
                 </div>
               </div>
 
               {/* Float badges */}
-              <div className="float-badge fb-1">
+              <div className="float-badge fb-1" style={{ zIndex: 12 }}>
                 <Target size={16} style={{ color: '#22C55E' }} />
                 Readiness score <b style={{ color: '#22C55E' }}>86%</b>
               </div>
-              <div className="float-badge fb-2">
+              <div className="float-badge fb-2" style={{ zIndex: 12 }}>
                 <TrendingUp size={16} style={{ color: '#2563EB' }} />
                 ATS score improved <b style={{ color: '#22C55E' }}>+31 pts</b>
               </div>

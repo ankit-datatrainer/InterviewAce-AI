@@ -44,7 +44,7 @@ export default function CoachingPage() {
         </div>
       </div>
 
-      <div className="dash-grid-2">
+      <div className="coach-grid">
         {filteredCoaches.map(coach => (
           <div key={coach.id} className="widget" style={{ display: 'flex', flexDirection: 'column' }}>
             <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start', marginBottom: '1rem' }}>
@@ -78,7 +78,7 @@ export default function CoachingPage() {
             </div>
             
             <p style={{ 
-              color: 'var(--text-1)', 
+              color: 'var(--text)', 
               fontSize: '.95rem', 
               marginBottom: '1rem', 
               lineHeight: 1.5,
@@ -98,7 +98,7 @@ export default function CoachingPage() {
               ))}
             </div>
 
-            <div style={{ marginTop: 'auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border)', paddingTop: '1rem' }}>
+            <div style={{ marginTop: 'auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--line)', paddingTop: '1rem' }}>
               <span style={{ fontWeight: 'bold', fontSize: '1.1rem' }}>{coach.price}</span>
               <button className="btn btn-primary btn-sm" onClick={() => handleBook(coach)}>
                 Book Session

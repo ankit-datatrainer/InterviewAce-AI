@@ -13,7 +13,7 @@ export default function ResumesPage() {
   const [resumes, setResumes] = useState<AdminResume[]>([]);
 
   useEffect(() => {
-    setResumes(getAdminResumes());
+    getAdminResumes().then(setResumes);
   }, []);
 
   return (

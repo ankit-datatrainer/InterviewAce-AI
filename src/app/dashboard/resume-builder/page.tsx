@@ -5,6 +5,7 @@ import { useToast } from '@/components/Toast';
 
 export default function ResumeBuilderPage() {
   const { toast } = useToast();
+  const [enhancing, setEnhancing] = useState(false);
   const [data, setData] = useState({
     name: 'Jane Doe',
     title: 'Software Engineer',
@@ -76,15 +77,34 @@ export default function ResumeBuilderPage() {
     setData((prev) => ({ ...prev, education: prev.education.filter(e => e.id !== id) }));
   };
 
-  const generateWithAI = () => {
-    toast('Generating enhanced summary with NVIDIA NIM AI...');
-    setTimeout(() => {
-      setData((prev) => ({
-        ...prev,
-        summary: 'Driven Software Engineer with a proven track record of architecting and deploying high-performance React applications. Expert in modern JS ecosystems with a strong focus on UX and scalable state management. Recognized for increasing application efficiency by 40% and fostering collaborative engineering cultures.'
-      }));
+  const generateWithAI = async () => {
+    if (enhancing) return;
+    setEnhancing(true);
+    toast('Enhancing your summary with NVIDIA NIM AI...');
+    try {
+      const res = await fetch('/api/resume/enhance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          summary: data.summary,
+          title: data.title,
+          skills: data.skills,
+          experience: data.experience,
+        }),
+      });
+      const result = await res.json();
+      if (!res.ok || !result.summary) {
+        toast(result.error || 'Could not enhance summary. Please try again.');
+        return;
+      }
+      setData((prev) => ({ ...prev, summary: result.summary }));
       toast('Summary enhanced successfully!');
-    }, 1500);
+    } catch (err) {
+      console.error('Enhance error', err);
+      toast('Error connecting to the AI service.');
+    } finally {
+      setEnhancing(false);
+    }
   };
 
   return (
@@ -126,7 +146,7 @@ export default function ResumeBuilderPage() {
         <div style={{ flex: '1 1 45%', height: '100%', overflowY: 'auto', paddingRight: '1rem' }} className="widget hide-scrollbar">
           
           <div style={{ marginBottom: '1.5rem' }}>
-            <h3 style={{ marginBottom: '1rem', borderBottom: '1px solid var(--border)', paddingBottom: '.5rem' }}>Personal Info</h3>
+            <h3 style={{ marginBottom: '1rem', borderBottom: '1px solid var(--line)', paddingBottom: '.5rem' }}>Personal Info</h3>
             <div className="dash-grid-2" style={{ marginBottom: '1rem' }}>
               <div><label>Full Name</label><input type="text" className="input" value={data.name} onChange={(e) => handleChange('name', e.target.value)} /></div>
               <div><label>Job Title</label><input type="text" className="input" value={data.title} onChange={(e) => handleChange('title', e.target.value)} /></div>
@@ -138,15 +158,15 @@ export default function ResumeBuilderPage() {
           </div>
 
           <div style={{ marginBottom: '1.5rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid var(--border)', paddingBottom: '.5rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid var(--line)', paddingBottom: '.5rem' }}>
               <h3 style={{ margin: 0 }}>Professional Summary</h3>
-              <button className="btn btn-ghost btn-sm" onClick={generateWithAI} style={{ color: 'var(--blue)' }}>✨ Enhance with AI</button>
+              <button className="btn btn-ghost btn-sm" onClick={generateWithAI} disabled={enhancing} style={{ color: 'var(--blue)' }}>{enhancing ? 'Enhancing…' : '✨ Enhance with AI'}</button>
             </div>
             <textarea className="input" rows={4} value={data.summary} onChange={(e) => handleChange('summary', e.target.value)}></textarea>
           </div>
 
           <div style={{ marginBottom: '1.5rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid var(--border)', paddingBottom: '.5rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid var(--line)', paddingBottom: '.5rem' }}>
               <h3 style={{ margin: 0 }}>Experience</h3>
             </div>
             {data.experience.map((exp) => (
@@ -164,7 +184,7 @@ export default function ResumeBuilderPage() {
           </div>
 
           <div style={{ marginBottom: '1.5rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid var(--border)', paddingBottom: '.5rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid var(--line)', paddingBottom: '.5rem' }}>
               <h3 style={{ margin: 0 }}>Education</h3>
             </div>
             {data.education.map((edu) => (
@@ -181,7 +201,7 @@ export default function ResumeBuilderPage() {
           </div>
 
           <div style={{ marginBottom: '1.5rem' }}>
-            <h3 style={{ marginBottom: '1rem', borderBottom: '1px solid var(--border)', paddingBottom: '.5rem' }}>Skills</h3>
+            <h3 style={{ marginBottom: '1rem', borderBottom: '1px solid var(--line)', paddingBottom: '.5rem' }}>Skills</h3>
             <textarea className="input" rows={2} value={data.skills} onChange={(e) => handleChange('skills', e.target.value)}></textarea>
           </div>
 

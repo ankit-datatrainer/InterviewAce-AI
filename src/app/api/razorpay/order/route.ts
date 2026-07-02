@@ -2,8 +2,10 @@ import { NextResponse } from 'next/server';
 import Razorpay from 'razorpay';
 
 export async function POST(req: Request) {
+  let amount = 0;
   try {
-    const { amount } = await req.json();
+    const body = await req.json();
+    amount = body.amount;
     
     const key_id = process.env.RAZORPAY_KEY_ID || 'rzp_test_dummykey';
     const key_secret = process.env.RAZORPAY_KEY_SECRET || 'dummy_secret';

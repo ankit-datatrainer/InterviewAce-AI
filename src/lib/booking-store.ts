@@ -8,6 +8,7 @@ export interface BookingRecord {
   status: 'upcoming' | 'completed' | 'cancelled';
   price: string;
   bookedAt: string;
+  roomId?: string;
 }
 
 const STORAGE_KEY = 'interviewace_bookings';

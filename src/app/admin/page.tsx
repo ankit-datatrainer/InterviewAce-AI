@@ -9,8 +9,8 @@ export default function AdminDashboard() {
   const [recentUsers, setRecentUsers] = useState<AdminUser[]>([]);
 
   useEffect(() => {
-    setStats(getAdminStats());
-    setRecentUsers(getAdminUsers().slice(0, 5));
+    getAdminStats().then(setStats);
+    getAdminUsers().then(users => setRecentUsers(users.slice(0, 5)));
   }, []);
 
   if (!stats) return null;
@@ -70,7 +70,7 @@ export default function AdminDashboard() {
 
       {/* Quick overview */}
       <div className="dash-grid-2">
-        <div className="widget">
+        <div className="widget" style={{ overflowX: 'auto' }}>
           <h4>
             Recent Users
             <a href="/admin/users">View all</a>
@@ -92,7 +92,7 @@ export default function AdminDashboard() {
           ))}
         </div>
 
-        <div className="widget">
+        <div className="widget" style={{ overflowX: 'auto' }}>
           <h4>System Status</h4>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', padding: '1rem 0' }}>
             {[

@@ -13,6 +13,7 @@ export const COACHES = [
     experience: '15+ Years Experience',
     bio: 'A Youth Personality Development Entrepreneur with 15+ years of entrepreneurial experience. I blend my practical knowledge with theoretical insights to empower students with life skills that go beyond conventional education. Now, I’m here to share my expertise in building self-confidence, mastering communication, and developing leadership qualities through a transformative Personality Development Masterclass.',
     email: 'saurabh.sharda@example.com',
+    calcomLink: 'rick/15min',
   },
   {
     id: 1,
@@ -27,6 +28,7 @@ export const COACHES = [
     image: 'https://i.pravatar.cc/150?u=sarah',
     bio: 'I help software engineers transition to senior and lead roles. Specializing in system design and behavioral interviews.',
     email: 'sarah.jenkins.interviewace@gmail.com', // Hidden from frontend
+    calcomLink: 'rick/15min',
   },
   {
     id: 2,
@@ -41,6 +43,7 @@ export const COACHES = [
     image: 'https://i.pravatar.cc/150?u=david',
     bio: 'Product sense and execution interviews are my bread and butter. Let\'s get you that PM offer.',
     email: 'david.chen.interviewace@gmail.com',
+    calcomLink: 'rick/15min',
   },
   {
     id: 3,
@@ -55,6 +58,7 @@ export const COACHES = [
     image: 'https://i.pravatar.cc/150?u=elena',
     bio: 'Master the art of storytelling in interviews. I will help you build confidence and negotiate top-tier compensation.',
     email: 'elena.rodriguez.interviewace@gmail.com',
+    calcomLink: 'rick/15min',
   },
   {
     id: 4,
@@ -69,5 +73,22 @@ export const COACHES = [
     image: 'https://i.pravatar.cc/150?u=michael',
     bio: 'Ex-Jane Street trader helping aspiring quants ace probability, brainteasers, and technical math interviews.',
     email: 'michael.chang.interviewace@gmail.com',
+    calcomLink: 'rick/15min',
+  },
+  {
+    id: 6,
+    slug: 'ankit-kumar',
+    name: 'Ankit Kumar',
+    title: 'Generative AI & Agentic AI Expert',
+    rating: 5.0,
+    reviews: 142,
+    tags: ['Generative AI', 'Agentic AI', 'LLMs', 'System Design'],
+    price: '₹1500/hr',
+    priceValue: 1500,
+    image: '/images/ankit.jpg',
+    experience: 'AI Specialist',
+    bio: 'I specialize in Generative AI and Agentic AI systems. I will help you master LLM architectures, AI agents, and system design for modern AI applications to ace your next AI engineering interview.',
+    email: 'ankit.kumar@interviewace.ai',
+    calcomLink: 'ankit-kumar-academy/15min',
   }
 ];

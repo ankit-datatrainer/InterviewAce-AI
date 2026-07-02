@@ -13,8 +13,15 @@ export default function Navbar() {
   const pathname = usePathname();
 
   useEffect(() => {
-    const current = document.documentElement.getAttribute('data-theme');
-    setDark(current !== 'light');
+    const saved = localStorage.getItem('theme');
+    const current = saved || document.documentElement.getAttribute('data-theme') || 'light';
+    setDark(current === 'dark');
+    // Keep the SSR cookie in sync with a pre-existing localStorage preference,
+    // so future server renders apply the right theme with no flash.
+    if (saved) {
+      document.documentElement.setAttribute('data-theme', saved);
+      document.cookie = `theme=${saved};path=/;max-age=31536000;SameSite=Lax`;
+    }
   }, []);
 
   useEffect(() => {
@@ -38,10 +45,16 @@ export default function Navbar() {
   function toggleTheme() {
     const next = dark ? 'light' : 'dark';
     document.documentElement.setAttribute('data-theme', next);
+    localStorage.setItem('theme', next);
+    document.cookie = `theme=${next};path=/;max-age=31536000;SameSite=Lax`;
     setDark(!dark);
   }
 
   const isLanding = pathname === '/';
+
+  if (pathname?.startsWith('/admin') || pathname?.startsWith('/dashboard')) {
+    return null;
+  }
 
   const navLinks = [
     { label: 'Features', href: isLanding ? '#features' : '/#features' },

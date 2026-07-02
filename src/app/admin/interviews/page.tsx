@@ -10,7 +10,7 @@ export default function InterviewsPage() {
   const [activeFilter, setActiveFilter] = useState<string>('All');
 
   useEffect(() => {
-    setInterviews(getAdminInterviews());
+    getAdminInterviews().then(setInterviews);
   }, []);
 
   const filtered = useMemo(() => {

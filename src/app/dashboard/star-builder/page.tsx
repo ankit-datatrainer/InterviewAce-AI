@@ -116,7 +116,7 @@ export default function StarBuilderPage() {
 
           <div className="dash-grid-2" style={{ marginTop: '1.5rem' }}>
             <div className="field">
-              <label style={{ display: 'flex', alignItems: 'center', gap: '.4rem', color: 'var(--blue)' }}><div style={{ width: '24px', height: '24px', borderRadius: '50%', background: 'var(--chip)', display: 'grid', placeItems: 'center', fontSize: '.8rem', fontWeight: 800 }}>S</div>ituation</label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '.4rem', color: 'var(--star-s-text)' }}><div style={{ width: '24px', height: '24px', borderRadius: '50%', background: 'var(--star-s-bg)', display: 'grid', placeItems: 'center', fontSize: '.8rem', fontWeight: 800 }}>S</div>ituation</label>
               <textarea 
                 rows={4} 
                 placeholder="Set the scene and provide necessary context. What was the challenge?"
@@ -125,7 +125,7 @@ export default function StarBuilderPage() {
               />
             </div>
             <div className="field">
-              <label style={{ display: 'flex', alignItems: 'center', gap: '.4rem', color: '#F59E0B' }}><div style={{ width: '24px', height: '24px', borderRadius: '50%', background: 'rgba(251,191,36,.14)', display: 'grid', placeItems: 'center', fontSize: '.8rem', fontWeight: 800 }}>T</div>ask</label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '.4rem', color: 'var(--star-t-text)' }}><div style={{ width: '24px', height: '24px', borderRadius: '50%', background: 'var(--star-t-bg)', display: 'grid', placeItems: 'center', fontSize: '.8rem', fontWeight: 800 }}>T</div>ask</label>
               <textarea 
                 rows={4} 
                 placeholder="What was your specific responsibility or goal in this situation?"
@@ -134,7 +134,7 @@ export default function StarBuilderPage() {
               />
             </div>
             <div className="field">
-              <label style={{ display: 'flex', alignItems: 'center', gap: '.4rem', color: '#22C55E' }}><div style={{ width: '24px', height: '24px', borderRadius: '50%', background: 'rgba(34,197,94,.14)', display: 'grid', placeItems: 'center', fontSize: '.8rem', fontWeight: 800 }}>A</div>ction</label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '.4rem', color: 'var(--star-a-text)' }}><div style={{ width: '24px', height: '24px', borderRadius: '50%', background: 'var(--star-a-bg)', display: 'grid', placeItems: 'center', fontSize: '.8rem', fontWeight: 800 }}>A</div>ction</label>
               <textarea 
                 rows={4} 
                 placeholder="What specific actions did you take to address the task? Focus on 'I', not 'we'."
@@ -143,7 +143,7 @@ export default function StarBuilderPage() {
               />
             </div>
             <div className="field">
-              <label style={{ display: 'flex', alignItems: 'center', gap: '.4rem', color: '#8B5CF6' }}><div style={{ width: '24px', height: '24px', borderRadius: '50%', background: 'rgba(139,92,246,.14)', display: 'grid', placeItems: 'center', fontSize: '.8rem', fontWeight: 800 }}>R</div>esult</label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '.4rem', color: 'var(--star-r-text)' }}><div style={{ width: '24px', height: '24px', borderRadius: '50%', background: 'var(--star-r-bg)', display: 'grid', placeItems: 'center', fontSize: '.8rem', fontWeight: 800 }}>R</div>esult</label>
               <textarea 
                 rows={4} 
                 placeholder="What was the outcome? Share measurable results and what you learned."
@@ -181,16 +181,16 @@ export default function StarBuilderPage() {
             
             <div style={{ display: 'flex', flexDirection: 'column', gap: '.8rem', fontSize: '.85rem' }}>
               <div>
-                <strong style={{ color: 'var(--blue)' }}>S:</strong> <span style={{ color: 'var(--text-2)' }}>{story.situation || 'Not filled out'}</span>
+                <strong style={{ color: 'var(--star-s-text)' }}>S:</strong> <span style={{ color: 'var(--text-2)' }}>{story.situation || 'Not filled out'}</span>
               </div>
               <div>
-                <strong style={{ color: '#F59E0B' }}>T:</strong> <span style={{ color: 'var(--text-2)' }}>{story.task || 'Not filled out'}</span>
+                <strong style={{ color: 'var(--star-t-text)' }}>T:</strong> <span style={{ color: 'var(--text-2)' }}>{story.task || 'Not filled out'}</span>
               </div>
               <div>
-                <strong style={{ color: '#22C55E' }}>A:</strong> <span style={{ color: 'var(--text-2)' }}>{story.action || 'Not filled out'}</span>
+                <strong style={{ color: 'var(--star-a-text)' }}>A:</strong> <span style={{ color: 'var(--text-2)' }}>{story.action || 'Not filled out'}</span>
               </div>
               <div>
-                <strong style={{ color: '#8B5CF6' }}>R:</strong> <span style={{ color: 'var(--text-2)' }}>{story.result || 'Not filled out'}</span>
+                <strong style={{ color: 'var(--star-r-text)' }}>R:</strong> <span style={{ color: 'var(--text-2)' }}>{story.result || 'Not filled out'}</span>
               </div>
             </div>
           </div>

@@ -100,11 +100,31 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <div 
           onClick={() => setMobileMenuOpen(false)}
           style={{
-            position: 'fixed', top: 70, left: 0, right: 0, bottom: 0,
-            background: 'rgba(0,0,0,0.5)', zIndex: 45
+            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+            background: 'rgba(0,0,0,0.5)', zIndex: 65
           }}
         />
       )}
+
+      {/* Bottom Nav for mobile max-width: 680px */}
+      <nav className="bottom-nav">
+        <Link href="/dashboard" className={`b-nav-item ${isActive('/dashboard') ? 'on' : ''}`}>
+          <Home size={20} />
+          <span>Home</span>
+        </Link>
+        <Link href="/dashboard/interview" className={`b-nav-item ${pathname === '/dashboard/interview' ? 'on' : ''}`}>
+          <Mic size={20} />
+          <span>Practice</span>
+        </Link>
+        <Link href="/dashboard/ats" className={`b-nav-item ${pathname === '/dashboard/ats' ? 'on' : ''}`}>
+          <FileText size={20} />
+          <span>Resume</span>
+        </Link>
+        <button className="b-nav-item" onClick={() => setMobileMenuOpen(true)}>
+          <Menu size={20} />
+          <span>Menu</span>
+        </button>
+      </nav>
 
       <div className="app-main">
         {children}

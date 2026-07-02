@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, DragEvent } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   FileText,
   RotateCcw,
@@ -126,6 +127,16 @@ export default function ATSPage() {
   const [progress, setProgress] = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
+  const router = useRouter();
+
+  const openInBuilder = (section: string) => {
+    // The analysis flow already stores extracted data under `resumeBuilderData`.
+    if (result?.extractedData && typeof window !== 'undefined') {
+      localStorage.setItem('resumeBuilderData', JSON.stringify(result.extractedData));
+    }
+    toast(`Opening ${section} in the Resume Builder…`);
+    router.push('/dashboard/resume-builder');
+  };
 
   /* on mount, check for a previous analysis */
   useEffect(() => {
@@ -306,7 +317,7 @@ export default function ATSPage() {
                 justifyContent: 'center',
                 flexDirection: 'column'
               }}>
-                <span style={{ fontSize: 24, fontWeight: 700, color: 'var(--text-1)' }}>
+                <span style={{ fontSize: 24, fontWeight: 700, color: 'var(--text)' }}>
                   {progress}%
                 </span>
               </div>
@@ -454,7 +465,7 @@ export default function ATSPage() {
                   <span style={{ color: 'var(--text-3)', marginLeft: 8, fontSize: '.82rem' }}>{sec.detail}</span>
                 </span>
               </div>
-              <button className="btn btn-ghost btn-sm" onClick={() => toast(`Editing ${sec.label}`)}>
+              <button className="btn btn-ghost btn-sm" onClick={() => openInBuilder(sec.label)}>
                 Edit
               </button>
             </div>
@@ -561,15 +572,15 @@ export default function ATSPage() {
             document.body.appendChild(container);
           
             const opt = {
-              margin:       [0.5, 0, 0.5, 0],
+              margin:       [0.5, 0, 0.5, 0] as [number, number, number, number],
               filename:     `ats-report-${result.fileName.replace(/\.[^.]+$/, '')}.pdf`,
-              image:        { type: 'jpeg', quality: 0.98 },
+              image:        { type: 'jpeg' as const, quality: 0.98 },
               html2canvas:  { scale: 2, useCORS: true },
               jsPDF:        { unit: 'in', format: 'letter', orientation: 'portrait' },
               pagebreak:    { mode: 'css' }
             };
           
-            html2pdf().set(opt).from(container).save().then(() => {
+            html2pdf().set(opt as any).from(container).save().then(() => {
               document.body.removeChild(container);
               toast('ATS Report downloaded as PDF');
             });

@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(awk -F= '/=/{ if\\($2==\"\" || $2 ~ /^[[:space:]]*$/\\) print $1\" = EMPTY\"; else print $1\" = SET\\(\"length\\($2\\)\" chars\\)\" }' .env.local)",
+      "Bash(echo \"=== TSC EXIT: $? ===\")",
+      "Bash(node -e ' *)",
+      "PowerShell(if \\($?\\) { \"TSC OK\" })",
+      "Bash(cd \"c:/Users/ankit/OneDrive/Desktop/Upside Down Project/Interview AI\")",
+      "Bash(node -e \"console.log\\(require\\('@heygen/liveavatar-web-sdk/package.json'\\).version\\)\")",
+      "Bash(node -e \"const p=require\\('@heygen/liveavatar-web-sdk/package.json'\\); console.log\\('main:',p.main\\); console.log\\('module:',p.module\\); console.log\\('types:',p.types\\); console.log\\('exports:',JSON.stringify\\(p.exports\\)\\)\")",
+      "Bash(cd \"c:/Users/ankit/OneDrive/Desktop/Upside Down Project/Interview AI/node_modules/@heygen/liveavatar-web-sdk/dist\")",
+      "PowerShell(npm run build 2>&1 | Select-Object -Last 20; \"=== EXIT: $LASTEXITCODE ===\")",
+      "PowerShell(if \\($?\\) { \"TSC OK\" } else { \"TSC FAILED\" })",
+      "PowerShell(npm run build 2>&1 | Select-Object -Last 25; \"=== EXIT: $LASTEXITCODE ===\")",
+      "Bash(cd \"c:/Users/ankit/OneDrive/Desktop/Upside Down Project/Interview AI/node_modules/@heygen/liveavatar-web-sdk/lib\")",
+      "PowerShell(Set-Location \"c:\\\\Users\\\\ankit\\\\OneDrive\\\\Desktop\\\\Upside Down Project\\\\Interview AI\"; npm run build 2>&1 | Select-Object -Last 30; \"=== EXIT: $LASTEXITCODE ===\")"
+    ]
+  }
+}

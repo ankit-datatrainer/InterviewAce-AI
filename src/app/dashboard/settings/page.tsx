@@ -112,6 +112,8 @@ export default function SettingsPage() {
   function handleToggleTheme() {
     const next = darkMode ? 'light' : 'dark';
     document.documentElement.setAttribute('data-theme', next);
+    localStorage.setItem('theme', next);
+    document.cookie = `theme=${next};path=/;max-age=31536000;SameSite=Lax`;
     setDarkMode(!darkMode);
     toast(`Switched to ${next} mode`);
   }
@@ -280,9 +282,9 @@ export default function SettingsPage() {
       </div>
 
       {/* Danger Zone Section */}
-      <div className="widget" style={{ marginBottom: '1rem', borderColor: 'rgba(239,68,68,.3)' }}>
+      <div className="widget" style={{ marginBottom: '1rem', borderColor: 'var(--error-border)' }}>
         <h4>
-          <span style={{ display: 'flex', alignItems: 'center', gap: '.5rem', color: '#EF4444' }}>
+          <span style={{ display: 'flex', alignItems: 'center', gap: '.5rem', color: 'var(--error-text)' }}>
             <Trash2 size={18} /> Danger Zone
           </span>
         </h4>
@@ -294,14 +296,14 @@ export default function SettingsPage() {
           </div>
           <button
             className="btn btn-sm"
-            style={{ background: 'rgba(239,68,68,.14)', color: '#EF4444', border: '1px solid rgba(239,68,68,.3)' }}
+            style={{ background: 'var(--error-bg)', color: 'var(--error-text)', border: '1px solid var(--error-border)' }}
             onClick={handleDeleteAccount}
           >
             {showDeleteConfirm ? 'Confirm deletion' : 'Delete account'}
           </button>
         </div>
         {showDeleteConfirm && (
-          <p style={{ fontSize: '.82rem', color: '#EF4444', marginTop: '.5rem' }}>
+          <p style={{ fontSize: '.82rem', color: 'var(--error-text)', marginTop: '.5rem' }}>
             Click again to confirm. You will be directed to contact support.
             <button
               className="btn btn-ghost btn-sm"
@@ -351,7 +353,7 @@ export default function SettingsPage() {
             )}
             <button
               className="btn btn-sm"
-              style={{ background: 'rgba(239,68,68,.14)', color: '#EF4444', border: '1px solid rgba(239,68,68,.3)' }}
+              style={{ background: 'var(--error-bg)', color: 'var(--error-text)', border: '1px solid var(--error-border)' }}
               onClick={handleDeleteRecordings}
             >
               {confirmDeleteRecordings ? 'Confirm delete' : 'Delete recordings'}
@@ -370,7 +372,7 @@ export default function SettingsPage() {
             )}
             <button
               className="btn btn-sm"
-              style={{ background: 'rgba(239,68,68,.14)', color: '#EF4444', border: '1px solid rgba(239,68,68,.3)' }}
+              style={{ background: 'var(--error-bg)', color: 'var(--error-text)', border: '1px solid var(--error-border)' }}
               onClick={handleDeleteResumes}
             >
               {confirmDeleteResumes ? 'Confirm delete' : 'Delete resumes'}

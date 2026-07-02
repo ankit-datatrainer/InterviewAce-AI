@@ -22,8 +22,10 @@ import {
   Bot,
 } from 'lucide-react';
 import { saveInterview } from '@/lib/interview-store';
+import { saveRecording } from '@/lib/recording-store';
 import type { InterviewRecord } from '@/lib/interview-store';
 import { FaceDetector, FilesetResolver } from '@mediapipe/tasks-vision';
+import { LiveAvatarSession, SessionEvent, AgentEventsEnum } from '@heygen/liveavatar-web-sdk';
 
 const TypewriterText = ({ text }: { text: string }) => {
   const [displayed, setDisplayed] = useState('');
@@ -86,8 +88,10 @@ function pad(n: number) {
   return n.toString().padStart(2, '0');
 }
 
-// Auto-advance silence timeout in ms
-const SILENCE_TIMEOUT_MS = 8000;
+// How long to wait after the candidate stops talking before Alex responds.
+// Kept short so the conversation feels natural and responsive (not an 8s lag),
+// but long enough to allow a brief thinking pause mid-answer.
+const SILENCE_TIMEOUT_MS = 2200;
 
 export default function InterviewPage() {
   const router = useRouter();
@@ -98,10 +102,14 @@ export default function InterviewPage() {
   const [selectedType, setSelectedType] = useState('hr');
   const [selectedDiff, setSelectedDiff] = useState('mid');
   const [selectedRole, setSelectedRole] = useState('Product Manager');
+  const [linkedinUrl, setLinkedinUrl] = useState('');
+  const [extractingLinkedIn, setExtractingLinkedIn] = useState(false);
   const [customJD, setCustomJD] = useState('');
   const [selectedIndustry, setSelectedIndustry] = useState('');
   const [resumeFile, setResumeFile] = useState<File | null>(null);
   const [resumeText, setResumeText] = useState('');
+  const [hasSavedResume, setHasSavedResume] = useState(false);
+  const [replaceResume, setReplaceResume] = useState(false);
   const [demoStrikes, setDemoStrikes] = useState(0);
 
   // Room state
@@ -113,6 +121,14 @@ export default function InterviewPage() {
   const transcriptRef = useRef<HTMLDivElement>(null);
 
   // AI features state
+
+  useEffect(() => {
+    const saved = localStorage.getItem('interview_resume_text');
+    if (saved) {
+      setResumeText(saved);
+      setHasSavedResume(true);
+    }
+  }, []);
 
   const [showSetup, setShowSetup] = useState(false);
   const [setupError, setSetupError] = useState('');
@@ -129,11 +145,17 @@ export default function InterviewPage() {
 
   // HeyGen state
   const [heygenSessionId, setHeygenSessionId] = useState<string | null>(null);
-  const [heygenStreamUrl, setHeygenStreamUrl] = useState<string | null>(null);
   const [heygenReady, setHeygenReady] = useState(false);
+  // True when the LiveAvatar session can't start (e.g. insufficient credits).
+  const [avatarError, setAvatarError] = useState(false);
+  // Gates the candidate camera reveal: show the interviewer first, then the user.
+  const [stageReady, setStageReady] = useState(false);
 
   // Refs for cleanup
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const avatarRef = useRef<LiveAvatarSession | null>(null);
+  const avatarSpeakStartedRef = useRef(false);
+  const pendingSpeechRef = useRef<string | null>(null);
   const dgSocketRef = useRef<WebSocket | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -141,8 +163,12 @@ export default function InterviewPage() {
   const heygenVideoRef = useRef<HTMLVideoElement>(null);
   const cameraStreamRef = useRef<MediaStream | null>(null);
   const cameraVideoRef = useRef<HTMLVideoElement>(null);
-  const videoRecorderRef = useRef<MediaRecorder | null>(null);
-  const recordedChunksRef = useRef<BlobPart[]>([]);
+  // Combined (avatar + candidate) recording
+  const combinedRecorderRef = useRef<MediaRecorder | null>(null);
+  const combinedChunksRef = useRef<BlobPart[]>([]);
+  const recordRafRef = useRef<number | null>(null);
+  const recordAudioCtxRef = useRef<AudioContext | null>(null);
+  const avatarAttachPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const questionIdxRef = useRef(questionIdx);
   const faceDetectorRef = useRef<FaceDetector | null>(null);
   const detectionLoopRef = useRef<number | null>(null);
@@ -157,6 +183,13 @@ export default function InterviewPage() {
   const selectedIndustryRef = useRef(selectedIndustry);
   const resumeTextRef = useRef(resumeText);
   const speakQuestionRef = useRef<((t: string) => Promise<void>) | null>(null);
+  // LiveAvatar keep-alive heartbeat + session-duration guard timers.
+  const keepAliveTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const sessionEndTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sessionWarnTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const endInterviewCleanupRef = useRef<(() => void) | null>(null);
+  // The per-interview LiveAvatar context id (for cleanup when the interview ends).
+  const liveContextIdRef = useRef<string | null>(null);
 
   // Keep refs in sync
   useEffect(() => { questionIdxRef.current = questionIdx; }, [questionIdx]);
@@ -170,6 +203,33 @@ export default function InterviewPage() {
   useEffect(() => { customJDRef.current = customJD; }, [customJD]);
   useEffect(() => { selectedIndustryRef.current = selectedIndustry; }, [selectedIndustry]);
   useEffect(() => { resumeTextRef.current = resumeText; }, [resumeText]);
+
+  const handleLinkedInExtract = async () => {
+    if (!linkedinUrl) {
+      toast('Please enter a LinkedIn profile URL.');
+      return;
+    }
+    setExtractingLinkedIn(true);
+    try {
+      const res = await fetch('/api/linkedin/extract', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: linkedinUrl })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast(data.error || 'Failed to extract LinkedIn profile.');
+      } else {
+        setSelectedRole(data.role);
+        toast(`Autofilled Target Role as: ${data.role}`);
+      }
+    } catch (err) {
+      console.error(err);
+      toast('Error connecting to extraction API.');
+    } finally {
+      setExtractingLinkedIn(false);
+    }
+  };
 
   // Timer
   useEffect(() => {
@@ -188,168 +248,329 @@ export default function InterviewPage() {
     transcriptRef.current?.scrollTo({ top: transcriptRef.current.scrollHeight, behavior: 'smooth' });
   }, [transcript, liveTranscript]);
 
-  // ─── Deepgram TTS ───
-  const speakWithTTS = useCallback(async (text: string) => {
-    setAriaSpeaking(true);
-    try {
-      const res = await fetch('/api/tts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
-      });
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
-        throw new Error(errorData.error || 'TTS request failed');
-      }
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const audio = new Audio(url);
-      audioRef.current = audio;
+  // Resolves true if the avatar emits AVATAR_SPEAK_STARTED within `ms`.
+  const waitAvatarStarted = (ms: number) => new Promise<boolean>((resolve) => {
+    let waited = 0;
+    const iv = setInterval(() => {
+      waited += 100;
+      if (avatarSpeakStartedRef.current) { clearInterval(iv); resolve(true); }
+      else if (waited >= ms) { clearInterval(iv); resolve(false); }
+    }, 100);
+  });
 
-      audio.onended = () => {
-        setAriaSpeaking(false);
-        URL.revokeObjectURL(url);
-        audioRef.current = null;
-      };
-      audio.onerror = () => {
-        setAriaSpeaking(false);
-        URL.revokeObjectURL(url);
-        audioRef.current = null;
-      };
-
-      await audio.play();
-    } catch (error: any) {
-      console.warn("Deepgram TTS failed, falling back to native browser voice:", error.message);
-      toast("Deepgram TTS failed. Falling back to native browser voice.");
-      
-      // Fallback to browser's native speech synthesis if Deepgram fails
-      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-        const utterance = new SpeechSynthesisUtterance(text);
-        utterance.rate = 1.0;
-        
-        // Try to find a female English voice
-        const voices = window.speechSynthesis.getVoices();
-        const femaleVoice = voices.find(v => v.name.includes('Female') || v.name.includes('Samantha') || v.name.includes('Google US English'));
-        if (femaleVoice) utterance.voice = femaleVoice;
-
-        utterance.onend = () => setAriaSpeaking(false);
-        utterance.onerror = () => setAriaSpeaking(false);
-        window.speechSynthesis.speak(utterance);
-      } else {
-        setAriaSpeaking(false);
-      }
-    }
-  }, [toast]);
-
-  // ─── HeyGen: speak via avatar ───
+  // ─── LiveAvatar speech (FULL mode) ───
+  // The avatar speaks the text in its OWN voice and lip-syncs natively via
+  // repeat(). All audio comes from LiveAvatar — no external TTS on this path.
   const speakWithHeygen = useCallback(async (text: string) => {
-    if (!heygenSessionId) return false;
+    if (!avatarRef.current || !heygenReady) return false;
     try {
-      const res = await fetch('/api/heygen/start', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session_id: heygenSessionId, text }),
-      });
-      return res.ok;
-    } catch {
+      avatarSpeakStartedRef.current = false;
+      avatarRef.current.repeat(text);
+    } catch (e) {
+      console.warn('Avatar repeat() failed.', e);
       return false;
     }
-  }, [heygenSessionId]);
+    // FULL-mode TTS takes ~1-3s to begin; confirm the avatar actually started.
+    return await waitAvatarStarted(4000);
+  }, [heygenReady]);
 
-  // Combined speak function: try HeyGen first, fall back to ElevenLabs TTS
+  // Speech is AVATAR-ONLY. We never use any external TTS. If the avatar isn't
+  // loaded yet, the line is queued and spoken the moment the avatar connects, so
+  // the candidate never hears a voice while the interviewer is still connecting.
   const speakQuestion = useCallback(async (text: string) => {
-    if (heygenReady && heygenSessionId) {
-      const ok = await speakWithHeygen(text);
-      if (ok) {
-        setAriaSpeaking(true);
-        // HeyGen handles its own audio; set a timeout to reset speaking state
-        setTimeout(() => setAriaSpeaking(false), Math.max(3000, text.length * 80));
-        return;
-      }
+    if (heygenReady && avatarRef.current) {
+      await speakWithHeygen(text);
+    } else {
+      pendingSpeechRef.current = text;
     }
-    // Fall back to Deepgram TTS
-    await speakWithTTS(text);
-  }, [heygenReady, heygenSessionId, speakWithHeygen, speakWithTTS]);
+  }, [heygenReady, speakWithHeygen]);
 
   useEffect(() => { speakQuestionRef.current = speakQuestion; }, [speakQuestion]);
 
+  // Flush any queued line once the avatar is live.
+  useEffect(() => {
+    if (heygenReady && pendingSpeechRef.current) {
+      const text = pendingSpeechRef.current;
+      pendingSpeechRef.current = null;
+      speakWithHeygen(text);
+    }
+  }, [heygenReady, speakWithHeygen]);
+
+  // The LiveAvatar SDK emits benign unhandled rejections from its internal
+  // keep-alive polling (e.g. a transient "Session not found"). These are NOT
+  // fatal, so we only stop them from crashing the dev overlay — we must NOT
+  // touch avatar state here, or a stray poll error would wrongly mark the
+  // working avatar as unavailable. Real failures come via SESSION_DISCONNECTED
+  // and the start() catch instead.
+  useEffect(() => {
+    const handler = (e: PromiseRejectionEvent) => {
+      const msg = String((e.reason && ((e.reason as any).message || e.reason)) || '');
+      if (/Session not found|Insufficient credits|session token|credits|LiveKit|participant/i.test(msg)) {
+        e.preventDefault();
+      }
+    };
+    window.addEventListener('unhandledrejection', handler);
+    return () => window.removeEventListener('unhandledrejection', handler);
+  }, []);
+
   // ─── HeyGen: create streaming session ───
   const initHeygen = useCallback(async (): Promise<void> => {
+    setAvatarError(false);
     try {
-      const res = await fetch('/api/heygen', { method: 'POST' });
-      if (!res.ok) throw new Error('HeyGen session failed');
-      const data = await res.json();
-      if (data.session_id) {
-        setHeygenSessionId(data.session_id);
-        if (data.stream_url) {
-          setHeygenStreamUrl(data.stream_url);
-        }
-        setHeygenReady(true);
+      // Ask the server for a FULL-mode session bound to a fresh interviewer
+      // Context (system prompt + greeting) built from this interview's setup.
+      const diffLabel = difficulties.find((d) => d.id === selectedDiffRef.current)?.label || 'Intermediate';
+      const res = await fetch('/api/liveavatar/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          role: selectedRoleRef.current,
+          difficulty: diffLabel,
+          customJD: customJDRef.current,
+          resumeText: resumeTextRef.current,
+        }),
+      });
+      if (!res.ok) {
+        console.warn('LiveAvatar token unavailable.');
+        setHeygenReady(false);
+        setAvatarError(true);
+        return;
       }
-    } catch {
-      // HeyGen unavailable — fall back to Bot icon + TTS
+      const data = await res.json();
+      if (!data.token) {
+        setHeygenReady(false);
+        setAvatarError(true);
+        return;
+      }
+      liveContextIdRef.current = data.contextId || null;
+
+      // voiceChat: true publishes the candidate's mic so LiveAvatar's built-in
+      // agent can hear them and drive the whole conversation (VAD→STT→LLM→TTS).
+      const session = new LiveAvatarSession(data.token, { voiceChat: true });
+      avatarRef.current = session;
+
+      // Attach the avatar's media to the <video> element and flip to "ready"
+      // as soon as a video track is actually present.
+      const tryAttach = () => {
+        const el = heygenVideoRef.current;
+        if (!el) return;
+        try { session.attach(el); } catch { /* tracks not subscribed yet */ }
+        const ms = el.srcObject as MediaStream | null;
+        if (ms && ms.getVideoTracks().length > 0) {
+          setHeygenReady(true);
+          el.play().catch(() => {});
+          if (avatarAttachPollRef.current) { clearInterval(avatarAttachPollRef.current); avatarAttachPollRef.current = null; }
+        }
+      };
+
+      const hasAvatarVideo = () => {
+        const ms = heygenVideoRef.current?.srcObject as MediaStream | null;
+        return !!ms && ms.getVideoTracks().length > 0;
+      };
+
+      session.on(SessionEvent.SESSION_STREAM_READY, tryAttach);
+      session.on(SessionEvent.SESSION_DISCONNECTED, () => {
+        // Only treat as fatal if the avatar never actually came up.
+        if (!hasAvatarVideo()) {
+          setHeygenReady(false);
+          setAvatarError(true);
+        }
+        if (avatarAttachPollRef.current) { clearInterval(avatarAttachPollRef.current); avatarAttachPollRef.current = null; }
+      });
+
+      // Drive the "Speaking" indicator from the avatar's real speech events.
+      session.on(AgentEventsEnum.AVATAR_SPEAK_STARTED, () => {
+        avatarSpeakStartedRef.current = true;
+        setAriaSpeaking(true);
+      });
+      session.on(AgentEventsEnum.AVATAR_SPEAK_ENDED, () => {
+        setAriaSpeaking(false);
+      });
+
+      // ── Live transcript comes straight from LiveAvatar's agent ──
+      // The candidate's speech (agent STT) and Alex's generated replies both
+      // arrive as events — no external STT/LLM involved.
+      session.on(AgentEventsEnum.USER_SPEAK_STARTED, () => setUserSpeaking(true));
+      session.on(AgentEventsEnum.USER_SPEAK_ENDED, () => setUserSpeaking(false));
+      session.on(AgentEventsEnum.USER_TRANSCRIPTION, (e: any) => {
+        const text = (e?.text || '').trim();
+        if (!text) return;
+        setTranscript((t) => [...t, { who: 'me', text }]);
+        setLiveTranscript('');
+      });
+      session.on(AgentEventsEnum.AVATAR_TRANSCRIPTION, (e: any) => {
+        const text = (e?.text || '').trim();
+        if (!text) return;
+        setTranscript((t) => [...t, { who: 'ai', text }]);
+        setQuestionIdx((q) => q + 1);
+        setLiveTranscript('');
+      });
+
+      // Start poll-attaching immediately so the avatar shows the instant its
+      // video track arrives — even if start() later rejects on participant wait.
+      let tries = 0;
+      if (avatarAttachPollRef.current) clearInterval(avatarAttachPollRef.current);
+      avatarAttachPollRef.current = setInterval(() => {
+        tries += 1;
+        tryAttach();
+        if (tries >= 40 && avatarAttachPollRef.current) {
+          clearInterval(avatarAttachPollRef.current);
+          avatarAttachPollRef.current = null;
+        }
+      }, 700);
+
+      await session.start();
+      setHeygenSessionId(session.sessionId || 'active');
+
+      // Keep-alive heartbeat: the SDK does NOT ping automatically, so without
+      // this the session can drop mid-interview (the earlier "Session not found"
+      // disconnects). Ping every 25s while the session is live.
+      if (keepAliveTimerRef.current) clearInterval(keepAliveTimerRef.current);
+      keepAliveTimerRef.current = setInterval(() => {
+        try { session.keepAlive?.(); } catch { /* transient, ignore */ }
+      }, 25000);
+
+      // Plan session cap (Starter = 5 min). Read the real limit and gracefully
+      // wrap the interview ~15s before the hard server cutoff so the candidate
+      // is never cut off mid-sentence with a broken avatar.
+      const maxSecs = session.maxSessionDuration;
+      if (typeof maxSecs === 'number' && maxSecs > 30) {
+        if (sessionWarnTimerRef.current) clearTimeout(sessionWarnTimerRef.current);
+        if (sessionEndTimerRef.current) clearTimeout(sessionEndTimerRef.current);
+        sessionWarnTimerRef.current = setTimeout(() => {
+          if (inRoomRef.current) toast('Heads up — about 30 seconds left in this session. Wrapping up soon.');
+        }, Math.max(0, (maxSecs - 30) * 1000));
+        sessionEndTimerRef.current = setTimeout(() => {
+          if (inRoomRef.current) {
+            toast('Session time reached its limit — finishing your interview.');
+            endInterviewCleanupRef.current?.();
+          }
+        }, Math.max(0, (maxSecs - 15) * 1000));
+      }
+    } catch (err) {
+      console.warn('LiveAvatar session start reported an error.', err);
+      // If the avatar video already attached, the session is usable despite the error.
+      const ms = heygenVideoRef.current?.srcObject as MediaStream | null;
+      if (ms && ms.getVideoTracks().length > 0) {
+        setHeygenReady(true);
+        return;
+      }
       setHeygenReady(false);
+      setAvatarError(true);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ─── HeyGen: stop session ───
   const stopHeygen = useCallback(async () => {
-    if (!heygenSessionId) return;
+    if (avatarAttachPollRef.current) { clearInterval(avatarAttachPollRef.current); avatarAttachPollRef.current = null; }
+    if (keepAliveTimerRef.current) { clearInterval(keepAliveTimerRef.current); keepAliveTimerRef.current = null; }
+    if (sessionWarnTimerRef.current) { clearTimeout(sessionWarnTimerRef.current); sessionWarnTimerRef.current = null; }
+    if (sessionEndTimerRef.current) { clearTimeout(sessionEndTimerRef.current); sessionEndTimerRef.current = null; }
     try {
-      await fetch('/api/heygen/stop', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session_id: heygenSessionId }),
-      });
-    } catch {
-      // ignore
-    }
+      if (avatarRef.current) {
+        await avatarRef.current.stop();
+        avatarRef.current = null;
+      }
+    } catch {}
     setHeygenSessionId(null);
     setHeygenReady(false);
-    setHeygenStreamUrl(null);
-  }, [heygenSessionId]);
-
-  // ─── HeyGen: attach video stream ───
-  useEffect(() => {
-    if (heygenStreamUrl && heygenVideoRef.current) {
-      heygenVideoRef.current.src = heygenStreamUrl;
-      heygenVideoRef.current.play().catch(() => {});
+    if (heygenVideoRef.current) {
+      heygenVideoRef.current.srcObject = null;
     }
-  }, [heygenStreamUrl]);
+    // Best-effort: delete the per-interview LiveAvatar context so they don't pile up.
+    if (liveContextIdRef.current) {
+      const cid = liveContextIdRef.current;
+      liveContextIdRef.current = null;
+      fetch(`/api/liveavatar/token?contextId=${encodeURIComponent(cid)}`, { method: 'DELETE' }).catch(() => {});
+    }
+  }, []);
 
-  // Auto-advance helper — only advances between questions, never ends the interview
-  const autoAdvance = useCallback(async () => {
-    const currentTranscript = transcriptRef2.current;
-    setIsThinking(true);
+  // NOTE: The interview conversation is now driven entirely by LiveAvatar's
+  // built-in FULL-mode agent (see initHeygen). We no longer call an external LLM
+  // to generate questions — Alex listens and responds on his own, and his turns
+  // arrive via the AVATAR_TRANSCRIPTION event.
+
+  // ─── Combined recording: composite avatar + candidate onto a canvas ───
+  const startCombinedRecording = useCallback(() => {
+    if (combinedRecorderRef.current) return;
     try {
-      const diffLabel = difficulties.find(d => d.id === selectedDiffRef.current)?.label || 'Intermediate';
-      const res = await fetch('/api/interview/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          transcript: currentTranscript,
-          role: selectedRoleRef.current,
-          difficulty: diffLabel,
-          customJD: customJDRef.current,
-          resumeText: resumeTextRef.current
-        }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.reply) {
-          setTranscript((t) => [...t, { who: 'ai', text: data.reply }]);
-          setQuestionIdx((q) => q + 1); // increment count
-          setLiveTranscript('');
-          if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-          if (speakQuestionRef.current) speakQuestionRef.current(data.reply);
-        }
-      }
-    } catch(e) {
-      console.error(e);
-    } finally {
-      setIsThinking(false);
+      const canvas = document.createElement('canvas');
+      canvas.width = 1280;
+      canvas.height = 480;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      const drawCover = (video: HTMLVideoElement, dx: number, dy: number, dw: number, dh: number) => {
+        const vw = video.videoWidth, vh = video.videoHeight;
+        if (!vw || !vh) return;
+        const scale = Math.max(dw / vw, dh / vh);
+        const sw = dw / scale, sh = dh / scale;
+        ctx.drawImage(video, (vw - sw) / 2, (vh - sh) / 2, sw, sh, dx, dy, dw, dh);
+      };
+
+      const draw = () => {
+        ctx.fillStyle = '#0b1220';
+        ctx.fillRect(0, 0, 1280, 480);
+        const av = heygenVideoRef.current;
+        const uv = cameraVideoRef.current;
+        if (av && av.readyState >= 2) drawCover(av, 0, 0, 640, 480);
+        if (uv && uv.readyState >= 2) drawCover(uv, 640, 0, 640, 480);
+        ctx.fillStyle = 'rgba(0,0,0,0.45)';
+        ctx.fillRect(0, 446, 1280, 34);
+        ctx.fillStyle = '#fff';
+        ctx.font = '16px Inter, sans-serif';
+        ctx.fillText('Alex · AI Interviewer', 14, 469);
+        ctx.fillText('You · Candidate', 654, 469);
+        recordRafRef.current = requestAnimationFrame(draw);
+      };
+      draw();
+
+      const canvasStream = canvas.captureStream(30);
+
+      // Mix candidate mic + avatar audio into a single track.
+      const AC = window.AudioContext || (window as any).webkitAudioContext;
+      const actx: AudioContext = new AC();
+      recordAudioCtxRef.current = actx;
+      const dest = actx.createMediaStreamDestination();
+      const addAudio = (stream: MediaStream | null | undefined) => {
+        try {
+          const tracks = stream?.getAudioTracks?.() ?? [];
+          if (tracks.length) actx.createMediaStreamSource(new MediaStream(tracks)).connect(dest);
+        } catch { /* ignore */ }
+      };
+      addAudio(mediaStreamRef.current);
+      addAudio(heygenVideoRef.current?.srcObject as MediaStream | null);
+
+      const combined = new MediaStream([...canvasStream.getVideoTracks(), ...dest.stream.getAudioTracks()]);
+      combinedChunksRef.current = [];
+      const mime = MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')
+        ? 'video/webm;codecs=vp9,opus'
+        : 'video/webm';
+      const rec = new MediaRecorder(combined, { mimeType: mime });
+      rec.ondataavailable = (e) => { if (e.data.size > 0) combinedChunksRef.current.push(e.data); };
+      rec.start(1000);
+      combinedRecorderRef.current = rec;
+    } catch (e) {
+      console.warn('Combined recording could not start.', e);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const stopCombinedRecording = useCallback((): Promise<Blob | null> => {
+    return new Promise((resolve) => {
+      if (recordRafRef.current) { cancelAnimationFrame(recordRafRef.current); recordRafRef.current = null; }
+      const rec = combinedRecorderRef.current;
+      const finalize = () => {
+        try { recordAudioCtxRef.current?.close(); } catch { /* ignore */ }
+        recordAudioCtxRef.current = null;
+        combinedRecorderRef.current = null;
+        const chunks = combinedChunksRef.current;
+        resolve(chunks.length ? new Blob(chunks, { type: 'video/webm' }) : null);
+      };
+      if (!rec || rec.state === 'inactive') { finalize(); return; }
+      rec.onstop = finalize;
+      try { rec.stop(); } catch { finalize(); }
+    });
   }, []);
 
   // ─── End Interview with cleanup ───
@@ -362,25 +583,14 @@ export default function InterviewPage() {
     dgSocketRef.current = null;
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') mediaRecorderRef.current.stop();
     mediaRecorderRef.current = null;
+
+    // Finalize the combined (avatar + candidate) recording BEFORE tracks are stopped.
+    const videoBlob = await stopCombinedRecording();
+
     if (mediaStreamRef.current) { mediaStreamRef.current.getTracks().forEach((track) => track.stop()); }
     mediaStreamRef.current = null;
     if (cameraStreamRef.current) { cameraStreamRef.current.getTracks().forEach((track) => track.stop()); }
     cameraStreamRef.current = null;
-
-    if (videoRecorderRef.current && videoRecorderRef.current.state !== 'inactive') {
-      videoRecorderRef.current.onstop = () => {
-        const blob = new Blob(recordedChunksRef.current, { type: 'video/webm' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.style.display = 'none';
-        a.href = url;
-        a.download = `Interview_Recording_${Date.now()}.webm`;
-        document.body.appendChild(a);
-        a.click();
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
-      };
-      videoRecorderRef.current.stop();
-    }
 
     stopHeygen();
 
@@ -407,12 +617,17 @@ export default function InterviewPage() {
         }),
       });
 
-      let score = 70;
+      // Conservative defaults used only if the AI evaluation fails to return.
+      let score = 55;
       let metrics = {
-        communication: 8, confidence: 8, clarity: 8, bodyLanguage: 8, eyeContact: 8,
-        appearance: 8, posture: 8, technicalKnowledge: 8, problemSolving: 8, leadership: 8,
+        communication: 5.5, confidence: 5.5, clarity: 5.5, bodyLanguage: 5.5, eyeContact: 5.5,
+        appearance: 5.5, posture: 5.5, technicalKnowledge: 5.5, problemSolving: 5.5, leadership: 5.5,
       };
-      let feedback = { strengths: 'Good effort.', improvements: 'Keep practicing.', nextStep: 'Do more interviews.' };
+      let feedback = {
+        strengths: 'You completed the session.',
+        improvements: 'We could not fully analyse this attempt. Give longer, more detailed answers with concrete examples.',
+        nextStep: 'Retake the interview and aim for structured 60-90 second answers per question.',
+      };
 
       if (res.ok) {
         const data = await res.json();
@@ -437,136 +652,56 @@ export default function InterviewPage() {
       };
 
       saveInterview(record);
+      if (videoBlob && videoBlob.size > 0) {
+        try { await saveRecording(interviewId, videoBlob); } catch { /* recording is best-effort */ }
+      }
       setTimeout(() => {
         router.push(`/dashboard/analysis?id=${interviewId}`);
       }, 500);
     } catch(err) {
       setIsThinking(false);
     }
-  }, [stopHeygen, router]);
+  }, [stopHeygen, router, stopCombinedRecording]);
 
-  // ─── Deepgram STT ───
+  // Expose the latest cleanup to the session-cap timer set up inside initHeygen.
+  useEffect(() => { endInterviewCleanupRef.current = endInterviewCleanup; }, [endInterviewCleanup]);
+
+  // ─── Candidate mic: local waveform only ───
+  // STT/transcription is handled by LiveAvatar's built-in agent — this only
+  // grabs the mic for the on-screen "Speaking" waveform and the combined
+  // recording. (LiveAvatar publishes its own copy of the mic via voiceChat.)
   const initDeepgram = useCallback(async () => {
     try {
-      // Get API key
-      const tokenRes = await fetch('/api/stt/token');
-      if (!tokenRes.ok) throw new Error('Failed to get Deepgram token');
-      const { key } = await tokenRes.json();
-
-      // Get mic access
       let stream = mediaStreamRef.current;
       if (!stream) {
         stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         mediaStreamRef.current = stream;
       }
 
-      // Audio analyser for wave
-      try {
-        const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-        if (AudioContextClass) {
-          const audioCtx = new AudioContextClass();
-          const analyser = audioCtx.createAnalyser();
-          const source = audioCtx.createMediaStreamSource(stream);
-          source.connect(analyser);
-          analyser.fftSize = 256;
-          const dataArray = new Uint8Array(analyser.frequencyBinCount);
-          
-          let wasSpeaking = false;
-          const checkVolume = () => {
-            if (!micActiveRef.current) {
-              if (wasSpeaking) {
-                setUserSpeaking(false);
-                wasSpeaking = false;
-              }
-            } else {
-              analyser.getByteFrequencyData(dataArray);
-              let sum = 0;
-              for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
-              const avg = sum / dataArray.length;
-              const isSpeaking = avg > 5;
-              if (isSpeaking !== wasSpeaking) {
-                setUserSpeaking(isSpeaking);
-                wasSpeaking = isSpeaking;
-              }
-            }
-            if (dgSocketRef.current) {
-              requestAnimationFrame(checkVolume);
-            }
-          };
-          checkVolume();
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioContextClass) return;
+      const audioCtx = new AudioContextClass();
+      const analyser = audioCtx.createAnalyser();
+      const source = audioCtx.createMediaStreamSource(stream);
+      source.connect(analyser);
+      analyser.fftSize = 256;
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+      let wasSpeaking = false;
+      const checkVolume = () => {
+        if (!micActiveRef.current) {
+          if (wasSpeaking) { setUserSpeaking(false); wasSpeaking = false; }
+        } else {
+          analyser.getByteFrequencyData(dataArray);
+          let sum = 0;
+          for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
+          const avg = sum / dataArray.length;
+          const isSpeaking = avg > 5;
+          if (isSpeaking !== wasSpeaking) { setUserSpeaking(isSpeaking); wasSpeaking = isSpeaking; }
         }
-      } catch (e) {
-        console.error('Audio analyzer error', e);
-      }
-
-      // Connect to Deepgram WebSocket
-      const dgUrl = `wss://api.deepgram.com/v1/listen?model=nova-3&smart_format=true&language=en`;
-      const socket = new WebSocket(dgUrl, ['token', key]);
-      dgSocketRef.current = socket;
-
-      socket.onopen = () => {
-        // Start streaming audio via MediaRecorder using only audio tracks to avoid mimeType mismatch
-        const audioStream = new MediaStream(stream.getAudioTracks());
-        const recorder = new MediaRecorder(audioStream, { mimeType: 'audio/webm' });
-        mediaRecorderRef.current = recorder;
-
-        recorder.ondataavailable = (event) => {
-          if (event.data.size > 0 && socket.readyState === WebSocket.OPEN && micActiveRef.current) {
-            socket.send(event.data);
-          }
-        };
-
-        recorder.start(250); // Send chunks every 250ms
+        if (inRoomRef.current) requestAnimationFrame(checkVolume);
       };
-
-      socket.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          const alt = data?.channel?.alternatives?.[0];
-          if (!alt) return;
-
-          const text = alt.transcript || '';
-          const isFinal = data.is_final;
-
-          if (text) {
-            if (isFinal) {
-              // Final transcript — add to transcript panel
-              setTranscript((t) => {
-                const last = t[t.length - 1];
-                if (last && last.who === 'me') {
-                  return [...t.slice(0, -1), { who: 'me', text: last.text + ' ' + text }];
-                }
-                return [...t, { who: 'me', text }];
-              });
-              setLiveTranscript('');
-              // Reset silence timer for auto-advance
-              if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-              silenceTimerRef.current = setTimeout(() => {
-                // Auto-advance after silence
-                if (inRoomRef.current) {
-                  autoAdvance();
-                }
-              }, SILENCE_TIMEOUT_MS);
-            } else {
-              // Interim transcript — show live
-              setLiveTranscript(text);
-            }
-          }
-        } catch {
-          // Ignore parse errors
-        }
-      };
-
-      socket.onerror = () => {
-        toast('Speech recognition encountered an error. You can still use the Next button.');
-      };
-
-      socket.onclose = () => {
-        // Cleanup recorder if socket closes
-        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-          mediaRecorderRef.current.stop();
-        }
-      };
+      checkVolume();
     } catch (err) {
       toast('Could not access microphone. Please check permissions.');
     }
@@ -574,13 +709,22 @@ export default function InterviewPage() {
   }, [toast]);
 
 
-  // Push initial AI question + speak it when entering room or advancing question
+  // The opening greeting is spoken automatically by LiveAvatar from the
+  // Context's opening_text when the session starts — nothing to push here.
+
+  // Reveal the candidate camera only after the interviewer is ready (better UX),
+  // with a safety timeout so the user is never stuck if the avatar can't load.
   useEffect(() => {
-    if (inRoom && transcriptRef2.current.length === 0) {
-      autoAdvance();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [inRoom]);
+    if (!inRoom) { setStageReady(false); return; }
+    if (heygenReady) { setStageReady(true); return; }
+    const t = setTimeout(() => setStageReady(true), 12000);
+    return () => clearTimeout(t);
+  }, [inRoom, heygenReady]);
+
+  // Start the combined recording once the room is set up.
+  useEffect(() => {
+    if (inRoom && stageReady) startCombinedRecording();
+  }, [inRoom, stageReady, startCombinedRecording]);
 
   // ─── Start Interview ───
   const startInterview = async () => {
@@ -588,7 +732,7 @@ export default function InterviewPage() {
       toast('Please complete all selections before starting.');
       return;
     }
-    if (!resumeFile) {
+    if (!resumeFile && !hasSavedResume) {
       toast('Please upload your resume to personalize the interview.');
       return;
     }
@@ -606,7 +750,11 @@ export default function InterviewPage() {
         const res = await fetch('/api/resume/extract', { method: 'POST', body: formData });
         if (res.ok) {
           const { text } = await res.json();
-          if (text) setResumeText(text);
+          if (text) {
+            setResumeText(text);
+            localStorage.setItem('interview_resume_text', text);
+            setHasSavedResume(true);
+          }
         }
       } catch(e) {
         console.error('Resume extract error', e);
@@ -631,17 +779,15 @@ export default function InterviewPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inRoom]);
 
-  // ─── Advance Question ───
+  // ─── Skip / next question ───
+  // Nudge LiveAvatar's agent to move on. message() = "generate an LLM response
+  // to this input, then speak it", so we ask Alex to advance the interview.
   const advanceQuestion = useCallback(() => {
-    if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-
-    if (questionIdx < questions.length - 1) {
-      setQuestionIdx((q) => q + 1);
-    } else {
-      endInterviewCleanup();
+    const s = avatarRef.current;
+    if (s && typeof s.message === 'function') {
+      try { s.message("Let's move on to the next question, please."); } catch { /* ignore */ }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [questionIdx]);
+  }, []);
 
 
 
@@ -657,6 +803,9 @@ export default function InterviewPage() {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
       if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+      if (keepAliveTimerRef.current) clearInterval(keepAliveTimerRef.current);
+      if (sessionWarnTimerRef.current) clearTimeout(sessionWarnTimerRef.current);
+      if (sessionEndTimerRef.current) clearTimeout(sessionEndTimerRef.current);
       if (audioRef.current) {
         audioRef.current.pause();
         audioRef.current = null;
@@ -673,9 +822,11 @@ export default function InterviewPage() {
       if (cameraStreamRef.current) {
         cameraStreamRef.current.getTracks().forEach((track) => track.stop());
       }
-      if (videoRecorderRef.current && videoRecorderRef.current.state !== 'inactive') {
-        videoRecorderRef.current.stop();
+      if (recordRafRef.current) cancelAnimationFrame(recordRafRef.current);
+      if (combinedRecorderRef.current && combinedRecorderRef.current.state !== 'inactive') {
+        combinedRecorderRef.current.stop();
       }
+      try { recordAudioCtxRef.current?.close(); } catch { /* ignore */ }
     };
   }, []);
 
@@ -731,13 +882,36 @@ export default function InterviewPage() {
   // ─── Tab Switch Warning & 3-Strike System ───
   useEffect(() => {
     if (!inRoom) return;
+
+    const pauseAI = () => {
+      setAriaSpeaking(false);
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+      if (avatarRef.current && typeof avatarRef.current.interrupt === 'function') {
+        // LiveAvatarSession.interrupt() is synchronous (returns void).
+        try { avatarRef.current.interrupt(); } catch {}
+      }
+      // Silence + freeze the avatar stream so no audio leaks during the pause.
+      if (heygenVideoRef.current) {
+        heygenVideoRef.current.muted = true;
+        try { heygenVideoRef.current.pause(); } catch { /* ignore */ }
+      }
+    };
+
     const handleVisibilityChange = () => {
       if (document.hidden) {
+        pauseAI();
         setTabWarning(true);
         setStrikes((s) => s + 1);
       }
     };
     const handleBlur = () => {
+      pauseAI();
       setTabWarning(true);
       setStrikes((s) => s + 1);
     };
@@ -750,6 +924,10 @@ export default function InterviewPage() {
       window.removeEventListener("blur", handleBlur);
     };
   }, [inRoom]);
+
+  // Barge-in / interruption and turn-taking are handled natively by LiveAvatar's
+  // FULL-mode agent (its VAD stops Alex when the candidate starts talking), so no
+  // manual interrupt logic is needed here.
 
   // ─── Face Detection Initialization ───
   useEffect(() => {
@@ -848,14 +1026,8 @@ export default function InterviewPage() {
       mediaStreamRef.current = stream;
       setCameraOn(true);
       setMicActive(true);
-      
-      const vRec = new MediaRecorder(stream, { mimeType: 'video/webm' });
-      vRec.ondataavailable = (e) => {
-        if (e.data.size > 0) recordedChunksRef.current.push(e.data);
-      };
-      videoRecorderRef.current = vRec;
-      vRec.start(1000);
 
+      // The combined avatar + candidate recording starts once the room is ready.
       setTimeout(() => {
         handleJoinAfterSetup();
       }, 500);
@@ -866,17 +1038,17 @@ export default function InterviewPage() {
 
   // ─── FULLSCREEN WRAPPER ───
   return (
-    <div ref={containerRef} style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--bg)', overflowY: 'auto' }}>
+    <div ref={containerRef} style={{ display: 'flex', flexDirection: 'column', background: 'var(--bg)', overflowY: 'auto', ...(inRoom ? { position: 'fixed', inset: 0, zIndex: 2000, width: '100vw', height: '100vh', padding: '1.25rem 1.5rem' } : { width: '100%', height: '100%' }) }}>
       {tabWarning && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.95)', zIndex: 99999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: 'var(--surface-solid)', padding: '3rem', borderRadius: 'var(--r-lg)', border: '1px solid #ef4444', textAlign: 'center', maxWidth: 500 }}>
-            <h2 style={{ marginBottom: '1rem', color: '#ef4444' }}>Interview Paused</h2>
-            <div style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444', padding: '0.8rem', borderRadius: 'var(--r-md)', fontWeight: 'bold', marginBottom: '1.5rem', display: 'inline-block' }}>
+          <div style={{ background: 'var(--surface-solid)', padding: '3rem', borderRadius: 'var(--r-lg)', border: '1px solid var(--error-border)', textAlign: 'center', maxWidth: 500 }}>
+            <h2 style={{ marginBottom: '1rem', color: 'var(--error-text)' }}>Interview Paused</h2>
+            <div style={{ background: 'var(--error-bg)', color: 'var(--error-text)', padding: '0.8rem', borderRadius: 'var(--r-md)', fontWeight: 'bold', marginBottom: '1.5rem', display: 'inline-block' }}>
               {strikes >= 3 ? "INTERVIEW TERMINATED" : `STRIKE ${strikes} OF 3`}
             </div>
-            <p style={{ color: 'var(--text-1)', marginBottom: '2rem' }}>You must stay on the interview screen. Switching tabs or windows is a violation. 3 strikes will immediately terminate the interview.</p>
+            <p style={{ color: 'var(--text)', marginBottom: '2rem' }}>You must stay on the interview screen. Switching tabs or windows is a violation. 3 strikes will immediately terminate the interview.</p>
             {strikes < 3 && (
-              <button className="btn btn-primary" onClick={() => { setTabWarning(false); if (containerRef.current?.requestFullscreen) containerRef.current.requestFullscreen().catch(()=>console.log('fs error')); }} style={{ background: '#ef4444', border: 'none', margin: '0 auto' }}>
+              <button className="btn btn-primary" onClick={() => { setTabWarning(false); if (heygenVideoRef.current) { heygenVideoRef.current.muted = false; heygenVideoRef.current.play().catch(() => {}); } if (containerRef.current?.requestFullscreen) containerRef.current.requestFullscreen().catch(()=>console.log('fs error')); }} style={{ background: 'var(--error-text)', border: 'none', margin: '0 auto' }}>
                 Acknowledge Warning & Return
               </button>
             )}
@@ -896,7 +1068,7 @@ export default function InterviewPage() {
               <div style={{ background: 'var(--surface-solid)', padding: '2rem', borderRadius: 'var(--r-lg)', border: '1px solid var(--line)', maxWidth: 400, width: '100%', textAlign: 'center' }}>
                 <h3 style={{ marginBottom: '1rem' }}>Device Setup</h3>
                 <p style={{ color: 'var(--text-2)', marginBottom: '1.5rem', fontSize: '0.9rem' }}>We need access to your camera and microphone to conduct the interview.</p>
-                {setupError && <div style={{ color: '#ef4444', marginBottom: '1rem', fontSize: '0.85rem' }}>{setupError}</div>}
+                {setupError && <div style={{ color: 'var(--error-text)', marginBottom: '1rem', fontSize: '0.85rem' }}>{setupError}</div>}
                 <button className="btn btn-primary" onClick={requestPermissions} style={{ width: '100%', justifyContent: 'center' }}>
                   Enable Camera & Mic
                 </button>
@@ -952,7 +1124,7 @@ export default function InterviewPage() {
             </div>
 
             <h4>3 &middot; Target role</h4>
-            <div className="field" style={{ marginBottom: '1.4rem' }}>
+            <div className="field" style={{ marginBottom: '0.8rem' }}>
               <select
                 value={selectedRole}
                 onChange={(e) => setSelectedRole(e.target.value)}
@@ -961,7 +1133,30 @@ export default function InterviewPage() {
                 {roles.map((r) => (
                   <option key={r} value={r}>{r}</option>
                 ))}
+                {!roles.includes(selectedRole) && selectedRole && (
+                  <option value={selectedRole}>{selectedRole}</option>
+                )}
               </select>
+            </div>
+
+            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.4rem' }}>
+              <input 
+                type="text" 
+                className="input" 
+                placeholder="Or paste LinkedIn Profile URL to auto-detect role..."
+                value={linkedinUrl}
+                onChange={(e) => setLinkedinUrl(e.target.value)}
+                style={{ flex: 1, height: '42px', margin: 0 }}
+              />
+              <button 
+                type="button" 
+                className="btn btn-ghost" 
+                onClick={handleLinkedInExtract}
+                disabled={extractingLinkedIn}
+                style={{ height: '42px', whiteSpace: 'nowrap', border: '1px solid var(--line)' }}
+              >
+                {extractingLinkedIn ? 'Extracting...' : 'Auto-fill'}
+              </button>
             </div>
 
             {selectedRole === 'Custom Job Description' && (
@@ -991,24 +1186,36 @@ export default function InterviewPage() {
 
             <h4>5 &middot; Upload Resume</h4>
             <div className="field" style={{ marginBottom: '1.4rem' }}>
-              <input 
-                type="file" 
-                accept="application/pdf"
-                onChange={(e) => {
-                  if (e.target.files && e.target.files[0]) {
-                    setResumeFile(e.target.files[0]);
-                  }
-                }}
-                style={{ padding: '0.8rem', background: 'var(--card)', borderRadius: 'var(--r-md)', border: '1px solid var(--line)' }}
-              />
-              <small style={{ display: 'block', marginTop: '0.4rem', color: 'var(--text-2)' }}>The AI will analyze your resume to personalize the interview questions.</small>
+              {hasSavedResume && !resumeFile && !replaceResume ? (
+                <div style={{ padding: '1rem', background: 'var(--card)', borderRadius: 'var(--r-md)', border: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+                  <p style={{ margin: 0, fontWeight: 500, color: 'var(--accent)' }}>✓ Resume saved — no need to upload again.</p>
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => setReplaceResume(true)}>Replace résumé</button>
+                </div>
+              ) : (
+                <>
+                  <input
+                    type="file"
+                    accept="application/pdf"
+                    onChange={(e) => {
+                      if (e.target.files && e.target.files[0]) {
+                        setResumeFile(e.target.files[0]);
+                      }
+                    }}
+                    style={{ padding: '0.8rem', background: 'var(--card)', borderRadius: 'var(--r-md)', border: '1px solid var(--line)' }}
+                  />
+                  <small style={{ display: 'block', marginTop: '0.4rem', color: 'var(--text-2)' }}>The AI will analyze your resume to personalize the interview questions.</small>
+                  {hasSavedResume && replaceResume && (
+                    <button type="button" className="btn btn-ghost btn-sm" style={{ marginTop: '0.5rem' }} onClick={() => { setReplaceResume(false); setResumeFile(null); }}>Keep saved résumé</button>
+                  )}
+                </>
+              )}
             </div>
 
             <button 
               className="btn btn-primary" 
               onClick={startInterview}
-              disabled={!resumeFile}
-              style={{ opacity: !resumeFile ? 0.5 : 1, cursor: !resumeFile ? 'not-allowed' : 'pointer' }}
+              disabled={!resumeFile && !hasSavedResume}
+              style={{ opacity: (!resumeFile && !hasSavedResume) ? 0.5 : 1, cursor: (!resumeFile && !hasSavedResume) ? 'not-allowed' : 'pointer' }}
             >
               <Mic size={18} />
               Enter interview room
@@ -1093,27 +1300,45 @@ export default function InterviewPage() {
           <div className="dash-grid-2" style={{ width: '100%' }}>
             {/* AI Avatar Pane */}
             <div style={{ background: 'var(--surface-solid)', border: '1px solid var(--line)', borderRadius: 'var(--r-lg)', padding: '1rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem' }}>
-              <div style={{ width: '100%', height: '260px', borderRadius: 'var(--r-md)', overflow: 'hidden', background: 'var(--card)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: ariaSpeaking ? '2px solid var(--accent)' : '1px solid var(--line)', transition: 'border-color 0.3s' }}>
-              {heygenReady && heygenStreamUrl ? (
-                <video
-                  ref={heygenVideoRef}
-                  className="ai-avatar-video"
-                  autoPlay
-                  playsInline
-                  muted={false}
-                  style={{
-                    width: '100%',
-                    height: '100%',
-                    objectFit: 'cover',
-                  }}
-                />
-              ) : (
-                <img src="/ai-avatar.png" alt="Aria" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              <div style={{ width: '100%', height: 'min(60vh, 600px)', borderRadius: 'var(--r-md)', overflow: 'hidden', background: 'var(--card)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: ariaSpeaking ? '2px solid var(--accent)' : '1px solid var(--line)', transition: 'border-color 0.3s' }}>
+              <video
+                ref={heygenVideoRef}
+                className="ai-avatar-video"
+                autoPlay
+                playsInline
+                muted={false}
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'cover',
+                  display: heygenReady ? 'block' : 'none',
+                }}
+              />
+              {!heygenReady && (
+                <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '0.9rem', color: 'var(--text-2)', textAlign: 'center', padding: '1.5rem', background: 'radial-gradient(circle at 50% 35%, rgba(37,99,235,0.15), transparent 60%)' }}>
+                  {avatarError ? (
+                    <>
+                      <XCircle size={38} style={{ color: 'var(--error-text, #ef4444)' }} />
+                      <div style={{ fontWeight: 600 }}>Interviewer unavailable</div>
+                      <div style={{ fontSize: '.85rem', maxWidth: 320 }}>
+                        The AI avatar couldn&apos;t start (LiveAvatar session/credits). Please try again later.
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="spin" style={{ width: 40, height: 40, border: '3px solid var(--line)', borderTopColor: 'var(--accent)', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', fontSize: '.9rem' }}>
+                        <Bot size={15} /> Connecting your interviewer…
+                      </div>
+                      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+                    </>
+                  )}
+                </div>
               )}
               </div>
               <small>
-                Aria &middot; AI Interviewer &middot;{' '}
-                {ariaSpeaking ? 'Speaking' : 'Live'}
+                Alex &middot; AI Interviewer &middot;{' '}
+                {avatarError ? 'Unavailable' : heygenReady ? (ariaSpeaking ? 'Speaking' : 'Live') : 'Connecting'}
               </small>
               <div className="wave" style={{ opacity: ariaSpeaking ? 1 : 0.3, transition: 'opacity 0.3s' }}>
                 <i /><i /><i /><i /><i />
@@ -1122,7 +1347,7 @@ export default function InterviewPage() {
 
             {/* User Camera Pane */}
             <div style={{ background: 'var(--surface-solid)', border: '1px solid var(--line)', borderRadius: 'var(--r-lg)', padding: '1rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem', position: 'relative', overflow: 'hidden' }}>
-              <div style={{ width: '100%', height: '260px', borderRadius: 'var(--r-md)', overflow: 'hidden', background: 'var(--card)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: userSpeaking ? '2px solid var(--accent)' : '1px solid var(--line)', transition: 'border-color 0.3s' }}>
+              <div style={{ width: '100%', height: 'min(60vh, 600px)', borderRadius: 'var(--r-md)', overflow: 'hidden', background: 'var(--card)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: userSpeaking ? '2px solid var(--accent)' : '1px solid var(--line)', transition: 'border-color 0.3s' }}>
                 {cameraOn ? (
                   <video
                     ref={(el) => {
@@ -1192,7 +1417,7 @@ export default function InterviewPage() {
               const isAI = msg.who === 'ai';
               return (
                 <div key={i} className={`bubble ${isAI ? 'ai' : 'me'}`}>
-                  <span className="who">{isAI ? 'Aria' : 'You'}</span>
+                  <span className="who">{isAI ? 'Alex' : 'You'}</span>
                   {isLast && isAI ? <TypewriterText text={msg.text} /> : msg.text}
                 </div>
               );
@@ -1205,7 +1430,7 @@ export default function InterviewPage() {
               </div>
             ) : (
               <div className="bubble ai">
-                <span className="who">Aria</span>
+                <span className="who">Alex</span>
                 {micActive ? (
                   <>Listening...<span className="caret" /></>
                 ) : (

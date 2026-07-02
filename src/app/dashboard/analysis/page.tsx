@@ -7,10 +7,12 @@ import {
   Download,
   FileText,
   Plus,
+  Video,
 } from 'lucide-react';
 import { useToast } from '@/components/Toast';
 import { getInterviewById, getLatestInterview } from '@/lib/interview-store';
 import type { InterviewRecord } from '@/lib/interview-store';
+import { getRecording } from '@/lib/recording-store';
 
 function downloadFile(content: string, filename: string, type = 'text/plain') {
   const blob = new Blob([content], { type });
@@ -43,19 +45,36 @@ function AnalysisContent() {
   const { toast } = useToast();
   const searchParams = useSearchParams();
   const transcriptRef = useRef<HTMLDivElement>(null);
+  const [hasVideo, setHasVideo] = useState(false);
 
   useEffect(() => {
     const id = searchParams.get('id');
-    if (id) {
-      setInterview(getInterviewById(id));
-    } else {
-      setInterview(getLatestInterview());
-    }
+    const record = id ? getInterviewById(id) : getLatestInterview();
+    setInterview(record);
     setLoaded(true);
     requestAnimationFrame(() => {
       setAnimated(true);
     });
+    if (record) {
+      getRecording(record.id).then((blob) => setHasVideo(!!blob && blob.size > 0));
+    }
   }, [searchParams]);
+
+  async function handleDownloadVideo() {
+    if (!interview) return;
+    const blob = await getRecording(interview.id);
+    if (!blob) {
+      toast('No video recording is available for this interview.');
+      return;
+    }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `interview-video-${new Date(interview.date).toISOString().slice(0, 10)}.webm`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    toast('Interview video downloaded.');
+  }
 
   if (!loaded) return null;
 
@@ -159,47 +178,25 @@ function AnalysisContent() {
         <div style={{ display: 'flex', gap: '.6rem' }}>
           <button className="btn btn-ghost btn-sm" onClick={async () => {
             if (!interview) return;
-            const { Document, Packer, Paragraph, TextRun, HeadingLevel } = await import('docx');
-            const { saveAs } = (await import('file-saver')).default || await import('file-saver');
-
-            const doc = new Document({
-              sections: [{
-                properties: {},
-                children: [
-                  new Paragraph({ text: "InterviewAce - Interview Report", heading: HeadingLevel.HEADING_1 }),
-                  new Paragraph(`Type: ${interview.type}`),
-                  new Paragraph(`Role: ${interview.role}`),
-                  new Paragraph(`Difficulty: ${interview.difficulty}`),
-                  new Paragraph(`Date: ${new Date(interview.date).toLocaleDateString()}`),
-                  new Paragraph(`Duration: ${Math.round(interview.duration / 60)} minutes`),
-                  new Paragraph(`Overall Score: ${interview.score}/100`),
-                  
-                  new Paragraph({ text: "Metrics", heading: HeadingLevel.HEADING_2 }),
-                  new Paragraph(`Communication: ${interview.metrics.communication.toFixed(1)}/10`),
-                  new Paragraph(`Confidence: ${interview.metrics.confidence.toFixed(1)}/10`),
-                  new Paragraph(`Clarity: ${interview.metrics.clarity.toFixed(1)}/10`),
-                  new Paragraph(`Technical Knowledge: ${interview.metrics.technicalKnowledge.toFixed(1)}/10`),
-                  new Paragraph(`Problem Solving: ${interview.metrics.problemSolving.toFixed(1)}/10`),
-
-                  new Paragraph({ text: "Feedback", heading: HeadingLevel.HEADING_2 }),
-                  new Paragraph(`Strengths: ${interview.feedback.strengths}`),
-                  new Paragraph(`Improvements: ${interview.feedback.improvements}`),
-                  new Paragraph(`Next Step: ${interview.feedback.nextStep}`),
-
-                  new Paragraph({ text: "Transcript", heading: HeadingLevel.HEADING_2 }),
-                  ...interview.transcript.map(msg => new Paragraph({
-                    children: [
-                      new TextRun({ text: `${msg.who === 'ai' ? 'Aria' : 'You'}: `, bold: true }),
-                      new TextRun(msg.text),
-                    ]
-                  }))
-                ]
-              }]
-            });
-
-            const blob = await Packer.toBlob(doc);
-            saveAs(blob, `interview-report-${new Date(interview.date).toISOString().slice(0, 10)}.docx`);
-            toast('DOCX Report downloaded');
+            try {
+              const res = await fetch('/api/interview/export-docx', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ interviewData: interview }),
+              });
+              if (!res.ok) throw new Error('Failed to generate DOCX');
+              const blob = await res.blob();
+              const url = window.URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `interview-report-${new Date(interview.date).toISOString().slice(0, 10)}.docx`;
+              a.click();
+              window.URL.revokeObjectURL(url);
+              toast('DOCX Report downloaded');
+            } catch (err) {
+              console.error(err);
+              toast('Error generating report');
+            }
           }}>
             <Download size={15} /> Download DOCX report
           </button>
@@ -235,13 +232,18 @@ function AnalysisContent() {
             lines.push('');
             lines.push('--- Transcript ---');
             interview.transcript.forEach((msg) => {
-              lines.push(`${msg.who === 'ai' ? 'Aria' : 'You'}: ${msg.text}`);
+              lines.push(`${msg.who === 'ai' ? 'Alex' : 'You'}: ${msg.text}`);
             });
             downloadFile(lines.join('\n'), `interview-report-${new Date(interview.date).toISOString().slice(0, 10)}.txt`);
             toast('Report downloaded');
           }}>
             <Download size={15} /> Download report
           </button>
+          {hasVideo && (
+            <button className="btn btn-ghost btn-sm" onClick={handleDownloadVideo}>
+              <Video size={15} /> Download interview video
+            </button>
+          )}
           <button className="btn btn-primary btn-sm" onClick={() => {
             transcriptRef.current?.scrollIntoView({ behavior: 'smooth' });
           }}>
@@ -309,7 +311,7 @@ function AnalysisContent() {
                 {interview.transcript.map((msg, i) => (
                   <div key={i} style={{ marginBottom: '.5rem' }}>
                     <b style={{ color: msg.who === 'ai' ? 'var(--blue)' : 'var(--accent)' }}>
-                      {msg.who === 'ai' ? 'Aria' : 'You'}:
+                      {msg.who === 'ai' ? 'Alex' : 'You'}:
                     </b>{' '}
                     {msg.text}
                   </div>

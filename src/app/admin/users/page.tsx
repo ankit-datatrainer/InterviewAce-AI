@@ -29,10 +29,10 @@ export default function UsersPage() {
   const { toast } = useToast();
 
   useEffect(() => {
-    setUsers(getAdminUsers());
+    getAdminUsers().then(setUsers);
   }, []);
 
-  const refresh = () => setUsers(getAdminUsers());
+  const refresh = () => getAdminUsers().then(setUsers);
 
   const filtered = users.filter(
     (u) =>
@@ -44,16 +44,16 @@ export default function UsersPage() {
     toast(`${u.name} — ${u.email} | Plan: ${u.plan} | Interviews: ${u.interviews} | Status: ${u.status}`);
   };
 
-  const handleToggleStatus = (u: AdminUser) => {
+  const handleToggleStatus = async (u: AdminUser) => {
     const newStatus = u.status === 'Suspended' ? 'Active' : 'Suspended';
-    updateAdminUser(u.id, { status: newStatus });
+    await updateAdminUser(u.id, { status: newStatus });
     refresh();
     toast(`${u.name} is now ${newStatus}`);
   };
 
-  const handleDelete = (u: AdminUser) => {
+  const handleDelete = async (u: AdminUser) => {
     if (!confirm(`Delete user "${u.name}"? This cannot be undone.`)) return;
-    deleteAdminUser(u.id);
+    await deleteAdminUser(u.id);
     refresh();
     toast(`${u.name} has been deleted`);
   };

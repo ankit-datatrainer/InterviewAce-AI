@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import mammoth from 'mammoth';
 import { PDFParse } from 'pdf-parse';
+import { nimChat, isNimConfigured, parseJsonFromModel } from '@/lib/nim';
 
 if (typeof global !== 'undefined') {
   if (!(global as any).DOMMatrix) (global as any).DOMMatrix = class DOMMatrix {};
@@ -35,8 +36,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Could not extract text from the provided file' }, { status: 400 });
     }
 
-    const apiKey = process.env.NVIDIA_NIM_API_KEY;
-    if (!apiKey) {
+    if (!isNimConfigured()) {
       return NextResponse.json({ error: 'NVIDIA_NIM_API_KEY is not configured' }, { status: 500 });
     }
 
@@ -85,35 +85,15 @@ Return the analysis EXACTLY as a JSON object with the following structure (no ma
   }
 }`;
 
-    const response = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: 'meta/llama-3.1-70b-instruct',
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.2,
-        max_tokens: 3000,
-      }),
-    });
+    const content = await nimChat(
+      [
+        { role: 'system', content: 'You are a strict JSON API. Respond only with the requested JSON object and nothing else.' },
+        { role: 'user', content: prompt },
+      ],
+      { temperature: 0.2, maxTokens: 1500, json: true },
+    );
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('NVIDIA NIM API Error:', errorText);
-      return NextResponse.json({ error: 'Failed to analyze resume with AI' }, { status: 500 });
-    }
-
-    const data = await response.json();
-    const content = data.choices[0].message.content.trim();
-    
-    let cleanJson = content;
-    if (cleanJson.startsWith('```json')) cleanJson = cleanJson.substring(7);
-    if (cleanJson.startsWith('```')) cleanJson = cleanJson.substring(3);
-    if (cleanJson.endsWith('```')) cleanJson = cleanJson.substring(0, cleanJson.length - 3);
-
-    const result = JSON.parse(cleanJson.trim());
+    const result: any = parseJsonFromModel(content);
 
     if (result.error === 'NOT_A_RESUME') {
       return NextResponse.json({ error: 'This document does not look like a resume. Please upload a valid resume.' }, { status: 400 });

@@ -19,14 +19,14 @@ export default function SupportTicketsPage() {
   const [tickets, setTickets] = useState<AdminTicket[]>([]);
   const [filter, setFilter] = useState<string>('All');
 
-  const refresh = useCallback(() => setTickets(getAdminTickets()), []);
+  const refresh = useCallback(async () => setTickets(await getAdminTickets()), []);
 
   useEffect(() => { refresh(); }, [refresh]);
 
   const filtered = filter === 'All' ? tickets : tickets.filter((t) => t.status === filter);
   const openCount = tickets.filter((t) => t.status === 'Open').length;
 
-  const handleAction = (ticket: AdminTicket) => {
+  const handleAction = async (ticket: AdminTicket) => {
     let newStatus: AdminTicket['status'];
     let msg: string;
 
@@ -49,7 +49,7 @@ export default function SupportTicketsPage() {
         break;
     }
 
-    updateAdminTicket(ticket.id, { status: newStatus });
+    await updateAdminTicket(ticket.id, { status: newStatus });
     refresh();
     toast(msg);
   };

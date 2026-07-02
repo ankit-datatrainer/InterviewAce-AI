@@ -149,26 +149,30 @@ export default function SignupPage() {
 
   if (confirmationEmail) {
     return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2rem' }}>
-        <div className="widget" style={{ width: '100%', maxWidth: '440px', padding: 'clamp(1.4rem, 4vw, 2.4rem)' }}>
-          <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
-            <Link href="/" className="logo" style={{ display: 'inline-flex', justifyContent: 'center' }}>
+      <div className="min-h-screen flex items-center justify-center p-[2rem]">
+        <div className="widget w-full max-w-[440px] p-[1.4rem] lg:p-[2.4rem]">
+          <div className="text-center mb-[2rem]">
+            <Link href="/" className="logo inline-flex justify-center">
               <span className="logo-wordmark">Interview<span className="logo-ace">Ace</span></span>
               <span className="logo-badge">AI</span>
             </Link>
           </div>
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ background: 'rgba(34,197,94,.12)', border: '1px solid rgba(34,197,94,.3)', borderRadius: '10px', padding: '1.2rem', fontSize: '.92rem', color: '#22C55E', marginBottom: '1rem' }}>
-              <p style={{ fontWeight: 600, marginBottom: '.4rem' }}>Verification email sent!</p>
+          <div className="text-center">
+            <div style={{
+              background: 'var(--success-bg)',
+              border: '1px solid var(--success-border)',
+              color: 'var(--success-text)',
+            }} className="rounded-[10px] p-[1.2rem] text-[0.92rem] mb-[1rem]">
+              <p className="font-semibold mb-[0.4rem]">Verification email sent!</p>
               <p>We&apos;ve sent a verification link to <strong>{confirmationEmail}</strong>. Please check your inbox (and spam folder) to confirm your account.</p>
             </div>
-            <button onClick={handleResend} disabled={resendLoading} className="btn btn-ghost btn-sm" style={{ width: '100%', justifyContent: 'center', marginBottom: '.75rem' }}>
+            <button onClick={handleResend} disabled={resendLoading} className="btn btn-ghost btn-sm w-full justify-center mb-[0.75rem]">
               {resendLoading ? 'Sending...' : 'Resend verification email'}
             </button>
             {resendMessage && (
-              <p style={{ fontSize: '.85rem', color: resendMessage.includes('sent') ? '#22C55E' : '#EF4444', marginBottom: '.75rem' }}>{resendMessage}</p>
+              <p style={{ color: resendMessage.includes('sent') ? 'var(--success-text)' : 'var(--error-text)' }} className="text-[0.85rem] mb-[0.75rem]">{resendMessage}</p>
             )}
-            <Link href="/login" className="btn btn-primary btn-sm" style={{ width: '100%', justifyContent: 'center', display: 'inline-flex' }}>
+            <Link href="/login" className="btn btn-primary btn-sm w-full justify-center inline-flex">
               Already verified? Log in
             </Link>
           </div>
@@ -196,13 +200,13 @@ export default function SignupPage() {
           border-radius: 24px;
           box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.1);
           overflow: hidden;
-          border: 1px solid var(--border);
+          border: 1px solid var(--line);
         }
         .signup-sidebar {
           flex: 0 0 260px;
           background: var(--bg-2);
           padding: 2rem 1.5rem;
-          border-right: 1px solid var(--border);
+          border-right: 1px solid var(--line);
         }
         .signup-main {
           flex: 1;
@@ -232,7 +236,7 @@ export default function SignupPage() {
           top: 45px;
           bottom: -25px;
           width: 2px;
-          background: var(--border);
+          background: var(--line);
           z-index: 0;
         }
         .step-item.active:not(:last-child)::after, 
@@ -247,7 +251,7 @@ export default function SignupPage() {
           align-items: center;
           justify-content: center;
           background: var(--surface-solid);
-          border: 2px solid var(--border);
+          border: 2px solid var(--line);
           color: var(--text-3);
           z-index: 1;
           transition: all 0.3s ease;
@@ -269,12 +273,12 @@ export default function SignupPage() {
           transition: color 0.3s ease;
         }
         .step-item.active .step-text, .step-item.completed .step-text {
-          color: var(--text-1);
+          color: var(--text);
         }
 
         /* Type Card */
         .type-card {
-          border: 2px solid var(--border);
+          border: 2px solid var(--line);
           border-radius: 16px;
           padding: 1.5rem;
           text-align: center;
@@ -291,14 +295,33 @@ export default function SignupPage() {
           background: rgba(59, 130, 246, 0.05);
         }
         
-        @media (max-width: 768px) {
+        /* Status Grid */
+        .status-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 1rem;
+        }
+
+        @media (max-width: 1024px) {
           .signup-page-container { padding: 100px 1rem 1rem 1rem; }
           .signup-card { flex-direction: column; }
-          .signup-sidebar { flex: none; width: 100%; padding: 2rem; border-right: none; border-bottom: 1px solid var(--border); }
+          .signup-sidebar { flex: none; width: 100%; padding: 1.5rem; border-right: none; border-bottom: 1px solid var(--line); }
+          .stepper-container { display: flex; justify-content: space-around; }
           .step-item:not(:last-child)::after { display: none; }
-          .step-item { margin-bottom: 1rem; }
+          .step-item { margin-bottom: 0; flex-direction: column; gap: 0.5rem; text-align: center; }
+          .step-text { font-size: 0.85rem; }
           .signup-main { padding: 2rem; }
+        }
+        
+        @media (max-width: 680px) {
+          .signup-page-container { padding: 80px 1rem 1rem 1rem; }
+          .signup-main { padding: 1.5rem 1rem; }
           .form-grid { grid-template-columns: 1fr; gap: 1rem; }
+          .status-grid { grid-template-columns: 1fr; }
+          .step-text { display: none; }
+          .signup-main-header { flex-direction: column; gap: 0.5rem; }
+          .btn-nav-container { flex-direction: column; gap: 1rem; }
+          .btn-nav-container .btn { width: 100%; }
         }
       `}} />
 
@@ -332,7 +355,7 @@ export default function SignupPage() {
           {/* Main Content */}
           <div className="signup-main">
             {/* Header Area */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
+            <div className="signup-main-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
               <div>
                 <h2 style={{ fontSize: '1.8rem', marginBottom: '.5rem' }}>Welcome to InterviewAce</h2>
                 <p style={{ color: 'var(--text-2)' }}>Complete the {STEPS.length} steps to get started</p>
@@ -355,7 +378,11 @@ export default function SignupPage() {
               <h3 style={{ fontSize: '1.3rem', marginBottom: '1rem' }}>{STEPS[currentStep-1].title}</h3>
 
               {error && (
-                <div style={{ background: 'rgba(239,68,68,.12)', border: '1px solid rgba(239,68,68,.3)', borderRadius: '10px', padding: '.75rem', fontSize: '.88rem', color: '#EF4444', marginBottom: '1rem' }}>
+                <div style={{
+                  background: 'var(--error-bg)',
+                  border: '1px solid var(--error-border)',
+                  color: 'var(--error-text)',
+                }} className="rounded-[10px] padding-[.75rem] text-[.88rem] mb-[1rem]">
                   {error}
                 </div>
               )}
@@ -400,7 +427,7 @@ export default function SignupPage() {
 
               {/* Step 2: Professional Status */}
               {currentStep === 2 && (
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                <div className="status-grid">
                   <div className={`type-card ${userType === 'student' ? 'selected' : ''}`} onClick={() => setUserType('student')}>
                     <GraduationCap size={48} style={{ margin: '0 auto 1rem auto', color: userType === 'student' ? 'var(--blue)' : 'var(--text-3)' }} />
                     <h4 style={{ fontSize: '1.1rem', marginBottom: '.5rem' }}>Student</h4>
@@ -451,7 +478,7 @@ export default function SignupPage() {
             </div>
 
             {/* Navigation Buttons */}
-            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '1.5rem', marginTop: '1.5rem', paddingTop: '1.5rem', borderTop: '1px solid var(--border)' }}>
+            <div className="btn-nav-container" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '1.5rem', marginTop: '1.5rem', paddingTop: '1.5rem', borderTop: '1px solid var(--line)' }}>
               <button 
                 className="btn btn-ghost" 
                 onClick={handleBack} 
@@ -472,7 +499,7 @@ export default function SignupPage() {
               )}
 
               <button 
-                className="btn btn-ghost" 
+                className="btn btn-ghost hidden md:flex" 
                 disabled={true}
                 style={{ borderRadius: '50%', width: 44, height: 44, padding: 0, justifyContent: 'center', opacity: 0, pointerEvents: 'none' }}
               >

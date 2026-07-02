@@ -16,7 +16,7 @@ export default function PaymentsPage() {
   const [payments, setPayments] = useState<AdminPayment[]>([]);
   const [filter, setFilter] = useState<string>('All');
 
-  const refresh = useCallback(() => setPayments(getAdminPayments()), []);
+  const refresh = useCallback(async () => setPayments(await getAdminPayments()), []);
 
   useEffect(() => { refresh(); }, [refresh]);
 
@@ -28,14 +28,14 @@ export default function PaymentsPage() {
     return sum + (isNaN(num) ? 0 : num);
   }, 0);
 
-  const handleRetry = (id: string) => {
-    updateAdminPayment(id, { status: 'Paid' });
+  const handleRetry = async (id: string) => {
+    await updateAdminPayment(id, { status: 'Paid' });
     refresh();
     toast('Payment retried successfully');
   };
 
-  const handleApproveRefund = (id: string) => {
-    updateAdminPayment(id, { status: 'Paid' });
+  const handleApproveRefund = async (id: string) => {
+    await updateAdminPayment(id, { status: 'Paid' });
     refresh();
     toast('Refund approved and processed');
   };

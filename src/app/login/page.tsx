@@ -42,11 +42,38 @@ export default function LoginPage() {
     setResendMessage(null)
     setLoading(true)
 
+    try {
+      const res = await fetch('/api/settings');
+      if (res.ok) {
+        const data = await res.json();
+        
+        if (data.maintenance) {
+          const userEmail = email.toLowerCase();
+          const adminEmail = process.env.NEXT_PUBLIC_ADMIN_EMAIL?.toLowerCase();
+          const isAdmin = (
+            userEmail === adminEmail || 
+            userEmail === 'admin@interviewace.ai' || 
+            userEmail === 'ankit@interviewace.ai' ||
+            userEmail === 'admin@test.com'
+          );
+          
+          if (!isAdmin) {
+            setError("Site is currently under maintenance. Only administrators can log in right now.");
+            setLoading(false);
+            return;
+          }
+        }
+      }
+    } catch(e) {
+      // ignore fetch error
+    }
+
     // Hardcoded Admin Bypass
     if (email.trim().toLowerCase() === 'admin@test.com' && password.trim() === 'password123') {
       document.cookie = "admin_bypass=true; path=/";
+      document.cookie = "isAdmin=true; path=/; max-age=86400";
       setLoading(false);
-      window.location.href = '/dashboard/admin';
+      window.location.href = '/admin';
       return;
     }
 
@@ -64,7 +91,22 @@ export default function LoginPage() {
       return
     }
 
-    router.push('/dashboard')
+    const userEmail = email.toLowerCase()
+    const adminEmail = process.env.NEXT_PUBLIC_ADMIN_EMAIL?.toLowerCase()
+    const isAdmin = (
+      userEmail === adminEmail || 
+      userEmail === 'admin@interviewace.ai' || 
+      userEmail === 'ankit@interviewace.ai'
+    )
+
+    if (isAdmin) {
+      document.cookie = "isAdmin=true; path=/; max-age=86400";
+      router.push('/admin')
+    } else {
+      // Normal user logs in, ensure isAdmin cookie is removed just in case
+      document.cookie = "isAdmin=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+      router.push('/dashboard')
+    }
   }
 
   async function handleResend() {
@@ -93,15 +135,15 @@ export default function LoginPage() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', paddingTop: '140px', paddingBottom: '60px', paddingLeft: '1rem', paddingRight: '1rem' }}>
-      <div className="widget" style={{ width: '100%', maxWidth: '440px', padding: 'clamp(1.4rem, 4vw, 2.4rem)' }}>
-        <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
-          <Link href="/" className="logo" style={{ display: 'inline-flex', justifyContent: 'center' }}>
+    <div className="min-h-screen flex items-center justify-center pt-[80px] pb-[60px] px-4">
+      <div className="widget w-full max-w-[440px] p-[1.4rem] lg:p-[2.4rem]">
+        <div className="text-center mb-[2rem]">
+          <Link href="/" className="logo inline-flex justify-center">
             <span className="logo-wordmark">Interview<span className="logo-ace">Ace</span></span>
             <span className="logo-badge">AI</span>
           </Link>
-          <h2 style={{ marginTop: '1.2rem', fontSize: '1.5rem' }}>Welcome back</h2>
-          <p style={{ color: 'var(--text-2)', fontSize: '.92rem', marginTop: '.3rem' }}>
+          <h2 className="mt-[1.2rem] text-[1.5rem]">Welcome back</h2>
+          <p className="text-[var(--text-2)] text-[0.92rem] mt-[0.3rem]">
             Log in to your account to continue
           </p>
         </div>
@@ -129,12 +171,12 @@ export default function LoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
-                style={{ width: '100%', paddingRight: '40px' }}
+                className="w-full pr-[40px]"
               />
               <button 
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
-                style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'var(--text-3)', cursor: 'pointer', padding: 0 }}
+                className="absolute right-[12px] top-1/2 -translate-y-1/2 bg-transparent border-none text-[var(--text-3)] cursor-pointer p-0"
               >
                 {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
               </button>
@@ -143,36 +185,28 @@ export default function LoginPage() {
 
           {error && (
             <div style={{
-              background: emailNotConfirmed ? 'rgba(234,179,8,.12)' : 'rgba(239,68,68,.12)',
-              border: `1px solid ${emailNotConfirmed ? 'rgba(234,179,8,.3)' : 'rgba(239,68,68,.3)'}`,
-              borderRadius: '10px',
-              padding: '.75rem .95rem',
-              fontSize: '.88rem',
-              color: emailNotConfirmed ? '#EAB308' : '#EF4444',
-              marginBottom: '1rem',
-            }}>
+              background: emailNotConfirmed ? 'var(--warning-bg)' : 'var(--error-bg)',
+              border: `1px solid ${emailNotConfirmed ? 'var(--warning-border)' : 'var(--error-border)'}`,
+              color: emailNotConfirmed ? 'var(--warning-text)' : 'var(--error-text)',
+            }} className="rounded-[10px] px-[0.95rem] py-[0.75rem] text-[0.88rem] mb-[1rem]">
               {error}
             </div>
           )}
 
           {emailNotConfirmed && (
-            <div style={{ marginBottom: '1rem' }}>
+            <div className="mb-[1rem]">
               <button
                 type="button"
                 onClick={handleResend}
                 disabled={resendLoading}
-                className="btn btn-ghost btn-sm"
-                style={{ width: '100%', justifyContent: 'center' }}
+                className="btn btn-ghost btn-sm w-full justify-center"
               >
                 {resendLoading ? 'Sending...' : 'Resend verification email'}
               </button>
               {resendMessage && (
                 <p style={{
-                  fontSize: '.85rem',
                   color: resendMessage.includes('sent') ? '#22C55E' : '#EF4444',
-                  textAlign: 'center',
-                  marginTop: '.5rem',
-                }}>
+                }} className="text-[0.85rem] text-center mt-[0.5rem]">
                   {resendMessage}
                 </p>
               )}
@@ -181,17 +215,16 @@ export default function LoginPage() {
 
           <button
             type="submit"
-            className="btn btn-primary"
+            className="btn btn-primary w-full justify-center mb-[1.2rem]"
             disabled={loading}
-            style={{ width: '100%', justifyContent: 'center', marginBottom: '1.2rem' }}
           >
             {loading ? 'Logging in...' : 'Log in'}
           </button>
         </form>
 
-        <p style={{ textAlign: 'center', fontSize: '.9rem', color: 'var(--text-2)' }}>
+        <p className="text-center text-[0.9rem] text-[var(--text-2)]">
           Don&apos;t have an account?{' '}
-          <Link href="/signup" style={{ color: 'var(--blue)', fontWeight: 600 }}>
+          <Link href="/signup" className="text-[var(--blue)] font-semibold">
             Sign up
           </Link>
         </p>

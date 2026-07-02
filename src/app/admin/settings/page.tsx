@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Settings, Trash2, RefreshCw } from 'lucide-react';
 import { useToast } from '@/components/Toast';
 
@@ -18,14 +18,35 @@ export default function AdminSettingsPage() {
   const [maintenance, setMaintenance] = useState(false);
   const [signups, setSignups] = useState(true);
 
-  const handleToggleMaintenance = () => {
-    setMaintenance((v) => !v);
-    toast(maintenance ? 'Maintenance mode disabled' : 'Maintenance mode enabled');
+  useEffect(() => {
+    fetch('/api/settings')
+      .then((res) => res.json())
+      .then((data) => {
+        setMaintenance(data.maintenance);
+        setSignups(data.signups);
+      });
+  }, []);
+
+  const handleToggleMaintenance = async () => {
+    const newValue = !maintenance;
+    setMaintenance(newValue);
+    await fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ maintenance: newValue }),
+    });
+    toast(newValue ? 'Maintenance mode enabled' : 'Maintenance mode disabled');
   };
 
-  const handleToggleSignups = () => {
-    setSignups((v) => !v);
-    toast(signups ? 'New user signups disabled' : 'New user signups enabled');
+  const handleToggleSignups = async () => {
+    const newValue = !signups;
+    setSignups(newValue);
+    await fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ signups: newValue }),
+    });
+    toast(newValue ? 'New user signups disabled' : 'New user signups enabled');
   };
 
   const handleClearData = () => {
