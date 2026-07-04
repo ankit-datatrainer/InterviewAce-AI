@@ -191,19 +191,26 @@ export default function SignupPage() {
               background: 'var(--success-bg)',
               border: '1px solid var(--success-border)',
               color: 'var(--success-text)',
-            }} className="rounded-[10px] p-[1.2rem] text-[0.92rem] mb-[1rem]">
-              <p className="font-semibold mb-[0.4rem]">Verification email sent!</p>
-              <p>We&apos;ve sent a verification link to <strong>{confirmationEmail}</strong>. Please check your inbox (and spam folder) to confirm your account.</p>
+            }} className="rounded-xl p-5 text-[0.95rem] mb-6 shadow-sm">
+              <p className="font-semibold mb-2 text-base">Verification email sent!</p>
+              <p className="opacity-90">We&apos;ve sent a verification link to <strong className="font-semibold">{confirmationEmail}</strong>. Please check your inbox (and spam folder) to confirm your account.</p>
             </div>
-            <button onClick={handleResend} disabled={resendLoading} className="btn btn-ghost btn-sm w-full justify-center mb-[0.75rem]">
-              {resendLoading ? 'Sending...' : 'Resend verification email'}
-            </button>
-            {resendMessage && (
-              <p style={{ color: resendMessage.includes('sent') ? 'var(--success-text)' : 'var(--error-text)' }} className="text-[0.85rem] mb-[0.75rem]">{resendMessage}</p>
-            )}
-            <Link href="/login" className="btn btn-primary btn-sm w-full justify-center inline-flex">
-              Already verified? Log in
-            </Link>
+
+            <div className="flex flex-col gap-3">
+              <button onClick={handleResend} disabled={resendLoading} className="btn btn-ghost w-full justify-center">
+                {resendLoading ? 'Sending...' : 'Resend verification email'}
+              </button>
+              
+              {resendMessage && (
+                <p style={{ color: resendMessage.includes('sent') ? 'var(--success-text)' : 'var(--error-text)' }} className="text-sm text-center">
+                  {resendMessage}
+                </p>
+              )}
+              
+              <Link href="/login" className="btn btn-primary w-full justify-center inline-flex">
+                Already verified? Log in
+              </Link>
+            </div>
           </div>
         </div>
       </div>
