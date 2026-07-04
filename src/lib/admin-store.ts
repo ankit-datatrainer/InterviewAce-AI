@@ -6,6 +6,7 @@ export interface AdminUser {
   email: string;
   initials: string;
   color: string;
+  imageUrl?: string;
   plan: string;
   interviews: number;
   joined: string;
@@ -39,6 +40,7 @@ export interface AdminCoach {
   name: string;
   initials: string;
   color: string;
+  imageUrl?: string;
   category: string;
   rating: number;
   sessions: number;
@@ -99,6 +101,7 @@ export async function getAdminUsers(): Promise<AdminUser[]> {
           email: u.email,
           initials: getInitials(u.name || 'U'),
           color: getColorForId(u.id),
+          imageUrl: u.imageUrl || '',
           plan: u.plan,
           interviews: u.interviews,
           joined: u.joined,
@@ -121,6 +124,7 @@ export async function getAdminUsers(): Promise<AdminUser[]> {
       email: p.email,
       initials: getInitials(p.full_name || 'U'),
       color: getColorForId(p.id),
+      imageUrl: p.avatar_url || '',
       plan: p.plan === 'pro' ? 'Pro' : p.plan === 'premium' ? 'Premium' : 'Free',
       interviews: userInterviews,
       joined: p.created_at ? new Date(p.created_at).toISOString().split('T')[0] : '',
@@ -243,6 +247,7 @@ export async function getAdminCoaches(): Promise<AdminCoach[]> {
       name: c.name,
       initials: getInitials(c.name),
       color: c.avatar_color || getColorForId(c.id),
+      imageUrl: c.image_url || '',
       category: c.category,
       rating: c.rating,
       sessions: c.total_sessions || 0,
@@ -281,6 +286,172 @@ export async function updateCoachMarketplace(id: string, updates: {
   if (Object.keys(db).length > 0) {
     const { error } = await supabase.from('coaches').update(db).eq('id', id);
     if (error) throw new Error(error.message);
+  }
+}
+
+// ─────────────────────────── Full coach editor (admin) ───────────────────────────
+// Powers a dedicated admin page where the super admin can do EVERYTHING a
+// coach can do to their own profile, plus the admin-only marketplace fields —
+// all in one place, since is_admin() lets a single update through untouched
+// by the "coaches can't edit price/commission" trigger.
+
+export interface AdminCoachDetail {
+  id: string;
+  userId: string | null;
+  name: string;
+  email: string | null;
+  title: string;
+  bio: string;
+  tags: string[];
+  languages: string[];
+  imageUrl: string;
+  introVideoUrl: string;
+  certificates: string[];
+  experienceYears: number;
+  pricePerSession: number;
+  commissionPct: number;
+  priority: string;
+  visibility: boolean;
+  isVerified: boolean;
+  kycVerified: boolean;
+  rating: number;
+  totalReviews: number;
+  totalSessions: number;
+  status: string;
+}
+
+export async function getAdminCoachById(id: string): Promise<AdminCoachDetail | null> {
+  const supabase = createClient();
+  const { data: c } = await supabase.from('coaches').select('*').eq('id', id).maybeSingle();
+  if (!c) return null;
+  return {
+    id: c.id,
+    userId: c.user_id ?? null,
+    name: c.name,
+    email: c.email ?? null,
+    title: c.title ?? '',
+    bio: c.bio ?? c.description ?? '',
+    tags: c.tags ?? [],
+    languages: c.languages ?? [],
+    imageUrl: c.image_url ?? '',
+    introVideoUrl: c.intro_video_url ?? '',
+    certificates: c.certificates ?? [],
+    experienceYears: c.experience_years ?? 0,
+    pricePerSession: c.price_per_session ?? 0,
+    commissionPct: c.commission_pct ?? 20,
+    priority: c.priority ?? 'Standard',
+    visibility: c.visibility !== false,
+    isVerified: !!c.is_verified,
+    kycVerified: !!c.kyc_verified,
+    rating: c.rating ?? 0,
+    totalReviews: c.total_reviews ?? 0,
+    totalSessions: c.total_sessions ?? 0,
+    status: c.status ?? 'approved',
+  };
+}
+
+export async function updateAdminCoachFull(id: string, updates: Partial<{
+  name: string;
+  title: string;
+  bio: string;
+  tags: string[];
+  languages: string[];
+  imageUrl: string;
+  introVideoUrl: string;
+  certificates: string[];
+  experienceYears: number;
+  pricePerSession: number;
+  commissionPct: number;
+  priority: string;
+  visibility: boolean;
+  isVerified: boolean;
+  kycVerified: boolean;
+}>): Promise<void> {
+  const supabase = createClient();
+  const db: any = {};
+  if (updates.name !== undefined) db.name = updates.name;
+  if (updates.title !== undefined) db.title = updates.title;
+  if (updates.bio !== undefined) db.bio = updates.bio;
+  if (updates.tags !== undefined) db.tags = updates.tags;
+  if (updates.languages !== undefined) db.languages = updates.languages;
+  if (updates.imageUrl !== undefined) db.image_url = updates.imageUrl;
+  if (updates.introVideoUrl !== undefined) db.intro_video_url = updates.introVideoUrl;
+  if (updates.certificates !== undefined) db.certificates = updates.certificates;
+  if (updates.experienceYears !== undefined) db.experience_years = updates.experienceYears;
+  if (updates.pricePerSession !== undefined) db.price_per_session = updates.pricePerSession;
+  if (updates.commissionPct !== undefined) db.commission_pct = updates.commissionPct;
+  if (updates.priority !== undefined) db.priority = updates.priority;
+  if (updates.visibility !== undefined) db.visibility = updates.visibility;
+  if (updates.isVerified !== undefined) db.is_verified = updates.isVerified;
+  if (updates.kycVerified !== undefined) db.kyc_verified = updates.kycVerified;
+  if (Object.keys(db).length === 0) return;
+  const { error } = await supabase.from('coaches').update(db).eq('id', id);
+  if (error) throw new Error(error.message);
+}
+
+/** Admin sets a coach's login password directly (no email round-trip). */
+export async function adminSetCoachPassword(userId: string, password: string): Promise<{ ok: boolean; message: string }> {
+  try {
+    const res = await fetch('/api/admin/coaches/set-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId, password }),
+    });
+    const data = await res.json();
+    return { ok: res.ok, message: res.ok ? 'Password updated.' : (data.error || 'Failed to update password.') };
+  } catch {
+    return { ok: false, message: 'Could not reach the server.' };
+  }
+}
+
+// ─────────────────────────── Reviews (admin) ───────────────────────────
+
+export interface AdminReviewItem {
+  id: string;
+  studentName: string;
+  rating: number;
+  comment: string | null;
+  date: string;
+}
+
+export async function getCoachReviewsAdmin(coachId: string): Promise<AdminReviewItem[]> {
+  const supabase = createClient();
+  const { data } = await supabase
+    .from('reviews')
+    .select('*, profiles(full_name)')
+    .eq('coach_id', coachId)
+    .order('created_at', { ascending: false });
+  return (data || []).map((r: any) => ({
+    id: r.id,
+    studentName: r.profiles?.full_name || r.reviewer_name || 'Student',
+    rating: r.rating,
+    comment: r.comment ?? null,
+    date: new Date(r.created_at).toISOString().split('T')[0],
+  }));
+}
+
+/**
+ * Adds a review/testimonial on the coach's behalf and recomputes the coach's
+ * aggregate rating + review count so it's reflected on the student
+ * marketplace card immediately.
+ */
+export async function addCoachReviewAdmin(coachId: string, rating: number, comment: string, reviewerName: string): Promise<void> {
+  const supabase = createClient();
+  const { error } = await supabase.from('reviews').insert({
+    coach_id: coachId,
+    rating: Math.max(1, Math.min(5, Math.round(rating))),
+    comment: comment || null,
+    reviewer_name: reviewerName.trim() || 'Student',
+  });
+  if (error) throw new Error(error.message);
+
+  const { data: all } = await supabase.from('reviews').select('rating').eq('coach_id', coachId);
+  if (all && all.length > 0) {
+    const avg = all.reduce((s: number, r: any) => s + r.rating, 0) / all.length;
+    await supabase.from('coaches').update({
+      rating: Math.round(avg * 10) / 10,
+      total_reviews: all.length,
+    }).eq('id', coachId);
   }
 }
 

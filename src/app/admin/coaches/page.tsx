@@ -1,14 +1,14 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { GraduationCap, Star, Plus, X, Link2, Check, Ban, Eye, EyeOff, Settings2, FileText, ShieldCheck, Trash2 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { GraduationCap, Star, Plus, X, Link2, Check, Ban, Settings2, Trash2, Eye, EyeOff } from 'lucide-react';
 import { useToast } from '@/components/Toast';
 import {
   getAdminCoaches,
   setCoachStatus,
   createCoach,
   linkCoachToUser,
-  updateCoachMarketplace,
   deleteAdminCoach,
   type AdminCoach,
   type NewCoachInput,
@@ -77,6 +77,7 @@ function PasswordField({ label, value, onChange, placeholder }: {
 }
 
 export default function CoachManagementPage() {
+  const router = useRouter();
   const { toast } = useToast();
   const [coaches, setCoaches] = useState<AdminCoach[]>([]);
   const [showAdd, setShowAdd] = useState(false);
@@ -85,49 +86,6 @@ export default function CoachManagementPage() {
   const [linkFor, setLinkFor] = useState<AdminCoach | null>(null);
   const [linkEmail, setLinkEmail] = useState('');
   const [saving, setSaving] = useState(false);
-
-  // Marketplace controls modal (price / commission / tier / visibility / KYC)
-  const [manageFor, setManageFor] = useState<AdminCoach | null>(null);
-  const [mPrice, setMPrice] = useState(0);
-  const [mCommission, setMCommission] = useState(20);
-  const [mPriority, setMPriority] = useState('Standard');
-  const [mVisible, setMVisible] = useState(true);
-  const [mVerified, setMVerified] = useState(false);
-  const [mKyc, setMKyc] = useState(false);
-
-  const openManage = (c: AdminCoach) => {
-    setManageFor(c);
-    setMPrice(c.pricePerSession);
-    setMCommission(c.commissionPct);
-    setMPriority(c.priority);
-    setMVisible(c.visibility);
-    setMVerified(c.isVerified);
-    setMKyc(c.kycVerified);
-  };
-
-  const handleManageSave = async () => {
-    if (!manageFor) return;
-    setSaving(true);
-    try {
-      await updateCoachMarketplace(manageFor.id, {
-        pricePerSession: Number(mPrice) || 0,
-        commissionPct: Math.max(0, Math.min(100, Number(mCommission) || 0)),
-        priority: mPriority,
-        visibility: mVisible,
-        isVerified: mVerified,
-        kycVerified: mKyc,
-      });
-      toast('Marketplace settings saved.');
-      setManageFor(null);
-      refresh();
-    } catch (e: any) {
-      toast(e?.message?.includes('priority') || e?.message?.includes('column')
-        ? 'Run deploy/marketplace-update.sql in Supabase first.'
-        : (e?.message || 'Failed to save.'));
-    } finally {
-      setSaving(false);
-    }
-  };
 
   // Add-coach password fields
   const [newPassword, setNewPassword] = useState('');
@@ -235,7 +193,18 @@ export default function CoachManagementPage() {
               {coaches.map((c) => (
                 <tr key={c.id}>
                   <td>
-                    <span className="mini-ava" style={{ background: c.color }}>{c.initials}</span> {c.name}
+                    <span 
+                      className="mini-ava" 
+                      style={{ 
+                        background: c.color,
+                        backgroundImage: c.imageUrl ? `url(${c.imageUrl})` : 'none',
+                        backgroundSize: 'cover',
+                        backgroundPosition: 'center',
+                        color: c.imageUrl ? 'transparent' : 'inherit'
+                      }}
+                    >
+                      {c.initials}
+                    </span> {c.name}
                     {!c.visibility && <span className="tag red" style={{ marginLeft: 6 }}>Hidden</span>}
                   </td>
                   <td style={{ textTransform: 'capitalize' }}>{c.category}</td>
@@ -250,7 +219,7 @@ export default function CoachManagementPage() {
                     <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
                       {c.status !== 'Approved' && <button className="btn btn-primary btn-sm" onClick={() => handleStatus(c.id, 'approved')}><Check size={14} /> Approve</button>}
                       {c.status === 'Approved' && <button className="btn btn-ghost btn-sm" onClick={() => handleStatus(c.id, 'suspended')}><Ban size={14} /> Suspend</button>}
-                      <button className="btn btn-ghost btn-sm" onClick={() => openManage(c)}><Settings2 size={14} /> Manage</button>
+                      <button className="btn btn-ghost btn-sm" onClick={() => router.push(`/admin/coaches/${c.id}`)}><Settings2 size={14} /> Manage</button>
                       <button className="btn btn-ghost btn-sm" onClick={() => { setLinkFor(c); setLinkEmail(c.email || ''); }}><Link2 size={14} /> {c.linked ? 'Account' : 'Link / Create login'}</button>
                       <button className="btn btn-ghost btn-sm" style={{ color: '#ef4444' }} onClick={() => handleDelete(c)}><Trash2 size={14} /> Delete</button>
                     </div>
@@ -411,70 +380,6 @@ export default function CoachManagementPage() {
         </div>
       )}
 
-      {/* ═══════════ Marketplace controls modal ═══════════ */}
-      {manageFor && (
-        <div style={overlayStyle} onClick={() => setManageFor(null)}>
-          <div className="widget" style={{ maxWidth: 560, width: '100%', marginTop: '1rem', marginBottom: '2rem' }} onClick={(e) => e.stopPropagation()}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.2rem' }}>
-              <h4 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '.5rem' }}><Settings2 size={18} /> Manage {manageFor.name}</h4>
-              <button className="btn btn-ghost btn-sm" onClick={() => setManageFor(null)}><X size={16} /></button>
-            </div>
-
-            <div className="dash-grid-2">
-              <div className="field"><label>Price per session (₹)</label><input type="number" className="input" value={mPrice} onChange={(e) => setMPrice(Number(e.target.value))} /></div>
-              <div className="field"><label>Platform commission (%)</label><input type="number" className="input" value={mCommission} onChange={(e) => setMCommission(Number(e.target.value))} /></div>
-              <div className="field">
-                <label>Marketplace tier</label>
-                <select className="input" value={mPriority} onChange={(e) => setMPriority(e.target.value)}>
-                  {['Premium', 'Featured', 'Standard', 'New'].map((p) => <option key={p} value={p}>{p}</option>)}
-                </select>
-              </div>
-              <div className="field">
-                <label>Profile visibility</label>
-                <select className="input" value={mVisible ? 'visible' : 'hidden'} onChange={(e) => setMVisible(e.target.value === 'visible')}>
-                  <option value="visible">Visible to students</option>
-                  <option value="hidden">Hidden from marketplace</option>
-                </select>
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', gap: '1.2rem', flexWrap: 'wrap', margin: '.4rem 0 1rem' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '.45rem', cursor: 'pointer', fontSize: '.9rem' }}>
-                <input type="checkbox" checked={mVerified} onChange={(e) => setMVerified(e.target.checked)} />
-                <ShieldCheck size={15} /> Verified badge
-              </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '.45rem', cursor: 'pointer', fontSize: '.9rem' }}>
-                <input type="checkbox" checked={mKyc} onChange={(e) => setMKyc(e.target.checked)} />
-                <Check size={15} /> KYC verified
-              </label>
-            </div>
-
-            {/* Certificates uploaded by the coach */}
-            <div style={{ marginBottom: '1rem' }}>
-              <p style={{ fontSize: '.82rem', fontWeight: 600, color: 'var(--text-2)', marginBottom: '.5rem', textTransform: 'uppercase', letterSpacing: '.03em' }}>
-                Certificates ({manageFor.certificates.length})
-              </p>
-              {manageFor.certificates.length === 0 ? (
-                <p style={{ color: 'var(--text-3)', fontSize: '.86rem' }}>No certificates uploaded by this coach.</p>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem' }}>
-                  {manageFor.certificates.map((url) => (
-                    <a key={url} href={url} target="_blank" rel="noreferrer" style={{ display: 'flex', alignItems: 'center', gap: '.5rem', fontSize: '.86rem', border: '1px solid var(--line)', borderRadius: 8, padding: '.45rem .7rem' }}>
-                      <FileText size={14} style={{ color: 'var(--blue)', flexShrink: 0 }} />
-                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{decodeURIComponent(url.split('/').pop() || 'certificate')}</span>
-                    </a>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div style={{ display: 'flex', gap: '.6rem', justifyContent: 'flex-end' }}>
-              <button className="btn btn-ghost" onClick={() => setManageFor(null)}>Cancel</button>
-              <button className="btn btn-primary" onClick={handleManageSave} disabled={saving}>{saving ? 'Saving…' : 'Save settings'}</button>
-            </div>
-          </div>
-        </div>
-      )}
     </>
   );
 }

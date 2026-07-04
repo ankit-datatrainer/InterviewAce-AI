@@ -193,7 +193,8 @@ export async function getMyReviews(coachId: string): Promise<CoachReview[]> {
   if (!data) return [];
   return data.map((r: any) => ({
     id: r.id,
-    studentName: r.profiles?.full_name || 'Student',
+    // reviewer_name covers admin-added testimonials that aren't tied to a real student account.
+    studentName: r.profiles?.full_name || r.reviewer_name || 'Student',
     rating: r.rating,
     comment: r.comment ?? null,
     date: new Date(r.created_at).toISOString().split('T')[0],

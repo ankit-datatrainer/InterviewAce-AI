@@ -120,7 +120,13 @@ export default function UsersPage() {
                   <td>
                     <span
                       className="mini-ava"
-                      style={{ background: u.color }}
+                      style={{ 
+                        background: u.color,
+                        backgroundImage: u.imageUrl ? `url(${u.imageUrl})` : 'none',
+                        backgroundSize: 'cover',
+                        backgroundPosition: 'center',
+                        color: u.imageUrl ? 'transparent' : 'inherit'
+                      }}
                     >
                       {u.initials}
                     </span>

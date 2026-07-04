@@ -61,6 +61,7 @@ export async function GET() {
       joined: (u.created_at || p.created_at || new Date().toISOString()).split('T')[0],
       status: u.banned_until && new Date(u.banned_until) > new Date() ? 'Suspended'
         : u.email_confirmed_at ? 'Active' : 'Unverified',
+      imageUrl: p.avatar_url || meta.avatar_url || '',
     };
   }).sort((a, b) => (a.joined < b.joined ? 1 : -1));
 
