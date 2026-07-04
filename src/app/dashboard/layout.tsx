@@ -16,7 +16,8 @@ import {
   Clock,
   Star,
   Menu,
-  X
+  X,
+  CalendarDays
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 
@@ -29,6 +30,7 @@ const studentLinks = [
   { href: '/dashboard/star-builder', label: 'STAR Builder', icon: Star },
   { href: '/dashboard/analysis', label: 'Reports', icon: ClipboardList },
   { href: '/dashboard/coaching', label: 'Coaching Sessions', icon: GraduationCap },
+  { href: '/dashboard/bookings', label: 'My Bookings', icon: CalendarDays },
   { href: '/dashboard/analytics', label: 'Progress Analytics', icon: TrendingUp },
   { href: '/dashboard/settings', label: 'Settings', icon: Settings },
 ];

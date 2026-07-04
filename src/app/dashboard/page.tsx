@@ -14,7 +14,7 @@ import { getInterviews, hydrateInterviews } from '@/lib/interview-store';
 import type { InterviewRecord } from '@/lib/interview-store';
 import { getLatestResume, hydrateResumes } from '@/lib/resume-store';
 import type { ResumeRecord } from '@/lib/resume-store';
-import { getUpcomingBookings } from '@/lib/booking-store';
+import { getUpcomingBookings, hydrateBookings } from '@/lib/booking-store';
 import type { BookingRecord } from '@/lib/booking-store';
 import { useSessionWindow } from '@/lib/session-window';
 
@@ -92,6 +92,8 @@ export default function DashboardPage() {
     // any device they log into (not just the browser they practiced on).
     hydrateInterviews().then((all) => setInterviews([...all])).catch(() => {});
     hydrateResumes().then((all) => setLatestResume(all.length > 0 ? all[all.length - 1] : null)).catch(() => {});
+    // Pull real bookings from Supabase so sessions booked on any device show up here.
+    hydrateBookings().then((all) => setUpcomingBookings(all.filter((b) => b.status === 'upcoming'))).catch(() => {});
   }, []);
 
   const count = interviews.length;
@@ -248,7 +250,7 @@ export default function DashboardPage() {
         <div className="widget">
           <h4>
             Upcoming sessions
-            <Link href="/dashboard/coaching">Book more &rarr;</Link>
+            <Link href="/dashboard/bookings">View all &rarr;</Link>
           </h4>
 
           {upcomingBookings.length === 0 ? (

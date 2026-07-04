@@ -89,7 +89,7 @@ export async function createCoachBooking(params: {
   goal: string;
   roomId: string;
   amount: number;
-}): Promise<{ ok: boolean }> {
+}): Promise<{ ok: boolean; id?: string }> {
   // Demo coaches without a DB row can't be persisted to Supabase (FK); the
   // caller still records the booking locally so the student can join the room.
   if (!params.coachId) return { ok: false };
@@ -97,7 +97,7 @@ export async function createCoachBooking(params: {
     const supabase = createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return { ok: false };
-    const { error } = await supabase.from('bookings').insert({
+    const { data, error } = await supabase.from('bookings').insert({
       user_id: user.id,
       coach_id: params.coachId,
       session_date: params.date,
@@ -106,8 +106,8 @@ export async function createCoachBooking(params: {
       status: 'confirmed',
       room_id: params.roomId,
       amount: params.amount || null,
-    });
-    return { ok: !error };
+    }).select('id').single();
+    return { ok: !error, id: data?.id };
   } catch {
     return { ok: false };
   }

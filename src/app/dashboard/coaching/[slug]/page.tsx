@@ -87,7 +87,7 @@ export default function InstructorPage() {
       const amount = info?.pricePerSession ?? (parseInt(String(coach.price).replace(/[^\d]/g, ''), 10) || 0);
 
       // Persist to Supabase so the coach sees it in their portal (if they're a DB coach).
-      await createCoachBooking({
+      const dbResult = await createCoachBooking({
         coachId: info?.coachId ?? null,
         date: selected.date,
         timeSlot: selected.time,
@@ -96,9 +96,12 @@ export default function InstructorPage() {
         amount,
       });
 
-      // Always record locally so the student dashboard + room work.
+      // Always record locally so the student dashboard + room work, tagging
+      // it with the DB id (when available) so it shows up once — not twice —
+      // once "My Bookings" hydrates from Supabase.
       saveBooking({
         id: 'bk-' + Math.random().toString(36).substring(2, 9),
+        dbId: dbResult.id,
         coachName: coach.name,
         coachCategory: coach.tags[0] || 'General',
         date: selected.date,
