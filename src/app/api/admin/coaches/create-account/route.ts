@@ -4,6 +4,7 @@ import nodemailer from 'nodemailer';
 import { createServerSupabaseClient } from '@/lib/supabase-server';
 import { getServiceClient } from '@/lib/supabase-service';
 import { resolveRole } from '@/lib/roles';
+import { getAppOrigin } from '@/lib/get-origin';
 
 // Super-admin only: creates a login account for a coach, links it to their
 // coach row, grants the coach role, and emails them their credentials with a
@@ -45,7 +46,7 @@ export async function POST(req: NextRequest) {
 
     // 2) Create the coach's auth user.
     const password = customPassword ? String(customPassword) : generatePassword();
-    const origin = new URL(req.url).origin;
+    const origin = getAppOrigin(req.url);
     let newUserId: string | null = null;
 
     const service = getServiceClient();

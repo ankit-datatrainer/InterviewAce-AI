@@ -1,6 +1,7 @@
 import { createServerSupabaseClient } from '@/lib/supabase-server'
 import { getServiceClient } from '@/lib/supabase-service'
 import { sendBrandedVerificationEmail, smtpConfigured } from '@/lib/auth-email'
+import { getAppOrigin } from '@/lib/get-origin'
 
 export async function POST(request: Request) {
   try {
@@ -13,7 +14,7 @@ export async function POST(request: Request) {
       )
     }
 
-    const origin = new URL(request.url).origin
+    const origin = getAppOrigin(request.url)
 
     // Prefer our own branded verification email when configured.
     const service = getServiceClient()

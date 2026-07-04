@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServiceClient } from '@/lib/supabase-service';
 import { sendBrandedVerificationEmail, smtpConfigured } from '@/lib/auth-email';
+import { getAppOrigin } from '@/lib/get-origin';
 
 // Branded signup: when the service role key + SMTP are configured, we create the
 // pending user and email OUR OWN branded verification link (no Supabase
@@ -19,7 +20,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ fallback: true });
     }
 
-    const origin = new URL(req.url).origin;
+    const origin = getAppOrigin(req.url);
 
     // generateLink(type: 'signup') creates the pending (unconfirmed) user and
     // returns the confirmation link WITHOUT sending Supabase's own email.
