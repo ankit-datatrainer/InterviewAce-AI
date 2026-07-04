@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { GraduationCap, Star, Plus, X, Link2, Check, Ban, Eye, EyeOff, Settings2, FileText, ShieldCheck } from 'lucide-react';
+import { GraduationCap, Star, Plus, X, Link2, Check, Ban, Eye, EyeOff, Settings2, FileText, ShieldCheck, Trash2 } from 'lucide-react';
 import { useToast } from '@/components/Toast';
 import {
   getAdminCoaches,
@@ -9,6 +9,7 @@ import {
   createCoach,
   linkCoachToUser,
   updateCoachMarketplace,
+  deleteAdminCoach,
   type AdminCoach,
   type NewCoachInput,
 } from '@/lib/admin-store';
@@ -148,6 +149,13 @@ export default function CoachManagementPage() {
     toast(`Coach ${status}.`);
   };
 
+  const handleDelete = async (c: AdminCoach) => {
+    if (!confirm(`Delete "${c.name}" permanently? This removes them from the marketplace and cannot be undone.`)) return;
+    await deleteAdminCoach(c.id);
+    await refresh();
+    toast(`${c.name} deleted.`);
+  };
+
   // Creates the coach's login account and emails them their credentials.
   const createLoginAccount = async (coachId: string, name: string, email: string, password?: string): Promise<boolean> => {
     if (password && password.length < 8) { toast('Password must be at least 8 characters.'); return false; }
@@ -244,6 +252,7 @@ export default function CoachManagementPage() {
                       {c.status === 'Approved' && <button className="btn btn-ghost btn-sm" onClick={() => handleStatus(c.id, 'suspended')}><Ban size={14} /> Suspend</button>}
                       <button className="btn btn-ghost btn-sm" onClick={() => openManage(c)}><Settings2 size={14} /> Manage</button>
                       <button className="btn btn-ghost btn-sm" onClick={() => { setLinkFor(c); setLinkEmail(c.email || ''); }}><Link2 size={14} /> {c.linked ? 'Account' : 'Link / Create login'}</button>
+                      <button className="btn btn-ghost btn-sm" style={{ color: '#ef4444' }} onClick={() => handleDelete(c)}><Trash2 size={14} /> Delete</button>
                     </div>
                   </td>
                 </tr>

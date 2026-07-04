@@ -4,12 +4,12 @@ import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { ArrowLeft, Star, Clock, Calendar, CheckCircle, Video } from 'lucide-react';
 import { useToast } from '@/components/Toast';
-import { COACHES } from '@/lib/coaches';
+import type { PublicCoach } from '@/lib/coach-types';
 import { saveBooking } from '@/lib/booking-store';
 import { getCoachBookingInfo, createCoachBooking, type CoachBookingInfo, type BookableSlot } from '@/lib/student-booking';
 import { getSessionWindow } from '@/lib/session-window';
 
-type Coach = typeof COACHES[number];
+type Coach = PublicCoach;
 
 export default function InstructorPage() {
   const router = useRouter();
@@ -45,14 +45,11 @@ export default function InstructorPage() {
     return () => clearInterval(iv);
   }, [booked]);
 
-  // Fetch the merged coach list from the API so coach edits are reflected
+  const [coachLoaded, setCoachLoaded] = useState(false);
+
+  // The admin panel is the single source of truth for coach data.
   useEffect(() => {
     if (!params?.slug) return;
-
-    // Immediately show the static coach while the API loads
-    const staticCoach = COACHES.find(c => c.slug === params.slug);
-    if (staticCoach) setCoach(staticCoach);
-
     fetch('/api/coaching/coaches')
       .then((r) => r.json())
       .then((data: Coach[]) => {
@@ -60,7 +57,8 @@ export default function InstructorPage() {
         const found = data.find((c) => c.slug === params.slug);
         if (found) setCoach(found);
       })
-      .catch(() => { /* keep static fallback */ });
+      .catch(() => { /* keep null — page shows "not found" */ })
+      .finally(() => setCoachLoaded(true));
   }, [params?.slug]);
 
   // Load the coach's published availability (set in their Coach Portal).
@@ -130,7 +128,20 @@ export default function InstructorPage() {
     }
   }
 
-  if (!coach) return <div style={{ padding: '4rem', textAlign: 'center', color: 'var(--text-2)' }}>Loading profile...</div>;
+  if (!coach) {
+    return (
+      <div style={{ padding: '4rem', textAlign: 'center', color: 'var(--text-2)' }}>
+        {coachLoaded ? (
+          <>
+            <p style={{ marginBottom: '1rem' }}>This coach isn&apos;t available.</p>
+            <button className="btn btn-ghost btn-sm" onClick={() => router.push('/dashboard/coaching')}>Back to coaches</button>
+          </>
+        ) : (
+          'Loading profile...'
+        )}
+      </div>
+    );
+  }
 
   return (
     <>
@@ -209,20 +220,13 @@ export default function InstructorPage() {
               <div style={{ position: 'relative', zIndex: 1 }}>
                 <div style={{ display: 'flex', gap: '2rem', alignItems: 'center', marginBottom: '2.5rem' }}>
                   <div style={{ position: 'relative' }}>
-                    <div style={{ width: 140, height: 140, borderRadius: '50%', border: '4px solid var(--bg)', boxShadow: '0 10px 25px rgba(0,0,0,0.5)', overflow: 'hidden' }}>
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img 
-                        src={coach.image} 
-                        alt={coach.name} 
-                        style={{ 
-                          width: '100%', 
-                          height: '100%', 
-                          objectFit: 'cover', 
-                          objectPosition: coach.slug === 'saurabh-sharda' ? 'center top' : 'center',
-                          transformOrigin: coach.slug === 'saurabh-sharda' ? 'top center' : 'center',
-                          transform: coach.slug === 'saurabh-sharda' ? 'scale(1.35)' : 'none' 
-                        }} 
-                      />
+                    <div style={{ width: 140, height: 140, borderRadius: '50%', border: '4px solid var(--bg)', boxShadow: '0 10px 25px rgba(0,0,0,0.5)', overflow: 'hidden', background: 'var(--bg-2)', display: 'grid', placeItems: 'center', fontWeight: 700, fontSize: '2rem', color: 'var(--text-2)' }}>
+                      {coach.image ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={coach.image} alt={coach.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      ) : (
+                        coach.name.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase()
+                      )}
                     </div>
                     <div style={{ position: 'absolute', bottom: 5, right: 5, background: '#10b981', color: '#fff', borderRadius: '50%', padding: '4px', border: '3px solid var(--bg)', zIndex: 2 }}>
                       <CheckCircle size={16} />

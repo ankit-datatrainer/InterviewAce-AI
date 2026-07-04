@@ -4,22 +4,29 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Search, Star, Clock, Calendar, Video, CheckCircle } from 'lucide-react';
 import { useToast } from '@/components/Toast';
-import { COACHES } from '@/lib/coaches';
+import type { PublicCoach } from '@/lib/coach-types';
 
-type Coach = typeof COACHES[number];
+type Coach = PublicCoach;
+
+function initials(name: string): string {
+  return name.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase() || '?';
+}
 
 export default function CoachingPage() {
   const { toast } = useToast();
   const router = useRouter();
   const [search, setSearch] = useState('');
-  const [coaches, setCoaches] = useState<Coach[]>(COACHES); // start with static, then overlay DB data
+  const [coaches, setCoaches] = useState<Coach[]>([]);
+  const [loaded, setLoaded] = useState(false);
 
-  // Fetch the merged (static + DB) coach list so edits from the coach portal show up
+  // The admin panel is the single source of truth — whatever's approved and
+  // visible there is exactly what shows here.
   useEffect(() => {
     fetch('/api/coaching/coaches')
       .then((r) => r.json())
-      .then((data: Coach[]) => { if (Array.isArray(data) && data.length) setCoaches(data); })
-      .catch(() => { /* keep static fallback */ });
+      .then((data: Coach[]) => { if (Array.isArray(data)) setCoaches(data); })
+      .catch(() => { /* keep empty */ })
+      .finally(() => setLoaded(true));
   }, []);
 
   const filteredCoaches = coaches.filter(c => 
@@ -28,7 +35,7 @@ export default function CoachingPage() {
     c.title.toLowerCase().includes(search.toLowerCase())
   );
 
-  const handleBook = (coach: typeof COACHES[0]) => {
+  const handleBook = (coach: Coach) => {
     router.push(`/dashboard/coaching/${coach.slug}`);
   };
 
@@ -55,24 +62,26 @@ export default function CoachingPage() {
         </div>
       </div>
 
+      {!loaded ? (
+        <div className="widget" style={{ textAlign: 'center', padding: '3rem 1rem', color: 'var(--text-3)' }}>
+          <p>Loading coaches…</p>
+        </div>
+      ) : filteredCoaches.length === 0 ? (
+        <div className="widget" style={{ textAlign: 'center', padding: '3rem 1rem', color: 'var(--text-3)' }}>
+          <p>No coaches available right now. Check back soon.</p>
+        </div>
+      ) : (
       <div className="coach-grid">
         {filteredCoaches.map(coach => (
           <div key={coach.id} className="widget" style={{ display: 'flex', flexDirection: 'column' }}>
             <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start', marginBottom: '1rem' }}>
-              <div style={{ width: 64, height: 64, borderRadius: '50%', overflow: 'hidden', flexShrink: 0 }}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img 
-                  src={coach.image} 
-                  alt={coach.name} 
-                  style={{ 
-                    width: '100%', 
-                    height: '100%', 
-                    objectFit: 'cover',
-                    objectPosition: coach.slug === 'saurabh-sharda' ? 'center top' : 'center',
-                    transformOrigin: coach.slug === 'saurabh-sharda' ? 'top center' : 'center',
-                    transform: coach.slug === 'saurabh-sharda' ? 'scale(1.35)' : 'none'
-                  }} 
-                />
+              <div style={{ width: 64, height: 64, borderRadius: '50%', overflow: 'hidden', flexShrink: 0, background: 'var(--bg-2)', display: 'grid', placeItems: 'center', fontWeight: 700, color: 'var(--text-2)', fontSize: '1.1rem' }}>
+                {coach.image ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={coach.image} alt={coach.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                ) : (
+                  initials(coach.name)
+                )}
               </div>
               <div>
                 <h3 style={{ margin: '0 0 .25rem 0', fontSize: '1.2rem' }}>{coach.name}</h3>
@@ -118,6 +127,7 @@ export default function CoachingPage() {
           </div>
         ))}
       </div>
+      )}
 
     </>
   );
