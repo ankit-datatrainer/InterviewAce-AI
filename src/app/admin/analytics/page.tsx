@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { TrendingUp, Users, Mic, IndianRupee } from 'lucide-react';
-import { getAnalytics, type AnalyticsData } from '@/lib/admin-store';
+import Link from 'next/link';
+import { TrendingUp, Users, Mic, IndianRupee, Wallet, Percent, XCircle, CheckCircle } from 'lucide-react';
+import { getAnalytics, getFinancialStats, type AnalyticsData, type FinancialStats } from '@/lib/admin-store';
 
 function BarChart({ data, color, prefix }: { data: { label: string; value: number }[]; color: string; prefix?: string }) {
   const max = Math.max(1, ...data.map((d) => d.value));
@@ -21,8 +22,12 @@ function BarChart({ data, color, prefix }: { data: { label: string; value: numbe
 
 export default function AdminAnalyticsPage() {
   const [data, setData] = useState<AnalyticsData | null>(null);
+  const [fin, setFin] = useState<FinancialStats | null>(null);
 
-  useEffect(() => { getAnalytics().then(setData); }, []);
+  useEffect(() => {
+    getAnalytics().then(setData);
+    getFinancialStats().then(setFin).catch(() => {});
+  }, []);
 
   if (!data) return null;
 
@@ -57,6 +62,40 @@ export default function AdminAnalyticsPage() {
           );
         })}
       </div>
+
+      {/* Coaching marketplace financials */}
+      {fin && (
+        <div className="widget" style={{ marginTop: '1rem' }}>
+          <h4 style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            Coaching financials
+            <Link href="/admin/payouts" style={{ fontSize: '.82rem', color: 'var(--blue)' }}>Manage payouts →</Link>
+          </h4>
+          <div className="dash-grid" style={{ marginTop: '.6rem' }}>
+            {[
+              { label: 'Total revenue (paid bookings)', value: `₹${fin.totalRevenue.toLocaleString()}`, icon: IndianRupee, color: '#22C55E' },
+              { label: 'Coach earnings', value: `₹${fin.coachEarnings.toLocaleString()}`, icon: Wallet, color: '#2563EB' },
+              { label: 'Platform commission', value: `₹${fin.platformCommission.toLocaleString()}`, icon: Percent, color: '#7C3AED' },
+              { label: 'Pending payouts', value: `₹${fin.pendingPayouts.toLocaleString()}`, icon: Wallet, color: '#F59E0B' },
+            ].map((k) => {
+              const Icon = k.icon;
+              return (
+                <div className="widget kpi" key={k.label} style={{ boxShadow: 'none', border: '1px solid var(--line)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', marginBottom: '.3rem' }}>
+                    <span style={{ width: 36, height: 36, borderRadius: 10, background: `${k.color}22`, display: 'grid', placeItems: 'center', color: k.color }}><Icon size={18} /></span>
+                  </div>
+                  <span className="v">{k.value}</span>
+                  <span className="l">{k.label}</span>
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap', marginTop: '.8rem', fontSize: '.88rem', color: 'var(--text-2)' }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '.4rem' }}><CheckCircle size={15} style={{ color: '#22C55E' }} /> Completion rate: <b>{fin.completionRate}%</b> ({fin.completedBookings}/{fin.totalBookings})</span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '.4rem' }}><XCircle size={15} style={{ color: '#ef4444' }} /> Cancellation rate: <b>{fin.cancellationRate}%</b> ({fin.cancelledBookings}/{fin.totalBookings})</span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '.4rem' }}><Wallet size={15} style={{ color: '#22C55E' }} /> Paid out so far: <b>₹{fin.paidPayouts.toLocaleString()}</b></span>
+          </div>
+        </div>
+      )}
 
       <div className="dash-grid-2" style={{ marginTop: '1rem' }}>
         <div className="widget"><h4>New signups</h4><BarChart data={data.signupsByMonth} color="#2563EB" /></div>

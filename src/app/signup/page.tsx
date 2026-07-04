@@ -204,7 +204,8 @@ export default function SignupPage() {
                 style={{
                   background: 'var(--surface)',
                   border: '1px solid var(--line-2)',
-                  color: 'var(--text)'
+                  color: 'var(--text)',
+                  marginBottom: '14px'
                 }}
               >
                 {resendLoading ? 'Sending...' : 'Resend verification email'}

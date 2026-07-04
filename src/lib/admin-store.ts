@@ -46,6 +46,14 @@ export interface AdminCoach {
   status: string;
   email?: string;
   linked?: boolean;
+  // Marketplace controls
+  pricePerSession: number;
+  commissionPct: number;
+  priority: string;        // Premium | Featured | Standard | New
+  visibility: boolean;
+  isVerified: boolean;
+  kycVerified: boolean;
+  certificates: string[];
 }
 
 export interface AdminPayment {
@@ -242,8 +250,38 @@ export async function getAdminCoaches(): Promise<AdminCoach[]> {
       status: c.status === 'approved' ? 'Approved' : c.status === 'suspended' ? 'Suspended' : c.status === 'pending' ? 'Pending' : (c.is_verified ? 'Approved' : 'Pending'),
       email: c.email || '',
       linked: !!c.user_id,
+      pricePerSession: c.price_per_session ?? 0,
+      commissionPct: c.commission_pct ?? 20,
+      priority: c.priority ?? 'Standard',
+      visibility: c.visibility !== false,
+      isVerified: !!c.is_verified,
+      kycVerified: !!c.kyc_verified,
+      certificates: c.certificates ?? [],
     };
   });
+}
+
+/** Admin-only marketplace controls on a coach row (price, commission, tier…). */
+export async function updateCoachMarketplace(id: string, updates: {
+  pricePerSession?: number;
+  commissionPct?: number;
+  priority?: string;
+  visibility?: boolean;
+  isVerified?: boolean;
+  kycVerified?: boolean;
+}): Promise<void> {
+  const supabase = createClient();
+  const db: any = {};
+  if (updates.pricePerSession !== undefined) db.price_per_session = updates.pricePerSession;
+  if (updates.commissionPct !== undefined) db.commission_pct = updates.commissionPct;
+  if (updates.priority !== undefined) db.priority = updates.priority;
+  if (updates.visibility !== undefined) db.visibility = updates.visibility;
+  if (updates.isVerified !== undefined) db.is_verified = updates.isVerified;
+  if (updates.kycVerified !== undefined) db.kyc_verified = updates.kycVerified;
+  if (Object.keys(db).length > 0) {
+    const { error } = await supabase.from('coaches').update(db).eq('id', id);
+    if (error) throw new Error(error.message);
+  }
 }
 
 export async function updateAdminCoach(id: string, updates: Partial<AdminCoach>): Promise<void> {
@@ -578,4 +616,181 @@ export async function getAdminStats(): Promise<{ totalUsers: number; interviewsT
     revenue: revenueNum.toLocaleString(),
     openTickets,
   };
+}
+
+// ─────────────────────────── Coupons (marketing) ───────────────────────────
+
+export interface Coupon {
+  id: string;
+  code: string;
+  discountPercentage: number;
+  active: boolean;
+  maxUses: number | null;
+  currentUses: number;
+  expiresAt: string | null;
+  createdAt: string;
+}
+
+export async function getCoupons(): Promise<Coupon[]> {
+  const supabase = createClient();
+  const { data } = await supabase.from('coupons').select('*').order('created_at', { ascending: false });
+  return (data || []).map((c: any) => ({
+    id: c.id,
+    code: c.code,
+    discountPercentage: c.discount_percentage,
+    active: !!c.active,
+    maxUses: c.max_uses ?? null,
+    currentUses: c.current_uses ?? 0,
+    expiresAt: c.expires_at ?? null,
+    createdAt: c.created_at,
+  }));
+}
+
+export async function createCoupon(code: string, discountPercentage: number, maxUses?: number, expiresAt?: string): Promise<void> {
+  const supabase = createClient();
+  const { error } = await supabase.from('coupons').insert({
+    code: code.trim().toUpperCase(),
+    discount_percentage: discountPercentage,
+    max_uses: maxUses || null,
+    expires_at: expiresAt || null,
+  });
+  if (error) throw new Error(error.message);
+}
+
+export async function setCouponActive(id: string, active: boolean): Promise<void> {
+  const supabase = createClient();
+  await supabase.from('coupons').update({ active }).eq('id', id);
+}
+
+export async function deleteCoupon(id: string): Promise<void> {
+  const supabase = createClient();
+  await supabase.from('coupons').delete().eq('id', id);
+}
+
+// ─────────────────────────── User moderation ───────────────────────────
+
+export async function setUserBanned(userId: string, banned: boolean): Promise<void> {
+  // Auth-level ban via the service API — the user truly cannot sign in.
+  const res = await fetch('/api/admin/users', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: userId, banned }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || 'Failed to update ban status.');
+  }
+  await logAudit(banned ? 'user_banned' : 'user_unbanned', 'user', userId);
+}
+
+/** Sends a password-recovery email to the user (admin-triggered reset). */
+export async function adminResetPassword(email: string): Promise<{ ok: boolean; message: string }> {
+  try {
+    const res = await fetch('/api/admin/users/reset-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+    const data = await res.json();
+    return { ok: res.ok, message: data.message || data.error || (res.ok ? 'Reset email sent.' : 'Failed.') };
+  } catch {
+    return { ok: false, message: 'Could not reach the server.' };
+  }
+}
+
+// ─────────────────────────── Financial analytics ───────────────────────────
+
+export interface FinancialStats {
+  totalRevenue: number;
+  coachEarnings: number;
+  platformCommission: number;
+  pendingPayouts: number;
+  paidPayouts: number;
+  totalBookings: number;
+  completedBookings: number;
+  cancelledBookings: number;
+  cancellationRate: number;   // %
+  completionRate: number;     // %
+}
+
+export async function getFinancialStats(): Promise<FinancialStats> {
+  const supabase = createClient();
+  const [bookingsRes, coachesRes, payoutsRes] = await Promise.all([
+    supabase.from('bookings').select('status, payment_status, amount, coach_id'),
+    supabase.from('coaches').select('id, commission_pct'),
+    supabase.from('payouts').select('amount, status'),
+  ]);
+
+  const bookings = bookingsRes.data || [];
+  const commByCoach = new Map<string, number>((coachesRes.data || []).map((c: any) => [c.id, c.commission_pct ?? 20]));
+
+  let totalRevenue = 0;
+  let coachEarnings = 0;
+  for (const b of bookings as any[]) {
+    if (b.payment_status !== 'paid' || !b.amount) continue;
+    totalRevenue += b.amount;
+    const pct = commByCoach.get(b.coach_id) ?? 20;
+    coachEarnings += Math.round(b.amount * (100 - pct) / 100);
+  }
+
+  const payouts = (payoutsRes.data || []) as any[];
+  const pendingPayouts = payouts.filter((p) => p.status === 'pending').reduce((s, p) => s + (p.amount || 0), 0);
+  const paidPayouts = payouts.filter((p) => p.status === 'paid').reduce((s, p) => s + (p.amount || 0), 0);
+
+  const totalBookings = bookings.length;
+  const completedBookings = bookings.filter((b: any) => b.status === 'completed').length;
+  const cancelledBookings = bookings.filter((b: any) => b.status === 'cancelled').length;
+
+  return {
+    totalRevenue,
+    coachEarnings,
+    platformCommission: totalRevenue - coachEarnings,
+    pendingPayouts,
+    paidPayouts,
+    totalBookings,
+    completedBookings,
+    cancelledBookings,
+    cancellationRate: totalBookings ? Math.round((cancelledBookings / totalBookings) * 100) : 0,
+    completionRate: totalBookings ? Math.round((completedBookings / totalBookings) * 100) : 0,
+  };
+}
+
+// ─────────────────────────── Live session monitor ───────────────────────────
+
+export interface LiveSession {
+  id: string;
+  roomId: string | null;
+  coachName: string;
+  studentName: string;
+  sessionDate: string;
+  timeSlot: string;
+  status: string;
+}
+
+/** Today's confirmed sessions with a room — candidates for live monitoring. */
+export async function getLiveSessions(): Promise<LiveSession[]> {
+  const supabase = createClient();
+  const today = new Date().toISOString().slice(0, 10);
+  const { data } = await supabase
+    .from('bookings')
+    .select('id, room_id, session_date, time_slot, status, coaches(name), profiles(full_name)')
+    .eq('session_date', today)
+    .in('status', ['confirmed'])
+    .order('time_slot');
+  return (data || []).map((b: any) => ({
+    id: b.id,
+    roomId: b.room_id ?? null,
+    coachName: b.coaches?.name || 'Coach',
+    studentName: b.profiles?.full_name || 'Student',
+    sessionDate: b.session_date,
+    timeSlot: b.time_slot,
+    status: b.status,
+  }));
+}
+
+/** Force-completes a session so both sides' room links stop working. */
+export async function adminEndSession(bookingId: string): Promise<void> {
+  const supabase = createClient();
+  await supabase.from('bookings').update({ status: 'completed' }).eq('id', bookingId);
+  await logAudit('session_force_ended', 'booking', bookingId);
 }

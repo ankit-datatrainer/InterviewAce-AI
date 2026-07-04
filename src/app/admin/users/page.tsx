@@ -4,8 +4,9 @@ import { useState, useEffect } from 'react';
 import { Search } from 'lucide-react';
 import {
   getAdminUsers,
-  updateAdminUser,
   deleteAdminUser,
+  setUserBanned,
+  adminResetPassword,
   type AdminUser,
 } from '@/lib/admin-store';
 import { useToast } from '@/components/Toast';
@@ -45,10 +46,19 @@ export default function UsersPage() {
   };
 
   const handleToggleStatus = async (u: AdminUser) => {
-    const newStatus = u.status === 'Suspended' ? 'Active' : 'Suspended';
-    await updateAdminUser(u.id, { status: newStatus });
-    refresh();
-    toast(`${u.name} is now ${newStatus}`);
+    const banning = u.status !== 'Suspended';
+    try {
+      await setUserBanned(u.id, banning);
+      refresh();
+      toast(banning ? `${u.name} is banned and can no longer sign in.` : `${u.name} can sign in again.`);
+    } catch (e: any) {
+      toast(e?.message || 'Failed to update ban status.');
+    }
+  };
+
+  const handleResetPassword = async (u: AdminUser) => {
+    const res = await adminResetPassword(u.email);
+    toast(res.message);
   };
 
   const handleDelete = async (u: AdminUser) => {
@@ -131,7 +141,10 @@ export default function UsersPage() {
                         View
                       </button>
                       <button className="btn btn-ghost btn-sm" onClick={() => handleToggleStatus(u)}>
-                        {u.status === 'Suspended' ? 'Activate' : 'Suspend'}
+                        {u.status === 'Suspended' ? 'Unban' : 'Ban'}
+                      </button>
+                      <button className="btn btn-ghost btn-sm" onClick={() => handleResetPassword(u)}>
+                        Reset password
                       </button>
                       <button
                         className="btn btn-ghost btn-sm"

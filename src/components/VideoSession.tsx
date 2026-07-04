@@ -6,7 +6,7 @@ import { MeetingProvider, useMeeting, useParticipant } from '@videosdk.live/reac
 import { Mic, MicOff, Video, VideoOff, PhoneOff, ScreenShare, Loader2, AlertCircle, Settings } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 
-type Role = 'coach' | 'student';
+type Role = 'coach' | 'student' | 'monitor';
 
 // ── One participant's video/audio tile ──────────────────────────
 function ParticipantTile({ participantId }: { participantId: string }) {
@@ -100,10 +100,12 @@ function Control({ children, label, onClick, active = true, danger = false, high
 // ── The live meeting view (inside MeetingProvider) ──────────────
 function MeetingView({ role, leaveHref }: { role: Role; leaveHref: string }) {
   const router = useRouter();
+  const isMonitor = role === 'monitor';
   const [joined, setJoined] = useState(false);
   const [sharing, setSharing] = useState(false);
-  const [micEnabled, setMicEnabled] = useState(true);
-  const [camEnabled, setCamEnabled] = useState(true);
+  // Admins monitoring a session join silently: muted, camera off.
+  const [micEnabled, setMicEnabled] = useState(!isMonitor);
+  const [camEnabled, setCamEnabled] = useState(!isMonitor);
   const [joinError, setJoinError] = useState<string | null>(null);
   const [showDevices, setShowDevices] = useState(false);
   const [cams, setCams] = useState<{ deviceId: string; label: string }[]>([]);
@@ -133,16 +135,19 @@ function MeetingView({ role, leaveHref }: { role: Role; leaveHref: string }) {
     (async () => {
       // Surface the camera/mic permission prompt up front. If the browser blocks
       // it, join() would otherwise hang forever on getUserMedia with no feedback.
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
-        stream.getTracks().forEach((t) => t.stop());
-      } catch (e: any) {
-        setJoinError(
-          e?.name === 'NotAllowedError'
-            ? 'Camera/microphone permission was blocked. Allow access in your browser and reload.'
-            : 'No camera/microphone available. Connect a device and reload.',
-        );
-        return;
+      // Silent monitors join without devices, so skip the prompt entirely.
+      if (!isMonitor) {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+          stream.getTracks().forEach((t) => t.stop());
+        } catch (e: any) {
+          setJoinError(
+            e?.name === 'NotAllowedError'
+              ? 'Camera/microphone permission was blocked. Allow access in your browser and reload.'
+              : 'No camera/microphone available. Connect a device and reload.',
+          );
+          return;
+        }
       }
       try { joinFn.current(); } catch (e: any) { setJoinError(e?.message || 'Failed to join the session.'); }
     })();
@@ -202,10 +207,13 @@ function MeetingView({ role, leaveHref }: { role: Role; leaveHref: string }) {
 
   // Fixed seating: Coach is always on the LEFT, Student on the RIGHT,
   // regardless of who is the local participant on this device.
+  // A monitoring admin is not seated — they watch the two remote participants.
   const localId = localParticipant?.id || null;
   const remoteId = remoteIds[0] || null;
-  const coachId = role === 'coach' ? localId : remoteId;
-  const studentId = role === 'student' ? localId : remoteId;
+  const coachId = isMonitor ? (remoteIds[0] || null) : role === 'coach' ? localId : remoteId;
+  const studentId = isMonitor ? (remoteIds[1] || null) : role === 'student' ? localId : remoteId;
+  const seatLabel = (id: string | null, fallback: string) =>
+    (id && (participants.get(id) as any)?.displayName) || fallback;
 
   if (!joined) {
     if (joinError) {
@@ -233,18 +241,26 @@ function MeetingView({ role, leaveHref }: { role: Role; leaveHref: string }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '80vh', background: 'var(--bg)', borderRadius: 'var(--r-lg)', overflow: 'hidden', border: '1px solid var(--line)' }}>
       <div style={{ padding: '1rem 1.5rem', background: 'var(--bg-2)', borderBottom: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h3 style={{ margin: 0 }}>Live Coaching Session</h3>
-        <span style={{ background: 'rgba(16,185,129,0.1)', color: '#10b981', padding: '.2rem .8rem', borderRadius: 'var(--r-full)', fontSize: '.85rem', fontWeight: 600 }}>
-          ● Live · {allIds.length} in room
+        <h3 style={{ margin: 0 }}>{isMonitor ? 'Session Monitor' : 'Live Coaching Session'}</h3>
+        <span style={{ display: 'flex', alignItems: 'center', gap: '.6rem' }}>
+          {isMonitor && (
+            <span style={{ background: 'rgba(245,158,11,0.12)', color: '#F59E0B', padding: '.2rem .8rem', borderRadius: 'var(--r-full)', fontSize: '.85rem', fontWeight: 600 }}>
+              Admin · observing
+            </span>
+          )}
+          <span style={{ background: 'rgba(16,185,129,0.1)', color: '#10b981', padding: '.2rem .8rem', borderRadius: 'var(--r-full)', fontSize: '.85rem', fontWeight: 600 }}>
+            ● Live · {allIds.length} in room
+          </span>
         </span>
       </div>
 
       <div style={{ flex: 1, padding: '1rem', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', background: '#000', overflow: 'auto' }}>
-        <SeatTile id={coachId} seat="Coach" />
-        <SeatTile id={studentId} seat="Student" />
+        <SeatTile id={coachId} seat={isMonitor ? seatLabel(coachId, 'Participant 1') : 'Coach'} />
+        <SeatTile id={studentId} seat={isMonitor ? seatLabel(studentId, 'Waiting for participants…') : 'Student'} />
       </div>
 
       <div style={{ padding: '1.1rem 1.25rem', background: '#1a1a1f', borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'center', alignItems: 'flex-start', gap: '1.5rem' }}>
+        {!isMonitor && (<>
         <Control label={micEnabled ? 'Mute' : 'Unmute'} active={micEnabled} danger={!micEnabled}
           onClick={() => { toggleMic(); setMicEnabled((v) => !v); }}>
           {micEnabled ? <Mic size={22} /> : <MicOff size={22} />}
@@ -279,6 +295,7 @@ function MeetingView({ role, leaveHref }: { role: Role; leaveHref: string }) {
             </div>
           )}
         </div>
+        </>)}
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '.45rem' }}>
           <button
             onClick={() => {
@@ -291,7 +308,7 @@ function MeetingView({ role, leaveHref }: { role: Role; leaveHref: string }) {
             style={{ width: 56, height: 56, borderRadius: '50%', background: '#ef4444', border: 'none', color: '#fff', cursor: 'pointer', display: 'grid', placeItems: 'center', boxShadow: '0 6px 16px rgba(239,68,68,0.4)' }}>
             <PhoneOff size={22} />
           </button>
-          <span style={{ fontSize: '.72rem', color: '#fca5a5', fontWeight: 600 }}>End</span>
+          <span style={{ fontSize: '.72rem', color: '#fca5a5', fontWeight: 600 }}>{isMonitor ? 'Leave' : 'End'}</span>
         </div>
       </div>
     </div>
@@ -304,7 +321,7 @@ export default function VideoSession({ paramRoomId, role, leaveHref, canonicalBa
   const [state, setState] = useState<'loading' | 'ready' | 'unconfigured' | 'error'>('loading');
   const [token, setToken] = useState('');
   const [roomId, setRoomId] = useState('');
-  const [name, setName] = useState(role === 'coach' ? 'Coach' : 'Student');
+  const [name, setName] = useState(role === 'coach' ? 'Coach' : role === 'monitor' ? 'Admin (monitoring)' : 'Student');
 
   useEffect(() => {
     let active = true;
@@ -313,7 +330,9 @@ export default function VideoSession({ paramRoomId, role, leaveHref, canonicalBa
         // Display name from the signed-in user.
         const supabase = createClient();
         const { data: { user } } = await supabase.auth.getUser();
-        const dn = user?.user_metadata?.full_name || user?.email?.split('@')[0] || (role === 'coach' ? 'Coach' : 'Student');
+        const dn = role === 'monitor'
+          ? 'Admin (monitoring)'
+          : user?.user_metadata?.full_name || user?.email?.split('@')[0] || (role === 'coach' ? 'Coach' : 'Student');
 
         const res = await fetch('/api/videosdk/room', {
           method: 'POST',
@@ -367,7 +386,7 @@ export default function VideoSession({ paramRoomId, role, leaveHref, canonicalBa
   return (
     <MeetingProvider
       token={token}
-      config={{ meetingId: roomId, name, micEnabled: true, webcamEnabled: true, debugMode: false }}
+      config={{ meetingId: roomId, name, micEnabled: role !== 'monitor', webcamEnabled: role !== 'monitor', debugMode: false }}
       joinWithoutUserInteraction={false}
     >
       <MeetingView role={role} leaveHref={leaveHref} />

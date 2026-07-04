@@ -29,7 +29,8 @@ export async function GET() {
       .select('*')
       .in('status', ['approved', 'active'])
       .order('rating', { ascending: false });
-    dbCoaches = data || [];
+    // Hide coaches the admin has toggled off (column may not exist pre-migration).
+    dbCoaches = (data || []).filter((d: any) => d.visibility !== false);
   } catch {
     // DB unreachable — fall back to static list
     return NextResponse.json(COACHES);
@@ -62,6 +63,10 @@ export async function GET() {
       rating: match.rating > 0 ? match.rating : base.rating,
       reviews: match.total_reviews > 0 ? match.total_reviews : base.reviews,
       email: match.email || base.email,
+      priority: match.priority || 'Standard',
+      languages: match.languages || [],
+      certificates: match.certificates || [],
+      introVideoUrl: match.intro_video_url || '',
     };
   });
 
@@ -87,8 +92,16 @@ export async function GET() {
       bio: d.bio || d.description || 'Book a personalized 1-on-1 coaching session.',
       email: d.email || '',
       calcomLink: '',
+      priority: d.priority || 'Standard',
+      languages: d.languages || [],
+      certificates: d.certificates || [],
+      introVideoUrl: d.intro_video_url || '',
     });
   }
+
+  // Premium and Featured coaches surface first in the marketplace.
+  const rank: Record<string, number> = { Premium: 0, Featured: 1, Standard: 2, New: 3 };
+  merged.sort((a: any, b: any) => (rank[a.priority ?? 'Standard'] ?? 2) - (rank[b.priority ?? 'Standard'] ?? 2));
 
   return NextResponse.json(merged);
 }

@@ -67,20 +67,37 @@ export async function GET() {
   return NextResponse.json({ users });
 }
 
-// Update a user's plan and/or name (admin only).
+// Update a user's plan, name, or ban status (admin only).
 export async function PATCH(req: NextRequest) {
   const gate = await assertAdmin();
   if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: gate.status });
   const service = getServiceClient();
   if (!service) return NextResponse.json({ error: 'SERVICE_KEY_MISSING' }, { status: 400 });
 
-  const { id, plan, name } = await req.json();
+  const { id, plan, name, banned } = await req.json();
   if (!id) return NextResponse.json({ error: 'id is required' }, { status: 400 });
   const updates: any = {};
   if (plan) updates.plan = String(plan).toLowerCase();
   if (name) updates.full_name = name;
+
+  // Ban/unban at the AUTH level so a banned user genuinely cannot sign in
+  // (~100 years), and mirror the flag on the profile for the UI.
+  if (typeof banned === 'boolean') {
+    const { error } = await service.auth.admin.updateUserById(id, {
+      ban_duration: banned ? '876000h' : 'none',
+    } as any);
+    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+    updates.is_banned = banned;
+  }
+
   if (Object.keys(updates).length > 0) {
-    await service.from('profiles').update(updates).eq('id', id);
+    // is_banned may not exist until the marketplace migration runs — retry
+    // without it rather than failing the whole update.
+    const { error } = await service.from('profiles').update(updates).eq('id', id);
+    if (error && 'is_banned' in updates) {
+      delete updates.is_banned;
+      if (Object.keys(updates).length > 0) await service.from('profiles').update(updates).eq('id', id);
+    }
   }
   return NextResponse.json({ ok: true });
 }
