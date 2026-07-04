@@ -15,6 +15,7 @@ import {
   getCoachReviewsAdmin,
   addCoachReviewAdmin,
   editCoachReviewAdmin,
+  deleteCoachReviewAdmin,
   type AdminCoachDetail,
   type AdminReviewItem,
 } from '@/lib/admin-store';
@@ -205,6 +206,19 @@ export default function AdminCoachEditorPage() {
     setReviewComment('');
   };
 
+  const handleDeleteReview = async (r: AdminReviewItem) => {
+    if (!coach) return;
+    if (!confirm('Are you sure you want to delete this review?')) return;
+    try {
+      await deleteCoachReviewAdmin(r.id, coach.id);
+      toast('Review deleted.');
+      if (editingReviewId === r.id) cancelEditReview();
+      load();
+    } catch (e: any) {
+      toast(e?.message || 'Failed to delete review.');
+    }
+  };
+
   const certName = (url: string) => decodeURIComponent(url.split('/').pop() || 'certificate');
 
   if (!loaded) return null;
@@ -358,7 +372,10 @@ export default function AdminCoachEditorPage() {
                   {r.comment && <p style={{ margin: 0, fontSize: '.85rem', color: 'var(--text-2)' }}>{r.comment}</p>}
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '.4rem' }}>
                     <span style={{ fontSize: '.74rem', color: 'var(--text-3)' }}>{r.date}</span>
-                    <button className="btn btn-ghost btn-sm" style={{ padding: '0 .4rem', height: 24, fontSize: '.75rem' }} onClick={() => startEditReview(r)}>Edit</button>
+                    <div style={{ display: 'flex', gap: '.4rem' }}>
+                      <button className="btn btn-ghost btn-sm" style={{ padding: '0 .4rem', height: 24, fontSize: '.75rem' }} onClick={() => startEditReview(r)}>Edit</button>
+                      <button className="btn btn-ghost btn-sm" style={{ padding: '0 .4rem', height: 24, color: '#ef4444' }} onClick={() => handleDeleteReview(r)} title="Delete review"><Trash2 size={13} /></button>
+                    </div>
                   </div>
                 </div>
               ))}

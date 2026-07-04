@@ -474,6 +474,27 @@ export async function editCoachReviewAdmin(reviewId: string, coachId: string, ra
   }
 }
 
+export async function deleteCoachReviewAdmin(reviewId: string, coachId: string): Promise<void> {
+  const supabase = createClient();
+  const { error } = await supabase.from('reviews').delete().eq('id', reviewId);
+  if (error) throw new Error(error.message);
+
+  const { data: all } = await supabase.from('reviews').select('rating').eq('coach_id', coachId);
+  if (all && all.length > 0) {
+    const avg = all.reduce((s: number, r: any) => s + r.rating, 0) / all.length;
+    await supabase.from('coaches').update({
+      rating: Math.round(avg * 10) / 10,
+      total_reviews: all.length,
+    }).eq('id', coachId);
+  } else {
+    // If no reviews left, reset to 0
+    await supabase.from('coaches').update({
+      rating: 0,
+      total_reviews: 0,
+    }).eq('id', coachId);
+  }
+}
+
 export async function updateAdminCoach(id: string, updates: Partial<AdminCoach>): Promise<void> {
   const supabase = createClient();
   const dbUpdates: any = {};
