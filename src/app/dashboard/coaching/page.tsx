@@ -1,17 +1,28 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Search, Star, Clock, Calendar, Video, CheckCircle } from 'lucide-react';
 import { useToast } from '@/components/Toast';
 import { COACHES } from '@/lib/coaches';
 
+type Coach = typeof COACHES[number];
+
 export default function CoachingPage() {
   const { toast } = useToast();
   const router = useRouter();
   const [search, setSearch] = useState('');
+  const [coaches, setCoaches] = useState<Coach[]>(COACHES); // start with static, then overlay DB data
 
-  const filteredCoaches = COACHES.filter(c => 
+  // Fetch the merged (static + DB) coach list so edits from the coach portal show up
+  useEffect(() => {
+    fetch('/api/coaching/coaches')
+      .then((r) => r.json())
+      .then((data: Coach[]) => { if (Array.isArray(data) && data.length) setCoaches(data); })
+      .catch(() => { /* keep static fallback */ });
+  }, []);
+
+  const filteredCoaches = coaches.filter(c => 
     c.name.toLowerCase().includes(search.toLowerCase()) || 
     c.tags.some(t => t.toLowerCase().includes(search.toLowerCase())) ||
     c.title.toLowerCase().includes(search.toLowerCase())

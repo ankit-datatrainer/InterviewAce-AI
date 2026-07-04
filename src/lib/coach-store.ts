@@ -85,6 +85,18 @@ export async function getMyCoachProfile(): Promise<CoachProfile | null> {
   return data ? mapCoach(data) : null;
 }
 
+/** All coaches visible to students (approved) for the marketplace listing. */
+export async function getPublicCoaches(): Promise<CoachProfile[]> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from('coaches')
+    .select('*')
+    .in('status', ['approved', 'active'])
+    .order('rating', { ascending: false });
+  if (error || !data) return [];
+  return data.map(mapCoach);
+}
+
 export async function updateMyCoachProfile(coachId: string, updates: Partial<CoachProfile>): Promise<void> {
   const supabase = createClient();
   const db: any = {};

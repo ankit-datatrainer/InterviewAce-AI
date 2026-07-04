@@ -9,11 +9,13 @@ import { saveBooking } from '@/lib/booking-store';
 import { getCoachBookingInfo, createCoachBooking, type CoachBookingInfo, type BookableSlot } from '@/lib/student-booking';
 import { getSessionWindow } from '@/lib/session-window';
 
+type Coach = typeof COACHES[number];
+
 export default function InstructorPage() {
   const router = useRouter();
   const params = useParams();
   const { toast } = useToast();
-  const [coach, setCoach] = useState<typeof COACHES[0] | null>(null);
+  const [coach, setCoach] = useState<Coach | null>(null);
   const [bookingStep, setBookingStep] = useState<1 | 2 | 3>(1);
   const [generatedRoomId, setGeneratedRoomId] = useState<string>('session-123');
 
@@ -43,11 +45,22 @@ export default function InstructorPage() {
     return () => clearInterval(iv);
   }, [booked]);
 
+  // Fetch the merged coach list from the API so coach edits are reflected
   useEffect(() => {
-    if (params?.slug) {
-      const found = COACHES.find(c => c.slug === params.slug);
-      if (found) setCoach(found);
-    }
+    if (!params?.slug) return;
+
+    // Immediately show the static coach while the API loads
+    const staticCoach = COACHES.find(c => c.slug === params.slug);
+    if (staticCoach) setCoach(staticCoach);
+
+    fetch('/api/coaching/coaches')
+      .then((r) => r.json())
+      .then((data: Coach[]) => {
+        if (!Array.isArray(data)) return;
+        const found = data.find((c) => c.slug === params.slug);
+        if (found) setCoach(found);
+      })
+      .catch(() => { /* keep static fallback */ });
   }, [params?.slug]);
 
   // Load the coach's published availability (set in their Coach Portal).
