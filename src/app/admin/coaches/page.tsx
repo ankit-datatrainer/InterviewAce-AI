@@ -18,7 +18,7 @@ const statusColor = (s: string) => (s === 'Approved' ? 'green' : s === 'Pending'
 
 const CATEGORIES = ['communication', 'personality', 'interview', 'hr', 'corporate', 'career'];
 
-const emptyCoach: NewCoachInput = { name: '', email: '', title: '', bio: '', category: 'interview', pricePerSession: 1000, experienceYears: 5, tags: [], commissionPct: 20 };
+const emptyCoach: NewCoachInput = { name: '', email: '', title: '', bio: '', category: 'interview', pricePerSession: 1000, experienceYears: 5, tags: [], commissionPct: 20, imageUrl: '', introVideoUrl: '' };
 
 /* ── Shared modal overlay style (scrollable, top-aligned) ── */
 const overlayStyle: React.CSSProperties = {
@@ -237,7 +237,7 @@ export default function CoachManagementPage() {
         <div style={overlayStyle} onClick={() => setShowAdd(false)}>
           <div
             className="widget"
-            style={{ maxWidth: 560, width: '100%', marginTop: '1rem', marginBottom: '2rem' }}
+            style={{ maxWidth: 680, width: '100%', marginTop: '1rem', marginBottom: '2rem' }}
             onClick={(e) => e.stopPropagation()}
           >
             {/* Header */}
@@ -256,6 +256,8 @@ export default function CoachManagementPage() {
               <div className="field"><label>Experience (years)</label><input type="number" className="input" value={form.experienceYears} onChange={(e) => setForm({ ...form, experienceYears: Number(e.target.value) })} /></div>
               <div className="field"><label>Commission %</label><input type="number" className="input" value={form.commissionPct} onChange={(e) => setForm({ ...form, commissionPct: Number(e.target.value) })} /></div>
               <div className="field"><label>Tags (comma separated)</label><input className="input" value={tagsStr} onChange={(e) => setTagsStr(e.target.value)} /></div>
+              <div className="field"><label>Profile Image URL</label><input className="input" placeholder="https://..." value={form.imageUrl || ''} onChange={(e) => setForm({ ...form, imageUrl: e.target.value })} /></div>
+              <div className="field" style={{ gridColumn: '1 / -1' }}><label>Intro Video URL</label><input className="input" placeholder="https://youtube.com/..." value={form.introVideoUrl || ''} onChange={(e) => setForm({ ...form, introVideoUrl: e.target.value })} /></div>
             </div>
 
             {/* Password section */}

@@ -626,6 +626,8 @@ export interface NewCoachInput {
   experienceYears?: number;
   tags?: string[];
   commissionPct?: number;
+  imageUrl?: string;
+  introVideoUrl?: string;
 }
 
 export async function createCoach(input: NewCoachInput): Promise<string | null> {
@@ -642,6 +644,8 @@ export async function createCoach(input: NewCoachInput): Promise<string | null> 
     tags: input.tags ?? [],
     commission_pct: input.commissionPct ?? 20,
     avatar_color: getColorForId(input.name),
+    image_url: input.imageUrl || null,
+    intro_video_url: input.introVideoUrl || null,
     status: 'pending',
     is_verified: false,
   }).select('id').single();
