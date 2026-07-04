@@ -455,6 +455,25 @@ export async function addCoachReviewAdmin(coachId: string, rating: number, comme
   }
 }
 
+export async function editCoachReviewAdmin(reviewId: string, coachId: string, rating: number, comment: string, reviewerName: string): Promise<void> {
+  const supabase = createClient();
+  const { error } = await supabase.from('reviews').update({
+    rating: Math.max(1, Math.min(5, Math.round(rating))),
+    comment: comment || null,
+    reviewer_name: reviewerName.trim() || 'Student',
+  }).eq('id', reviewId);
+  if (error) throw new Error(error.message);
+
+  const { data: all } = await supabase.from('reviews').select('rating').eq('coach_id', coachId);
+  if (all && all.length > 0) {
+    const avg = all.reduce((s: number, r: any) => s + r.rating, 0) / all.length;
+    await supabase.from('coaches').update({
+      rating: Math.round(avg * 10) / 10,
+      total_reviews: all.length,
+    }).eq('id', coachId);
+  }
+}
+
 export async function updateAdminCoach(id: string, updates: Partial<AdminCoach>): Promise<void> {
   const supabase = createClient();
   const dbUpdates: any = {};

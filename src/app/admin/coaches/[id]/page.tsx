@@ -14,6 +14,7 @@ import {
   linkCoachToUser,
   getCoachReviewsAdmin,
   addCoachReviewAdmin,
+  editCoachReviewAdmin,
   type AdminCoachDetail,
   type AdminReviewItem,
 } from '@/lib/admin-store';
@@ -81,6 +82,7 @@ export default function AdminCoachEditorPage() {
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewComment, setReviewComment] = useState('');
   const [addingReview, setAddingReview] = useState(false);
+  const [editingReviewId, setEditingReviewId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const c = await getAdminCoachById(id);
@@ -173,15 +175,34 @@ export default function AdminCoachEditorPage() {
     if (!reviewerName.trim()) { toast('Enter a reviewer name.'); return; }
     setAddingReview(true);
     try {
-      await addCoachReviewAdmin(coach.id, reviewRating, reviewComment.trim(), reviewerName.trim());
-      toast('Review added.');
-      setReviewerName(''); setReviewComment(''); setReviewRating(5);
+      if (editingReviewId) {
+        await editCoachReviewAdmin(editingReviewId, coach.id, reviewRating, reviewComment.trim(), reviewerName.trim());
+        toast('Review updated.');
+      } else {
+        await addCoachReviewAdmin(coach.id, reviewRating, reviewComment.trim(), reviewerName.trim());
+        toast('Review added.');
+      }
+      setReviewerName(''); setReviewComment(''); setReviewRating(5); setEditingReviewId(null);
       load();
     } catch (e: any) {
-      toast(e?.message?.includes('column') || e?.message?.includes('null') ? 'Run deploy/admin-review-update.sql in Supabase first.' : (e?.message || 'Failed to add review.'));
+      toast(e?.message?.includes('column') || e?.message?.includes('null') ? 'Run deploy/admin-review-update.sql in Supabase first.' : (e?.message || 'Failed to save review.'));
     } finally {
       setAddingReview(false);
     }
+  };
+
+  const startEditReview = (r: AdminReviewItem) => {
+    setEditingReviewId(r.id);
+    setReviewerName(r.studentName);
+    setReviewRating(r.rating);
+    setReviewComment(r.comment || '');
+  };
+
+  const cancelEditReview = () => {
+    setEditingReviewId(null);
+    setReviewerName('');
+    setReviewRating(5);
+    setReviewComment('');
   };
 
   const certName = (url: string) => decodeURIComponent(url.split('/').pop() || 'certificate');
@@ -335,12 +356,22 @@ export default function AdminCoachEditorPage() {
                     <span style={{ color: '#F59E0B', display: 'flex', alignItems: 'center', gap: '.2rem' }}><Star size={12} fill="currentColor" /> {r.rating}</span>
                   </div>
                   {r.comment && <p style={{ margin: 0, fontSize: '.85rem', color: 'var(--text-2)' }}>{r.comment}</p>}
-                  <span style={{ fontSize: '.74rem', color: 'var(--text-3)' }}>{r.date}</span>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '.4rem' }}>
+                    <span style={{ fontSize: '.74rem', color: 'var(--text-3)' }}>{r.date}</span>
+                    <button className="btn btn-ghost btn-sm" style={{ padding: '0 .4rem', height: 24, fontSize: '.75rem' }} onClick={() => startEditReview(r)}>Edit</button>
+                  </div>
                 </div>
               ))}
             </div>
 
-            <p style={{ fontSize: '.82rem', fontWeight: 600, color: 'var(--text-2)', marginBottom: '.5rem', textTransform: 'uppercase', letterSpacing: '.03em' }}>Add a review</p>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.5rem' }}>
+              <p style={{ margin: 0, fontSize: '.82rem', fontWeight: 600, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '.03em' }}>
+                {editingReviewId ? 'Edit Review' : 'Add a review'}
+              </p>
+              {editingReviewId && (
+                <button className="btn btn-ghost btn-sm" style={{ padding: '0 .4rem', height: 24, fontSize: '.75rem' }} onClick={cancelEditReview}>Cancel</button>
+              )}
+            </div>
             <div className="dash-grid-2" style={{ marginBottom: '.5rem' }}>
               <div className="field" style={{ marginBottom: 0 }}><input className="input" placeholder="Reviewer name" value={reviewerName} onChange={(e) => setReviewerName(e.target.value)} /></div>
               <div className="field" style={{ marginBottom: 0 }}>
@@ -350,7 +381,7 @@ export default function AdminCoachEditorPage() {
               </div>
             </div>
             <textarea className="input" rows={2} placeholder="Review comment (optional)" value={reviewComment} onChange={(e) => setReviewComment(e.target.value)} style={{ marginBottom: '.6rem' }} />
-            <button className="btn btn-primary btn-sm" onClick={handleAddReview} disabled={addingReview}>{addingReview ? 'Adding…' : 'Add review'}</button>
+            <button className="btn btn-primary btn-sm" onClick={handleAddReview} disabled={addingReview}>{addingReview ? 'Saving…' : (editingReviewId ? 'Save changes' : 'Add review')}</button>
           </div>
         </div>
       </div>
