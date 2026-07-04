@@ -85,22 +85,51 @@ export default function SignupPage() {
     }
 
     setLoading(true)
+
+    const metadata = {
+      full_name: name,
+      phone,
+      user_type: userType,
+      college: userType === 'student' ? college : undefined,
+      course: userType === 'student' ? course : undefined,
+      graduation_year: userType === 'student' ? gradYear : undefined,
+      company_name: userType === 'professional' ? company : undefined,
+      job_title: userType === 'professional' ? jobTitle : undefined,
+      experience_years: userType === 'professional' ? experience : undefined,
+    }
+
+    // Prefer our OWN branded verification email (no Supabase branding). Falls
+    // back automatically to the standard Supabase flow if it isn't configured.
+    try {
+      const res = await fetch('/api/auth/signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password, metadata }),
+      })
+      const data = await res.json()
+      if (res.ok && data.ok) {
+        setConfirmationEmail(email)
+        setLoading(false)
+        return
+      }
+      if (res.status === 409) {
+        setError(data.error || 'An account with this email already exists.')
+        setLoading(false)
+        return
+      }
+      // else: data.fallback === true → continue to the default flow below.
+    } catch {
+      // network issue → fall back to the default flow below.
+    }
+
     const supabase = createClient()
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
-        data: {
-          full_name: name,
-          phone,
-          user_type: userType,
-          college: userType === 'student' ? college : undefined,
-          course: userType === 'student' ? course : undefined,
-          graduation_year: userType === 'student' ? gradYear : undefined,
-          company_name: userType === 'professional' ? company : undefined,
-          job_title: userType === 'professional' ? jobTitle : undefined,
-          experience_years: userType === 'professional' ? experience : undefined,
-        },
+        // Land the verification link on our success page (works on any host).
+        emailRedirectTo: `${window.location.origin}/auth/verified`,
+        data: metadata,
       },
     })
 

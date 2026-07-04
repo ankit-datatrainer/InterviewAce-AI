@@ -10,7 +10,7 @@ import {
   Video,
 } from 'lucide-react';
 import { useToast } from '@/components/Toast';
-import { getInterviewById, getLatestInterview } from '@/lib/interview-store';
+import { getInterviewById, getLatestInterview, hydrateInterviews } from '@/lib/interview-store';
 import type { InterviewRecord } from '@/lib/interview-store';
 import { getRecording } from '@/lib/recording-store';
 
@@ -49,14 +49,24 @@ function AnalysisContent() {
 
   useEffect(() => {
     const id = searchParams.get('id');
-    const record = id ? getInterviewById(id) : getLatestInterview();
-    setInterview(record);
-    setLoaded(true);
-    requestAnimationFrame(() => {
-      setAnimated(true);
-    });
-    if (record) {
-      getRecording(record.id).then((blob) => setHasVideo(!!blob && blob.size > 0));
+    const loadRecord = (record: InterviewRecord | null) => {
+      setInterview(record);
+      setLoaded(true);
+      requestAnimationFrame(() => setAnimated(true));
+      if (record) {
+        getRecording(record.id).then((blob) => setHasVideo(!!blob && blob.size > 0));
+      }
+    };
+
+    const local = id ? getInterviewById(id) : getLatestInterview();
+    if (local) {
+      loadRecord(local);
+    } else {
+      // Not in this browser's cache — pull from the database (cross-device),
+      // then look it up again so the report still opens.
+      hydrateInterviews()
+        .then((all) => loadRecord(id ? all.find((r) => r.id === id || r.dbId === id) ?? null : all[0] ?? null))
+        .catch(() => loadRecord(null));
     }
   }, [searchParams]);
 

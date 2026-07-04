@@ -36,7 +36,6 @@ export async function proxy(request: NextRequest) {
   } = await supabase.auth.getUser()
 
   const { pathname } = request.nextUrl
-  const hasAdminBypass = request.cookies.get('admin_bypass')?.value === 'true'
 
   const isDashboardRoute = pathname.startsWith('/dashboard')
   const isAdminRoute = pathname.startsWith('/admin')
@@ -44,8 +43,9 @@ export async function proxy(request: NextRequest) {
   const isAuthRoute = pathname === '/login' || pathname === '/signup'
   const isProtectedRoute = isDashboardRoute || isAdminRoute || isCoachRoute
 
-  // If user is NOT authenticated and tries to access a protected area, redirect to /login
-  if (!user && !hasAdminBypass && isProtectedRoute) {
+  // Protected areas (including /admin) ALWAYS require a real authenticated
+  // session — there is no cookie bypass. Not signed in → go to /login.
+  if (!user && isProtectedRoute) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     return NextResponse.redirect(url)

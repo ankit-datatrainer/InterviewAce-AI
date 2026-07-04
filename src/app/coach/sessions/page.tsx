@@ -2,12 +2,54 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Video, CalendarDays, Clock, CheckCircle, FileText, X } from 'lucide-react';
+import { Video, CalendarDays, Clock, CheckCircle, FileText, X, Bell } from 'lucide-react';
 import { useToast } from '@/components/Toast';
 import CoachShell from '@/components/CoachShell';
 import { getMySessions, updateSession, type CoachProfile, type CoachSession } from '@/lib/coach-store';
+import { useSessionWindow, parseSessionTimes } from '@/lib/session-window';
 
 type Filter = 'upcoming' | 'completed' | 'all';
+
+// Join opens 5 minutes before the slot; until then show a live countdown chip.
+function JoinGate({ session, onJoin }: { session: CoachSession; onJoin: () => void }) {
+  const win = useSessionWindow(session.sessionDate, session.timeSlot);
+  if (win.isOver) return <span className="tag amber">Time over</span>;
+  if (win.canJoin) {
+    return (
+      <button className="btn btn-primary btn-sm" disabled={!session.roomId} onClick={onJoin}>
+        <Video size={15} /> Join now
+      </button>
+    );
+  }
+  return (
+    <span className="tag blue" style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem', fontVariantNumeric: 'tabular-nums' }}>
+      <Clock size={13} /> Opens in {win.countdown}
+    </span>
+  );
+}
+
+// Banner "notification" for the coach's next upcoming session.
+function NextSessionBanner({ sessions }: { sessions: CoachSession[] }) {
+  const next = sessions
+    .filter((s) => s.status === 'confirmed')
+    .map((s) => ({ s, t: parseSessionTimes(s.sessionDate, s.timeSlot) }))
+    .filter((x) => x.t && x.t.end.getTime() > Date.now())
+    .sort((a, b) => a.t!.start.getTime() - b.t!.start.getTime())[0];
+  const win = useSessionWindow(next?.s.sessionDate || '', next?.s.timeSlot || '');
+  if (!next) return null;
+  return (
+    <div className="widget" style={{ display: 'flex', alignItems: 'center', gap: '.9rem', padding: '1rem 1.25rem', marginBottom: '1rem', border: '1px solid rgba(37,99,235,0.35)', background: 'rgba(37,99,235,0.07)' }}>
+      <Bell size={20} style={{ color: 'var(--blue)', flexShrink: 0 }} />
+      <div style={{ fontSize: '.95rem' }}>
+        <b>Upcoming session:</b> {next.s.studentName} · {next.s.sessionDate} · {next.s.timeSlot}
+        {' — '}
+        {win.canJoin
+          ? <b style={{ color: '#10b981' }}>the room is open, you can join now.</b>
+          : win.isOver ? 'this slot has ended.' : <>room opens in <b style={{ fontVariantNumeric: 'tabular-nums' }}>{win.countdown}</b> (5 min before start).</>}
+      </div>
+    </div>
+  );
+}
 
 function SessionsInner({ coach }: { coach: CoachProfile }) {
   const router = useRouter();
@@ -42,8 +84,10 @@ function SessionsInner({ coach }: { coach: CoachProfile }) {
   return (
     <>
       <div className="app-head">
-        <div><h2>My Sessions</h2><p>Join live rooms, add notes, and track completion.</p></div>
+        <div><h2>My Sessions</h2><p>Join live rooms, add notes, and track completion. Rooms open 5 minutes before the scheduled time.</p></div>
       </div>
+
+      <NextSessionBanner sessions={sessions} />
 
       <div style={{ display: 'flex', gap: '.5rem', marginBottom: '1rem' }}>
         {(['upcoming', 'completed', 'all'] as Filter[]).map((f) => (
@@ -77,7 +121,7 @@ function SessionsInner({ coach }: { coach: CoachProfile }) {
                   {s.status === 'confirmed' && (
                     <>
                       <button className="btn btn-ghost btn-sm" onClick={() => markComplete(s)}><CheckCircle size={15} /> Complete</button>
-                      <button className="btn btn-primary btn-sm" disabled={!s.roomId} onClick={() => s.roomId && router.push(`/coach/room/${s.roomId}`)}><Video size={15} /> Join</button>
+                      <JoinGate session={s} onJoin={() => s.roomId && router.push(`/coach/room/${s.roomId}`)} />
                     </>
                   )}
                 </div>

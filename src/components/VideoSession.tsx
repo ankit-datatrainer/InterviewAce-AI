@@ -280,11 +280,18 @@ function MeetingView({ role, leaveHref }: { role: Role; leaveHref: string }) {
           )}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '.45rem' }}>
-          <button onClick={() => leave()} title="Leave"
+          <button
+            onClick={() => {
+              // End the meeting, then always land on the dashboard — even if the
+              // SDK's onMeetingLeft callback never fires for any reason.
+              try { leave(); } catch { /* ignore */ }
+              setTimeout(() => router.push(leaveHref), 1200);
+            }}
+            title="End meeting"
             style={{ width: 56, height: 56, borderRadius: '50%', background: '#ef4444', border: 'none', color: '#fff', cursor: 'pointer', display: 'grid', placeItems: 'center', boxShadow: '0 6px 16px rgba(239,68,68,0.4)' }}>
             <PhoneOff size={22} />
           </button>
-          <span style={{ fontSize: '.72rem', color: '#fca5a5', fontWeight: 600 }}>Leave</span>
+          <span style={{ fontSize: '.72rem', color: '#fca5a5', fontWeight: 600 }}>End</span>
         </div>
       </div>
     </div>

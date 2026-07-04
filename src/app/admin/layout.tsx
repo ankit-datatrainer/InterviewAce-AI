@@ -68,9 +68,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     <div className="app-shell">
       {/* Mobile Header */}
       <div className="mobile-dash-header">
-        <h2>Admin Panel</h2>
-        <button 
-          className="dash-hamburger" 
+        <Link href="/admin" className="logo" style={{ fontSize: '1.05rem' }}>
+          <span className="logo-wordmark">Interview<span className="logo-ace">Ace</span></span>
+          <span className="logo-badge">AI</span>
+        </Link>
+        <button
+          className="dash-hamburger"
           onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
           aria-label="Toggle Dashboard Menu"
         >
@@ -79,25 +82,13 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       </div>
 
       <aside className={`sidebar ${mobileMenuOpen ? 'open' : ''}`}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '.6rem', padding: '.5rem .8rem', marginBottom: '.6rem' }}>
-          <span
-            style={{
-              width: 32,
-              height: 32,
-              borderRadius: 10,
-              background: 'var(--grad)',
-              display: 'grid',
-              placeItems: 'center',
-              color: '#fff',
-              fontSize: '.95rem',
-              boxShadow: '0 6px 18px -4px rgba(37,99,235,.6)',
-            }}
-          >
-            <Shield size={17} />
-          </span>
-          <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: '.95rem' }}>
-            Admin Panel
-          </span>
+        {/* Website logo at the top of the Super Admin panel */}
+        <Link href="/admin" className="logo" style={{ padding: '.5rem .8rem', marginBottom: '.2rem' }}>
+          <span className="logo-wordmark">Interview<span className="logo-ace">Ace</span></span>
+          <span className="logo-badge">AI</span>
+        </Link>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '.45rem', padding: '0 .8rem .6rem', color: 'var(--text-3)', fontSize: '.75rem', fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase' }}>
+          <Shield size={13} /> Super Admin
         </div>
 
         <span className="side-group">Manage</span>

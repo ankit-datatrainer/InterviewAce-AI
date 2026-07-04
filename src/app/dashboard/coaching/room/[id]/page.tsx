@@ -10,7 +10,7 @@ export default function StudentCoachingRoom() {
     <VideoSession
       paramRoomId={id}
       role="student"
-      leaveHref="/dashboard/coaching"
+      leaveHref="/dashboard"
       canonicalBase="/dashboard/coaching/room"
     />
   );

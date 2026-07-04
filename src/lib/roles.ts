@@ -5,6 +5,8 @@ export type UserRole = 'student' | 'coach' | 'admin';
 // Emails always treated as admin even if their profile row hasn't been migrated yet.
 export const ADMIN_EMAILS = [
   process.env.NEXT_PUBLIC_ADMIN_EMAIL?.toLowerCase(),
+  'peculiex@gmail.com',
+  'admin@peculiex.com',
   'admin@interviewace.ai',
   'ankit@interviewace.ai',
 ].filter(Boolean) as string[];

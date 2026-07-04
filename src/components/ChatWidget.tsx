@@ -260,7 +260,11 @@ export default function ChatWidget() {
 
   const lastBotMsg = [...messages].reverse().find((m) => m.sender === 'bot');
 
-  if (pathname?.startsWith('/admin') || pathname?.startsWith('/dashboard')) {
+  if (
+    pathname?.startsWith('/admin') ||
+    pathname?.startsWith('/dashboard') ||
+    pathname?.startsWith('/coach')
+  ) {
     return null;
   }
 

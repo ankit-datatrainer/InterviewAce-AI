@@ -28,6 +28,8 @@ interface NimOptions {
   maxTokens?: number;
   /** When true, asks the model to return strict JSON. */
   json?: boolean;
+  /** Abort the request after this many ms (caller can then fall back). */
+  timeoutMs?: number;
 }
 
 /**
@@ -54,6 +56,7 @@ export async function nimChat(messages: ChatMessage[], options: NimOptions = {})
       Accept: 'application/json',
     },
     body: JSON.stringify(body),
+    ...(options.timeoutMs ? { signal: AbortSignal.timeout(options.timeoutMs) } : {}),
   });
 
   if (!res.ok) {

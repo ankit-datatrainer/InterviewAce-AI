@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Clock, Target, Calendar, ChevronRight, BarChart } from 'lucide-react';
-import { getInterviews } from '@/lib/interview-store';
+import { getInterviews, hydrateInterviews } from '@/lib/interview-store';
 import type { InterviewRecord } from '@/lib/interview-store';
 
 function formatRelativeDate(iso: string): string {
@@ -31,6 +31,7 @@ export default function HistoryPage() {
   useEffect(() => {
     setInterviews(getInterviews());
     setLoaded(true);
+    hydrateInterviews().then((all) => setInterviews([...all])).catch(() => {});
   }, []);
 
   if (!loaded) return null;

@@ -45,7 +45,7 @@ export default async function RootLayout({
   }
 
   const cookieStore = await cookies();
-  const isAdmin = cookieStore.get('isAdmin')?.value === 'true' || cookieStore.get('admin_bypass')?.value === 'true';
+  const isAdmin = cookieStore.get('isAdmin')?.value === 'true';
   // Read the saved theme on the server so the correct theme is applied in the
   // initial HTML (no flash, and no inline <script> in the React tree).
   const theme = cookieStore.get('theme')?.value === 'dark' ? 'dark' : 'light';

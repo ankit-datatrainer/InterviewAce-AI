@@ -10,12 +10,32 @@ import {
   Plus,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
-import { getInterviews } from '@/lib/interview-store';
+import { getInterviews, hydrateInterviews } from '@/lib/interview-store';
 import type { InterviewRecord } from '@/lib/interview-store';
 import { getLatestResume } from '@/lib/resume-store';
 import type { ResumeRecord } from '@/lib/resume-store';
 import { getUpcomingBookings } from '@/lib/booking-store';
 import type { BookingRecord } from '@/lib/booking-store';
+import { useSessionWindow } from '@/lib/session-window';
+
+// The coaching room opens 5 minutes before the booked slot. Until then the
+// Join button is hidden and a live countdown is shown instead.
+function BookingJoinGate({ date, timeSlot, roomId }: { date: string; timeSlot: string; roomId: string }) {
+  const win = useSessionWindow(date, timeSlot);
+  if (win.isOver) return <span className="tag amber" style={{ fontSize: '0.75rem' }}>Ended</span>;
+  if (win.canJoin) {
+    return (
+      <Link href={`/dashboard/coaching/room/${roomId}`} className="btn btn-primary btn-sm" style={{ padding: '0.25rem 0.6rem', fontSize: '0.8rem' }}>
+        Join Live
+      </Link>
+    );
+  }
+  return (
+    <span className="tag blue" style={{ fontSize: '0.75rem', fontVariantNumeric: 'tabular-nums' }}>
+      Opens in {win.countdown}
+    </span>
+  );
+}
 
 function formatRelativeDate(iso: string): string {
   const date = new Date(iso);
@@ -68,6 +88,9 @@ export default function DashboardPage() {
     setUpcomingBookings(getUpcomingBookings());
     setLoaded(true);
     loadUser();
+    // Pull the user's interviews from the database so past records show up on
+    // any device they log into (not just the browser they practiced on).
+    hydrateInterviews().then((all) => setInterviews([...all])).catch(() => {});
   }, []);
 
   const count = interviews.length;
@@ -247,9 +270,7 @@ export default function DashboardPage() {
                 <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                   <span className="tag blue">{booking.coachCategory}</span>
                   {booking.roomId && (
-                    <Link href={`/dashboard/coaching/room/${booking.roomId}`} className="btn btn-primary btn-sm" style={{ padding: '0.25rem 0.6rem', fontSize: '0.8rem' }}>
-                      Join Live
-                    </Link>
+                    <BookingJoinGate date={booking.date} timeSlot={booking.timeSlot} roomId={booking.roomId} />
                   )}
                 </div>
               </div>

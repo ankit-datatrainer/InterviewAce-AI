@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/components/Toast';
+import RoleCombobox, { COMMON_ROLES } from '@/components/RoleCombobox';
 import {
   MessageSquare,
   Monitor,
@@ -64,15 +65,10 @@ const difficulties = [
   { id: 'adv', label: 'Advanced', icon: Flame, sub: '5+ years' },
 ];
 
-const roles = [
-  'Product Manager',
-  'Frontend Developer',
-  'Data Analyst',
-  'Business Analyst',
-  'Marketing Associate',
-  'Management Trainee',
-  'Custom Job Description',
-];
+// Comprehensive suggestion list for the target-role picker. Users can pick any
+// of these or type a role that isn't listed. "Custom Job Description" stays at
+// the end for the paste-your-own-JD flow.
+const roleOptions = [...COMMON_ROLES, 'Custom Job Description'];
 
 const industries = [
   'Technology / Software',
@@ -188,6 +184,8 @@ export default function InterviewPage() {
   const sessionEndTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sessionWarnTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const endInterviewCleanupRef = useRef<(() => void) | null>(null);
+  // Guards against the end flow running twice (double-click / auto-end race).
+  const endingRef = useRef(false);
   // The per-interview LiveAvatar context id (for cleanup when the interview ends).
   const liveContextIdRef = useRef<string | null>(null);
 
@@ -205,8 +203,16 @@ export default function InterviewPage() {
   useEffect(() => { resumeTextRef.current = resumeText; }, [resumeText]);
 
   const handleLinkedInExtract = async () => {
-    if (!linkedinUrl) {
+    if (!linkedinUrl.trim()) {
       toast('Please enter a LinkedIn profile URL.');
+      return;
+    }
+    // Normalize: accept "linkedin.com/in/x", "www.linkedin.com/in/x", with or
+    // without https://, and mobile links — then validate it's a profile URL.
+    let url = linkedinUrl.trim();
+    if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+    if (!/^https?:\/\/([a-z]{2,3}\.)?linkedin\.com\/(in|pub)\//i.test(url)) {
+      toast('That does not look like a LinkedIn profile link. Example: linkedin.com/in/your-name');
       return;
     }
     setExtractingLinkedIn(true);
@@ -214,13 +220,16 @@ export default function InterviewPage() {
       const res = await fetch('/api/linkedin/extract', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: linkedinUrl })
+        body: JSON.stringify({ url })
       });
       const data = await res.json();
       if (!res.ok) {
         toast(data.error || 'Failed to extract LinkedIn profile.');
       } else {
         setSelectedRole(data.role);
+        // Save the (normalized) URL so it's remembered next time.
+        setLinkedinUrl(url);
+        try { localStorage.setItem('interview_linkedin_url', url); } catch { /* ignore */ }
         toast(`Autofilled Target Role as: ${data.role}`);
       }
     } catch (err) {
@@ -230,6 +239,14 @@ export default function InterviewPage() {
       setExtractingLinkedIn(false);
     }
   };
+
+  // Restore a previously saved LinkedIn URL.
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('interview_linkedin_url');
+      if (saved) setLinkedinUrl(saved);
+    } catch { /* ignore */ }
+  }, []);
 
   // Timer
   useEffect(() => {
@@ -560,7 +577,10 @@ export default function InterviewPage() {
     return new Promise((resolve) => {
       if (recordRafRef.current) { cancelAnimationFrame(recordRafRef.current); recordRafRef.current = null; }
       const rec = combinedRecorderRef.current;
+      let settled = false;
       const finalize = () => {
+        if (settled) return;
+        settled = true;
         try { recordAudioCtxRef.current?.close(); } catch { /* ignore */ }
         recordAudioCtxRef.current = null;
         combinedRecorderRef.current = null;
@@ -569,12 +589,21 @@ export default function InterviewPage() {
       };
       if (!rec || rec.state === 'inactive') { finalize(); return; }
       rec.onstop = finalize;
+      // Safety net: if onstop never fires (browser quirk), finalize anyway after
+      // 4s so ending the interview can never hang.
+      setTimeout(finalize, 4000);
       try { rec.stop(); } catch { finalize(); }
     });
   }, []);
 
   // ─── End Interview with cleanup ───
   const endInterviewCleanup = useCallback(async () => {
+    // Never run the end sequence more than once.
+    if (endingRef.current) return;
+    endingRef.current = true;
+    // Immediate visual feedback so the red button feels responsive.
+    setIsThinking(true);
+
     // Stop timer
     if (timerRef.current) clearInterval(timerRef.current);
     if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
@@ -592,7 +621,7 @@ export default function InterviewPage() {
     if (cameraStreamRef.current) { cameraStreamRef.current.getTracks().forEach((track) => track.stop()); }
     cameraStreamRef.current = null;
 
-    stopHeygen();
+    try { stopHeygen(); } catch (e) { console.warn('stopHeygen failed', e); }
 
     const currentTranscript = transcriptRef2.current;
     const currentSeconds = secondsRef.current;
@@ -605,62 +634,62 @@ export default function InterviewPage() {
     const diffLabel = difficulties.find((d) => d.id === currentDiff)?.label ?? 'Intermediate';
     const questionsAsked = currentQuestionIdx + 1;
 
+    // Conservative defaults used only if the AI evaluation fails to return.
+    let score = 55;
+    let metrics = {
+      communication: 5.5, confidence: 5.5, clarity: 5.5, bodyLanguage: 5.5, eyeContact: 5.5,
+      appearance: 5.5, posture: 5.5, technicalKnowledge: 5.5, problemSolving: 5.5, leadership: 5.5,
+    };
+    let feedback = {
+      strengths: 'You completed the session.',
+      improvements: 'We could not fully analyse this attempt. Give longer, more detailed answers with concrete examples.',
+      nextStep: 'Retake the interview and aim for structured 60-90 second answers per question.',
+    };
+
+    // Try the AI evaluation, but NEVER let a failure block the report. If the
+    // evaluate API errors or times out (e.g. a missing key in production), we
+    // still save the record with defaults and take the user to their report.
     try {
-      setIsThinking(true);
       const res = await fetch('/api/interview/evaluate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          transcript: currentTranscript,
-          role: currentRole,
-          difficulty: diffLabel,
-        }),
+        body: JSON.stringify({ transcript: currentTranscript, role: currentRole, difficulty: diffLabel }),
+        signal: AbortSignal.timeout(30000),
       });
-
-      // Conservative defaults used only if the AI evaluation fails to return.
-      let score = 55;
-      let metrics = {
-        communication: 5.5, confidence: 5.5, clarity: 5.5, bodyLanguage: 5.5, eyeContact: 5.5,
-        appearance: 5.5, posture: 5.5, technicalKnowledge: 5.5, problemSolving: 5.5, leadership: 5.5,
-      };
-      let feedback = {
-        strengths: 'You completed the session.',
-        improvements: 'We could not fully analyse this attempt. Give longer, more detailed answers with concrete examples.',
-        nextStep: 'Retake the interview and aim for structured 60-90 second answers per question.',
-      };
-
       if (res.ok) {
         const data = await res.json();
-        score = data.score || score;
-        metrics = data.metrics || metrics;
-        feedback = data.feedback || feedback;
+        if (data && !data.error) {
+          score = typeof data.score === 'number' ? data.score : score;
+          metrics = data.metrics || metrics;
+          feedback = data.feedback || feedback;
+        }
+      } else {
+        console.warn('Evaluate API returned', res.status);
       }
-
-      const interviewId = `iv_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      const record: InterviewRecord = {
-        id: interviewId,
-        type: typeLabel,
-        role: currentRole,
-        difficulty: diffLabel,
-        date: new Date().toISOString(),
-        duration: currentSeconds,
-        questionsCount: questionsAsked,
-        score,
-        transcript: currentTranscript,
-        metrics,
-        feedback,
-      };
-
-      saveInterview(record);
-      if (videoBlob && videoBlob.size > 0) {
-        try { await saveRecording(interviewId, videoBlob); } catch { /* recording is best-effort */ }
-      }
-      setTimeout(() => {
-        router.push(`/dashboard/analysis?id=${interviewId}`);
-      }, 500);
-    } catch(err) {
-      setIsThinking(false);
+    } catch (err) {
+      console.warn('Evaluate API failed; using default report.', err);
     }
+
+    const interviewId = `iv_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const record: InterviewRecord = {
+      id: interviewId,
+      type: typeLabel,
+      role: currentRole,
+      difficulty: diffLabel,
+      date: new Date().toISOString(),
+      duration: currentSeconds,
+      questionsCount: questionsAsked,
+      score,
+      transcript: currentTranscript,
+      metrics,
+      feedback,
+    };
+
+    try { saveInterview(record); } catch (e) { console.warn('saveInterview failed', e); }
+    if (videoBlob && videoBlob.size > 0) {
+      try { await saveRecording(interviewId, videoBlob); } catch { /* recording is best-effort */ }
+    }
+    router.push(`/dashboard/analysis?id=${interviewId}`);
   }, [stopHeygen, router, stopCombinedRecording]);
 
   // Expose the latest cleanup to the session-cap timer set up inside initHeygen.
@@ -792,10 +821,18 @@ export default function InterviewPage() {
 
 
   const endInterview = () => {
+    if (endingRef.current) return;
     if (document.fullscreenElement && document.exitFullscreen) {
       document.exitFullscreen().catch(e => console.log(e));
     }
-    endInterviewCleanup();
+    // Run the full cleanup+report flow. If it ever throws synchronously, still
+    // take the user out of the room so they are never stuck on this screen.
+    Promise.resolve()
+      .then(() => endInterviewCleanup())
+      .catch((e) => {
+        console.error('endInterviewCleanup crashed; navigating to history.', e);
+        router.push('/dashboard/history');
+      });
   };
 
   // ─── Cleanup on unmount ───
@@ -1125,18 +1162,13 @@ export default function InterviewPage() {
 
             <h4>3 &middot; Target role</h4>
             <div className="field" style={{ marginBottom: '0.8rem' }}>
-              <select
+              {/* Type-to-search with suggestions: pick a listed role or type your own. */}
+              <RoleCombobox
                 value={selectedRole}
-                onChange={(e) => setSelectedRole(e.target.value)}
-              >
-                <option value="">Select a role...</option>
-                {roles.map((r) => (
-                  <option key={r} value={r}>{r}</option>
-                ))}
-                {!roles.includes(selectedRole) && selectedRole && (
-                  <option value={selectedRole}>{selectedRole}</option>
-                )}
-              </select>
+                onChange={setSelectedRole}
+                options={roleOptions}
+                placeholder="Type your target role (e.g. Data Analyst, UX Designer)..."
+              />
             </div>
 
             <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.4rem' }}>
@@ -1173,15 +1205,19 @@ export default function InterviewPage() {
 
             <h4>4 &middot; Preferred Industry / Domain</h4>
             <div className="field" style={{ marginBottom: '1.4rem' }}>
-              <select
+              {/* Free-text with suggestions: type any industry, or pick one. */}
+              <input
+                type="text"
+                list="industry-options"
+                placeholder="Type your industry (optional, e.g. FinTech, Healthcare)..."
                 value={selectedIndustry}
                 onChange={(e) => setSelectedIndustry(e.target.value)}
-              >
-                <option value="">Select an industry (optional)...</option>
+              />
+              <datalist id="industry-options">
                 {industries.map((ind) => (
-                  <option key={ind} value={ind}>{ind}</option>
+                  <option key={ind} value={ind} />
                 ))}
-              </select>
+              </datalist>
             </div>
 
             <h4>5 &middot; Upload Resume</h4>
@@ -1273,6 +1309,27 @@ export default function InterviewPage() {
         </>
       ) : (
         <>
+        {isThinking && (
+          <div style={{
+            position: 'fixed', inset: 0, zIndex: 2000,
+            background: 'rgba(4,7,18,0.82)', backdropFilter: 'blur(8px)',
+            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+            gap: '1.25rem', textAlign: 'center', padding: '1.5rem',
+          }}>
+            <div style={{
+              width: 64, height: 64, borderRadius: '50%',
+              border: '3px solid rgba(255,255,255,0.15)', borderTopColor: 'var(--accent, #3b82f6)',
+              animation: 'atsSpin 0.9s linear infinite',
+            }} />
+            <div>
+              <h2 style={{ fontSize: '1.5rem', margin: '0 0 0.5rem' }}>Analyzing your interview…</h2>
+              <p style={{ color: 'var(--text-2)', margin: 0, maxWidth: 420 }}>
+                Scoring your answers and preparing your report card. This takes just a few seconds.
+              </p>
+            </div>
+            <style>{`@keyframes atsSpin { to { transform: rotate(360deg); } }`}</style>
+          </div>
+        )}
 <div className="app-head">
         <div>
           <h2>Interview room</h2>

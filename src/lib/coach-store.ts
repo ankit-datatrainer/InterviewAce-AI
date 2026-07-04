@@ -88,6 +88,7 @@ export async function getMyCoachProfile(): Promise<CoachProfile | null> {
 export async function updateMyCoachProfile(coachId: string, updates: Partial<CoachProfile>): Promise<void> {
   const supabase = createClient();
   const db: any = {};
+  if (updates.name !== undefined) db.name = updates.name;
   if (updates.title !== undefined) db.title = updates.title;
   if (updates.bio !== undefined) db.bio = updates.bio;
   if (updates.tags !== undefined) db.tags = updates.tags;

@@ -52,7 +52,12 @@ export default function Navbar() {
 
   const isLanding = pathname === '/';
 
-  if (pathname?.startsWith('/admin') || pathname?.startsWith('/dashboard')) {
+  // Hide the marketing navbar inside all app portals (student, admin, coach).
+  if (
+    pathname?.startsWith('/admin') ||
+    pathname?.startsWith('/dashboard') ||
+    pathname?.startsWith('/coach')
+  ) {
     return null;
   }
 

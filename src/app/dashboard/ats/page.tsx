@@ -16,6 +16,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { useToast } from '@/components/Toast';
+import RoleCombobox, { COMMON_ROLES } from '@/components/RoleCombobox';
 import { saveResume, getLatestResume, type ResumeRecord } from '@/lib/resume-store';
 
 function downloadFile(content: string, filename: string, type = 'text/plain') {
@@ -125,6 +126,7 @@ export default function ATSPage() {
   const [result, setResult] = useState<ResumeRecord | null>(null);
   const [currentFile, setCurrentFile] = useState<File | null>(null);
   const [progress, setProgress] = useState(0);
+  const [errorModal, setErrorModal] = useState<{ title: string; message: string } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const router = useRouter();
@@ -165,19 +167,47 @@ export default function ATSPage() {
 
   const processFile = async (file: File) => {
     setCurrentFile(file);
+    setErrorModal(null);
     setView('analyzing');
     try {
       const formData = new FormData();
       formData.append('file', file);
       formData.append('targetRole', targetRole);
 
-      const res = await fetch('/api/ats/analyze', {
-        method: 'POST',
-        body: formData,
-      });
+      // Never let the request hang forever (the free NVIDIA tier can be slow).
+      // Abort after 75s so the UI can recover instead of freezing at 95%.
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 75000);
+
+      let res: Response;
+      try {
+        res = await fetch('/api/ats/analyze', {
+          method: 'POST',
+          body: formData,
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timeoutId);
+      }
 
       if (!res.ok) {
-        const errorData = await res.json();
+        const errorData = await res.json().catch(() => ({}));
+        if (errorData.code === 'NOT_A_RESUME') {
+          setView('upload');
+          setErrorModal({
+            title: 'That doesn’t look like a resume',
+            message: 'We could only accept your resume here. Please upload a valid resume (PDF or DOCX) so we can analyze it.',
+          });
+          return;
+        }
+        if (errorData.code === 'TIMEOUT' || res.status === 504) {
+          setView('upload');
+          setErrorModal({
+            title: 'Taking longer than usual',
+            message: 'The analyzer is busy right now. Please wait a moment and try uploading your resume again.',
+          });
+          return;
+        }
         throw new Error(errorData.error || 'Failed to analyze resume');
       }
 
@@ -206,8 +236,18 @@ export default function ATSPage() {
         setView('result');
       }, 500);
     } catch (err: any) {
-      toast(err.message || 'Error analyzing resume');
       setView('upload');
+      if (err?.name === 'AbortError') {
+        setErrorModal({
+          title: 'Taking longer than usual',
+          message: 'The analyzer is busy right now. Please wait a moment and try uploading your resume again.',
+        });
+      } else {
+        setErrorModal({
+          title: 'Could not analyze the file',
+          message: err?.message || 'Something went wrong while analyzing your resume. Please try uploading it again.',
+        });
+      }
     }
   };
 
@@ -226,7 +266,18 @@ export default function ATSPage() {
     const extension = file.name.slice(file.name.lastIndexOf('.')).toLowerCase();
 
     if (!validTypes.includes(file.type) && !validExtensions.includes(extension)) {
-      toast('Please upload a valid PDF or DOCX file. TXT and other formats are not supported.');
+      setErrorModal({
+        title: 'Unsupported file type',
+        message: 'We could only accept your resume here. Please upload a valid resume as a PDF or DOCX file.',
+      });
+      return false;
+    }
+    // Guard against oversized files (max 5 MB) before uploading.
+    if (file.size > 5 * 1024 * 1024) {
+      setErrorModal({
+        title: 'File too large',
+        message: 'Your resume must be under 5 MB. Please upload a smaller PDF or DOCX file.',
+      });
       return false;
     }
     return true;
@@ -265,10 +316,58 @@ export default function ATSPage() {
       ]
     : [];
 
+  /* ----------- premium error popup ----------- */
+  const errorPopup = errorModal ? (
+    <div
+      onClick={() => setErrorModal(null)}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 1000,
+        background: 'rgba(2,6,23,0.72)', backdropFilter: 'blur(6px)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1.5rem',
+        animation: 'atsFade 0.2s ease-out',
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="widget"
+        style={{
+          maxWidth: 440, width: '100%', textAlign: 'center', padding: '2.5rem 2rem',
+          border: '1px solid rgba(239,68,68,0.35)',
+          boxShadow: '0 24px 60px rgba(0,0,0,0.45)',
+          animation: 'atsPop 0.25s cubic-bezier(0.16,1,0.3,1)',
+        }}
+      >
+        <div style={{
+          width: 68, height: 68, borderRadius: '50%', margin: '0 auto 1.25rem',
+          display: 'grid', placeItems: 'center',
+          background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)',
+        }}>
+          <FileText size={30} color="#ef4444" />
+        </div>
+        <h3 style={{ fontSize: '1.3rem', marginBottom: '0.75rem' }}>{errorModal.title}</h3>
+        <p style={{ color: 'var(--text-2)', lineHeight: 1.65, margin: '0 0 1.75rem' }}>
+          {errorModal.message}
+        </p>
+        <button
+          className="btn btn-primary"
+          onClick={() => { setErrorModal(null); fileRef.current?.click(); }}
+          style={{ padding: '0.75rem 2rem', borderRadius: 'var(--r-full)' }}
+        >
+          <FileText size={16} /> Upload resume
+        </button>
+      </div>
+      <style>{`
+        @keyframes atsFade { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes atsPop { from { opacity: 0; transform: translateY(12px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
+      `}</style>
+    </div>
+  ) : null;
+
   /* ----------- UPLOAD VIEW ----------- */
   if (view === 'upload' || view === 'analyzing') {
     return (
       <>
+        {errorPopup}
         <div className="app-head">
           <div>
             <h2>ATS resume analyzer</h2>
@@ -328,13 +427,14 @@ export default function ATSPage() {
           </div>
         ) : (
           <>
-            <div className="field" style={{ marginBottom: '1rem', maxWidth: 340 }}>
+            <div className="field" style={{ marginBottom: '1rem', maxWidth: 380 }}>
               <label>Target role</label>
-              <select value={targetRole} onChange={(e) => setTargetRole(e.target.value)}>
-                {targetRoles.map((r) => (
-                  <option key={r} value={r}>{r}</option>
-                ))}
-              </select>
+              <RoleCombobox
+                value={targetRole}
+                onChange={setTargetRole}
+                options={COMMON_ROLES}
+                placeholder="Type or select your target role…"
+              />
             </div>
 
             <div
@@ -372,6 +472,7 @@ export default function ATSPage() {
   /* ----------- RESULT VIEW ----------- */
   return (
     <>
+      {errorPopup}
       <div className="app-head">
         <div>
           <h2>ATS resume analyzer</h2>

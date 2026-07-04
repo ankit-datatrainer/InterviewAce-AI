@@ -79,12 +79,32 @@ function getColorForId(id: string) {
 }
 
 export async function getAdminUsers(): Promise<AdminUser[]> {
+  // Primary path: the service-role API lists EVERY real user (bypasses RLS).
+  try {
+    const res = await fetch('/api/admin/users', { cache: 'no-store' });
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data.users) && data.users.length > 0) {
+        return data.users.map((u: any) => ({
+          id: u.id,
+          name: u.name,
+          email: u.email,
+          initials: getInitials(u.name || 'U'),
+          color: getColorForId(u.id),
+          plan: u.plan,
+          interviews: u.interviews,
+          joined: u.joined,
+          status: u.status,
+        }));
+      }
+    }
+  } catch { /* fall through to the direct query below */ }
+
+  // Fallback (service key not set): read profiles directly with the user client.
   const supabase = createClient();
   const { data: profiles } = await supabase.from('profiles').select('*').order('created_at', { ascending: false });
   const { data: interviews } = await supabase.from('interviews').select('user_id');
-  
   if (!profiles) return [];
-  
   return profiles.map((p: any) => {
     const userInterviews = interviews?.filter((i: any) => i.user_id === p.id).length || 0;
     return {
@@ -95,24 +115,35 @@ export async function getAdminUsers(): Promise<AdminUser[]> {
       color: getColorForId(p.id),
       plan: p.plan === 'pro' ? 'Pro' : p.plan === 'premium' ? 'Premium' : 'Free',
       interviews: userInterviews,
-      joined: new Date(p.created_at).toISOString().split('T')[0],
-      status: 'Active'
+      joined: p.created_at ? new Date(p.created_at).toISOString().split('T')[0] : '',
+      status: 'Active',
     };
   });
 }
 
 export async function updateAdminUser(id: string, updates: Partial<AdminUser>): Promise<void> {
+  try {
+    const res = await fetch('/api/admin/users', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, plan: updates.plan, name: updates.name }),
+    });
+    if (res.ok) return;
+  } catch { /* fall through */ }
   const supabase = createClient();
   const dbUpdates: any = {};
   if (updates.plan) dbUpdates.plan = updates.plan.toLowerCase();
   if (updates.name) dbUpdates.full_name = updates.name;
-  
   if (Object.keys(dbUpdates).length > 0) {
     await supabase.from('profiles').update(dbUpdates).eq('id', id);
   }
 }
 
 export async function deleteAdminUser(id: string): Promise<void> {
+  try {
+    const res = await fetch(`/api/admin/users?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+    if (res.ok) return;
+  } catch { /* fall through */ }
   const supabase = createClient();
   await supabase.from('profiles').delete().eq('id', id);
 }
