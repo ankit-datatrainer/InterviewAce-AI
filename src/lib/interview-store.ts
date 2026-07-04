@@ -189,13 +189,28 @@ export async function fetchInterviewsFromDb(): Promise<InterviewRecord[]> {
 
 // Merges DB records with any local records not yet synced, then rewrites the
 // cache. Call on dashboard / history / analysis mount so records appear on every
-// device the user logs into — not just the browser the interview was taken on.
+// device they log into — not just the browser the interview was practiced on.
 export async function hydrateInterviews(): Promise<InterviewRecord[]> {
   const local = readStore();
   const db = await fetchInterviewsFromDb();
-  if (db.length === 0) return local; // not signed in / offline / no DB rows
+
+  // Sync unsynced interviews to Supabase
   const unsynced = local.filter((r) => !r.dbId);
-  const merged = [...db, ...unsynced];
+  if (unsynced.length > 0) {
+    for (const record of unsynced) {
+      const dbId = await persistInterviewToDb(record);
+      if (dbId) {
+        record.dbId = dbId;
+      }
+    }
+    writeStore(local);
+  }
+
+  if (db.length === 0) return local;
+
+  const dbIds = new Set(db.map((d) => d.id));
+  const remainingUnsynced = local.filter((r) => !r.dbId || !dbIds.has(r.dbId));
+  const merged = [...db, ...remainingUnsynced];
   writeStore(merged);
   return merged;
 }

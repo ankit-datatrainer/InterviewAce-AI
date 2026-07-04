@@ -12,7 +12,7 @@ import {
 import { createClient } from '@/lib/supabase';
 import { getInterviews, hydrateInterviews } from '@/lib/interview-store';
 import type { InterviewRecord } from '@/lib/interview-store';
-import { getLatestResume } from '@/lib/resume-store';
+import { getLatestResume, hydrateResumes } from '@/lib/resume-store';
 import type { ResumeRecord } from '@/lib/resume-store';
 import { getUpcomingBookings } from '@/lib/booking-store';
 import type { BookingRecord } from '@/lib/booking-store';
@@ -91,6 +91,7 @@ export default function DashboardPage() {
     // Pull the user's interviews from the database so past records show up on
     // any device they log into (not just the browser they practiced on).
     hydrateInterviews().then((all) => setInterviews([...all])).catch(() => {});
+    hydrateResumes().then((all) => setLatestResume(all.length > 0 ? all[all.length - 1] : null)).catch(() => {});
   }, []);
 
   const count = interviews.length;
