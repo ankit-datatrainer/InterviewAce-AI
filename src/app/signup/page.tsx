@@ -196,8 +196,17 @@ export default function SignupPage() {
               <p className="opacity-90">We&apos;ve sent a verification link to <strong className="font-semibold">{confirmationEmail}</strong>. Please check your inbox (and spam folder) to confirm your account.</p>
             </div>
 
-            <div className="flex flex-col gap-3">
-              <button onClick={handleResend} disabled={resendLoading} className="btn btn-ghost w-full justify-center">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <button 
+                onClick={handleResend} 
+                disabled={resendLoading} 
+                className="btn w-full justify-center"
+                style={{
+                  background: 'var(--surface)',
+                  border: '1px solid var(--line-2)',
+                  color: 'var(--text)'
+                }}
+              >
                 {resendLoading ? 'Sending...' : 'Resend verification email'}
               </button>
               
