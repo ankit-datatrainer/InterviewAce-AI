@@ -6,7 +6,7 @@ import { ArrowLeft, Star, Clock, Calendar, CheckCircle, Video } from 'lucide-rea
 import { useToast } from '@/components/Toast';
 import type { PublicCoach } from '@/lib/coach-types';
 import { saveBooking } from '@/lib/booking-store';
-import { getCoachBookingInfo, createCoachBooking, type CoachBookingInfo, type BookableSlot } from '@/lib/student-booking';
+import { getCoachBookingInfo, createCoachBooking, getUserBookedDates, type CoachBookingInfo, type BookableSlot } from '@/lib/student-booking';
 import { getSessionWindow } from '@/lib/session-window';
 
 type Coach = PublicCoach;
@@ -20,6 +20,7 @@ export default function InstructorPage() {
   const [generatedRoomId, setGeneratedRoomId] = useState<string>('session-123');
 
   const [info, setInfo] = useState<CoachBookingInfo | null>(null);
+  const [bookedDates, setBookedDates] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<BookableSlot | null>(null);
   const [booking, setBooking] = useState(false);
   const [booked, setBooked] = useState<BookableSlot | null>(null);
@@ -67,8 +68,18 @@ export default function InstructorPage() {
     getCoachBookingInfo(coach.name).then(setInfo);
   }, [coach]);
 
+  // Students can only have one live booking per calendar day — load which
+  // dates are already taken so those days can't be picked again.
+  useEffect(() => {
+    getUserBookedDates().then(setBookedDates);
+  }, []);
+
   async function handleConfirm() {
     if (!coach || !selected) return;
+    if (bookedDates.has(selected.date)) {
+      toast('You already have a session booked that day. You can only book one session per day.');
+      return;
+    }
     setBooking(true);
     try {
       // Mint a real VideoSDK room both the coach and student will join.
@@ -96,6 +107,13 @@ export default function InstructorPage() {
         amount,
       });
 
+      if (dbResult.reason === 'ALREADY_BOOKED_THAT_DAY') {
+        toast('You already have a session booked that day. You can only book one session per day.');
+        setBookedDates((prev) => new Set(prev).add(selected.date));
+        setBooking(false);
+        return;
+      }
+
       // Always record locally so the student dashboard + room work, tagging
       // it with the DB id (when available) so it shows up once — not twice —
       // once "My Bookings" hydrates from Supabase.
@@ -103,6 +121,7 @@ export default function InstructorPage() {
         id: 'bk-' + Math.random().toString(36).substring(2, 9),
         dbId: dbResult.id,
         coachName: coach.name,
+        coachImage: coach.image,
         coachCategory: coach.tags[0] || 'General',
         date: selected.date,
         timeSlot: selected.time,
@@ -320,23 +339,31 @@ export default function InstructorPage() {
                       (acc[s.label] ||= []).push(s);
                       return acc;
                     }, {}),
-                  ).map(([label, daySlots]) => (
+                  ).map(([label, daySlots]) => {
+                    const dayTaken = bookedDates.has(daySlots[0]?.date);
+                    return (
                     <div key={label}>
-                      <div style={{ fontSize: '.85rem', fontWeight: 600, color: 'var(--text)', marginBottom: '.55rem' }}>{label}</div>
+                      <div style={{ fontSize: '.85rem', fontWeight: 600, color: 'var(--text)', marginBottom: '.55rem', display: 'flex', alignItems: 'center', gap: '.5rem' }}>
+                        {label}
+                        {dayTaken && <span className="tag amber" style={{ fontSize: '.7rem' }}>Already booked this day</span>}
+                      </div>
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.5rem' }}>
                         {daySlots.map((s) => {
                           const isSel = selected?.id === s.id;
                           return (
                             <button
                               key={s.id}
-                              onClick={() => setSelected(s)}
+                              onClick={() => !dayTaken && setSelected(s)}
+                              disabled={dayTaken}
+                              title={dayTaken ? 'You already have a session booked this day' : undefined}
                               style={{
                                 display: 'inline-flex', alignItems: 'center', gap: '.4rem',
-                                padding: '.55rem .85rem', borderRadius: 'var(--r-full)', cursor: 'pointer',
+                                padding: '.55rem .85rem', borderRadius: 'var(--r-full)', cursor: dayTaken ? 'not-allowed' : 'pointer',
                                 border: isSel ? '1.5px solid var(--blue)' : '1px solid var(--line)',
                                 background: isSel ? 'var(--blue)' : 'var(--bg-2)',
-                                color: isSel ? '#fff' : 'var(--text)', fontSize: '.85rem', fontWeight: 600,
+                                color: isSel ? '#fff' : dayTaken ? 'var(--text-3)' : 'var(--text)', fontSize: '.85rem', fontWeight: 600,
                                 transition: 'all .15s ease', boxShadow: isSel ? '0 6px 16px rgba(37,99,235,0.35)' : 'none',
+                                opacity: dayTaken ? 0.45 : 1,
                               }}
                             >
                               <Clock size={13} style={{ opacity: isSel ? 0.9 : 0.6 }} /> {s.time.split(' - ')[0]}
@@ -345,7 +372,8 @@ export default function InstructorPage() {
                         })}
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
 
                 {/* Live selection summary */}

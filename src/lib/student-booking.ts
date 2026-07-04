@@ -82,6 +82,23 @@ export async function getCoachBookingInfo(name: string): Promise<CoachBookingInf
   return { coachId, pricePerSession, slots, source };
 }
 
+/** Dates (YYYY-MM-DD) the signed-in student already has a live booking on — used to enforce one session per day. */
+export async function getUserBookedDates(): Promise<Set<string>> {
+  try {
+    const supabase = createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return new Set();
+    const { data } = await supabase
+      .from('bookings')
+      .select('session_date')
+      .eq('user_id', user.id)
+      .neq('status', 'cancelled');
+    return new Set((data || []).map((b: any) => b.session_date));
+  } catch {
+    return new Set();
+  }
+}
+
 export async function createCoachBooking(params: {
   coachId: string | null;
   date: string;
@@ -89,7 +106,7 @@ export async function createCoachBooking(params: {
   goal: string;
   roomId: string;
   amount: number;
-}): Promise<{ ok: boolean; id?: string }> {
+}): Promise<{ ok: boolean; id?: string; reason?: 'ALREADY_BOOKED_THAT_DAY' }> {
   // Demo coaches without a DB row can't be persisted to Supabase (FK); the
   // caller still records the booking locally so the student can join the room.
   if (!params.coachId) return { ok: false };
@@ -97,6 +114,17 @@ export async function createCoachBooking(params: {
     const supabase = createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return { ok: false };
+
+    // One session per calendar day — re-check right before inserting to close
+    // the race window even if the UI already filtered the date out.
+    const { count } = await supabase
+      .from('bookings')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', user.id)
+      .eq('session_date', params.date)
+      .neq('status', 'cancelled');
+    if ((count || 0) > 0) return { ok: false, reason: 'ALREADY_BOOKED_THAT_DAY' };
+
     const { data, error } = await supabase.from('bookings').insert({
       user_id: user.id,
       coach_id: params.coachId,

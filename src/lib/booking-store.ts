@@ -4,6 +4,7 @@ export interface BookingRecord {
   id: string;
   dbId?: string;
   coachName: string;
+  coachImage?: string;
   coachCategory: string;
   date: string;
   timeSlot: string;
@@ -70,7 +71,7 @@ export async function fetchBookingsFromDb(): Promise<BookingRecord[]> {
     if (!user) return [];
     const { data: rows } = await supabase
       .from('bookings')
-      .select('*, coaches(name, category, price_per_session)')
+      .select('*, coaches(name, category, price_per_session, image_url)')
       .eq('user_id', user.id)
       .order('session_date', { ascending: false });
     if (!rows) return [];
@@ -79,6 +80,7 @@ export async function fetchBookingsFromDb(): Promise<BookingRecord[]> {
       id: r.id,
       dbId: r.id,
       coachName: r.coaches?.name || 'Coach',
+      coachImage: r.coaches?.image_url || undefined,
       coachCategory: r.coaches?.category || '',
       date: r.session_date,
       timeSlot: r.time_slot,
@@ -98,15 +100,22 @@ export async function fetchBookingsFromDb(): Promise<BookingRecord[]> {
  * Supabase, so "My Bookings" and the Dashboard always reflect every session
  * booked from any device — not just localStorage on this one.
  */
+// A stable key to spot the "same" booking even when one copy lacks a dbId
+// (e.g. it was saved locally before dbId tracking existed).
+function bookingKey(b: BookingRecord): string {
+  return b.dbId ? `id:${b.dbId}` : `slot:${b.coachName.trim().toLowerCase()}|${b.date}|${b.timeSlot}`;
+}
+
 export async function hydrateBookings(): Promise<BookingRecord[]> {
   const local = readStore();
   const db = await fetchBookingsFromDb();
 
   if (db.length === 0) return local;
 
-  const dbIds = new Set(db.map((d) => d.dbId));
-  // Keep local-only bookings that never made it to the DB (e.g. demo coaches).
-  const localOnly = local.filter((r) => !r.dbId || !dbIds.has(r.dbId));
+  const dbKeys = new Set(db.map(bookingKey));
+  // Keep only local bookings that truly have no matching DB row (e.g. demo
+  // coaches with no DB id) — this also cleans up old pre-dbId duplicates.
+  const localOnly = local.filter((r) => !dbKeys.has(bookingKey(r)));
   const merged = [...db, ...localOnly];
   writeStore(merged);
   return merged;
