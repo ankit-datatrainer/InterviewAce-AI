@@ -99,7 +99,12 @@ export default function AdminBookingsPage() {
     setLoaded(true);
   }, []);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  useEffect(() => {
+    refresh();
+    // Live refresh so newly booked sessions appear without a manual reload.
+    const iv = setInterval(refresh, 15000);
+    return () => clearInterval(iv);
+  }, [refresh]);
 
   const q = query.trim().toLowerCase();
   const filtered = rows.filter((r) => {

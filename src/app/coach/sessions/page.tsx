@@ -63,7 +63,14 @@ function SessionsInner({ coach }: { coach: CoachProfile }) {
   const [followText, setFollowText] = useState('');
 
   const load = () => getMySessions(coach.id).then(setSessions);
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [coach.id]);
+  useEffect(() => {
+    load();
+    // Live refresh: a session a student books shows up here within ~15s
+    // without the coach having to reload the page.
+    const iv = setInterval(load, 15000);
+    return () => clearInterval(iv);
+    /* eslint-disable-next-line */
+  }, [coach.id]);
 
   const filtered = sessions.filter((s) =>
     filter === 'all' ? true : filter === 'upcoming' ? s.status === 'confirmed' : s.status === 'completed',

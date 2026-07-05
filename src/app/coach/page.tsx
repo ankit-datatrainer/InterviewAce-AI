@@ -24,16 +24,21 @@ export default function CoachDashboard() {
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
+    let current: CoachProfile | null = null;
+    const loadSessions = async (c: CoachProfile) => {
+      const [s, e] = await Promise.all([getMySessions(c.id), getMyEarnings(c)]);
+      setSessions(s);
+      setMonthEarnings(e.pendingTotal + e.paidTotal);
+    };
     (async () => {
       const c = await getMyCoachProfile();
       setCoach(c);
-      if (c) {
-        const [s, e] = await Promise.all([getMySessions(c.id), getMyEarnings(c)]);
-        setSessions(s);
-        setMonthEarnings(e.pendingTotal + e.paidTotal);
-      }
+      if (c) { current = c; await loadSessions(c); }
       setLoaded(true);
     })();
+    // Live refresh so a newly booked session shows up here on its own.
+    const iv = setInterval(() => { if (current) loadSessions(current); }, 15000);
+    return () => clearInterval(iv);
   }, []);
 
   if (!loaded) return null;
