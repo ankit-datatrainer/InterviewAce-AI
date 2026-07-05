@@ -1140,3 +1140,39 @@ export async function getRecordedSessions(): Promise<RecordedSession[]> {
     recordingUrl: b.recording_url,
   }));
 }
+
+// ─────────────────────────── All sessions (admin) ───────────────────────────
+export interface AdminBookingRow {
+  id: string;
+  roomId: string | null;
+  coachName: string;
+  studentName: string;
+  studentEmail: string | null;
+  sessionDate: string;
+  timeSlot: string;
+  status: string;         // confirmed | completed | cancelled
+  amount: number | null;
+  createdAt: string;
+}
+
+/** Every session booked by any user — the full ledger for admin management. */
+export async function getAllBookings(): Promise<AdminBookingRow[]> {
+  const supabase = createClient();
+  const { data } = await supabase
+    .from('bookings')
+    .select('id, room_id, session_date, time_slot, status, amount, created_at, coaches(name), profiles(full_name, email)')
+    .order('session_date', { ascending: false })
+    .order('time_slot', { ascending: true });
+  return (data || []).map((b: any) => ({
+    id: b.id,
+    roomId: b.room_id ?? null,
+    coachName: b.coaches?.name || 'Coach',
+    studentName: b.profiles?.full_name || 'Student',
+    studentEmail: b.profiles?.email ?? null,
+    sessionDate: b.session_date,
+    timeSlot: b.time_slot,
+    status: b.status,
+    amount: b.amount ?? null,
+    createdAt: b.created_at,
+  }));
+}

@@ -24,7 +24,8 @@ import {
   LogOut,
   Video,
   Percent,
-  MessageSquareWarning
+  MessageSquareWarning,
+  CalendarClock
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 
@@ -36,6 +37,7 @@ const adminLinks = [
   { href: '/admin/resumes', label: 'Resume Reports', icon: FileText },
   { href: '/admin/coaches', label: 'Coach Management', icon: GraduationCap },
   { href: '/admin/sessions', label: 'Live Sessions', icon: Video },
+  { href: '/admin/bookings', label: 'All Sessions', icon: CalendarClock },
   { href: '/admin/marketing', label: 'Marketing & Coupons', icon: Percent },
   { href: '/admin/payouts', label: 'Coach Payouts', icon: Wallet },
   { href: '/admin/payments', label: 'Payments', icon: IndianRupee },
