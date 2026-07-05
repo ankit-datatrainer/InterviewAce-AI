@@ -330,7 +330,11 @@ export default function InstructorPage() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', fontSize: '.78rem', fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--text-3)', marginBottom: '.9rem' }}>
                   <Calendar size={14} /> Available times
                 </div>
-                {info.source === 'default' && (
+                {info.dateSlotsMigrationPending ? (
+                  <p style={{ color: '#f59e0b', fontSize: '.8rem', marginTop: 0, marginBottom: '1rem' }}>
+                    ⚠ Showing standard slots — the calendar database update hasn&apos;t been applied yet (see browser console).
+                  </p>
+                ) : info.source === 'default' && (
                   <p style={{ color: 'var(--text-3)', fontSize: '.8rem', marginTop: 0, marginBottom: '1rem' }}>Showing standard slots — this coach hasn&apos;t customised their schedule yet.</p>
                 )}
 

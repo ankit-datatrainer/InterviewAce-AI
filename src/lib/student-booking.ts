@@ -19,6 +19,9 @@ export interface CoachBookingInfo {
   source: 'published' | 'default';
   /** false when the admin has paused new bookings for this coach. */
   acceptingBookings: boolean;
+  /** true when the coach_date_slots table couldn't be queried — almost
+   *  always means deploy/phase4-update.sql hasn't been run yet. */
+  dateSlotsMigrationPending: boolean;
 }
 
 const DEFAULT_WINDOWS = [
@@ -53,14 +56,24 @@ export async function getCoachBookingInfo(name: string): Promise<CoachBookingInf
   const blockedDates = new Set<string>();
   // Exact per-date session timings the coach/admin set in the 5-day calendar.
   const dateWindows = new Map<string, { start: string; end: string }[]>();
+  let dateSlotsMigrationPending = false;
 
   if (coachId && acceptingBookings) {
-    const [{ data: av }, { data: bk }, { data: blocked }, { data: dateSlots }] = await Promise.all([
+    const [{ data: av }, { data: bk }, { data: blocked }, { data: dateSlots, error: dateSlotsErr }] = await Promise.all([
       supabase.from('coach_availability').select('weekday, start_time, end_time').eq('coach_id', coachId),
       supabase.from('bookings').select('session_date, time_slot').eq('coach_id', coachId).neq('status', 'cancelled'),
       supabase.from('coach_blocked_dates').select('blocked_date').eq('coach_id', coachId),
       supabase.from('coach_date_slots').select('slot_date, start_time, end_time').eq('coach_id', coachId),
     ]);
+    // Loud, specific signal so a missing migration doesn't silently masquerade
+    // as "no slots set" — makes this diagnosable from the browser console.
+    if (dateSlotsErr) {
+      dateSlotsMigrationPending = true;
+      console.error(
+        '[student-booking] coach_date_slots query failed — has deploy/phase4-update.sql been run on this Supabase project?',
+        dateSlotsErr,
+      );
+    }
     weekly = (av || []).map((s: any) => ({
       weekday: s.weekday,
       start: String(s.start_time || '').slice(0, 5),
@@ -102,7 +115,7 @@ export async function getCoachBookingInfo(name: string): Promise<CoachBookingInf
     }
   }
 
-  return { coachId, pricePerSession, slots, source, acceptingBookings };
+  return { coachId, pricePerSession, slots, source, acceptingBookings, dateSlotsMigrationPending };
 }
 
 /** Dates (YYYY-MM-DD) the signed-in student already has a live booking on — used to enforce one session per day. */
