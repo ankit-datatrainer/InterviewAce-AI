@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useToast } from '@/components/Toast';
 import { Clock, Plus, Trash2 } from 'lucide-react';
 import CoachShell from '@/components/CoachShell';
+import FiveDayScheduler from '@/components/FiveDayScheduler';
 import {
   getAvailability,
   addAvailability,
@@ -46,11 +47,19 @@ function AvailabilityInner({ coach }: { coach: CoachProfile }) {
   return (
     <>
       <div className="app-head">
-        <div><h2>Weekly Availability</h2><p>Set the recurring weekly hours when students can book you.</p></div>
+        <div><h2>Calendar &amp; Availability</h2><p>Manage exact sessions for the next 5 days, or set recurring weekly hours.</p></div>
       </div>
 
       <div className="widget" style={{ marginBottom: '1.5rem' }}>
-        <h4>Add recurring slot</h4>
+        <h4>Next 5 days — manage sessions</h4>
+        <p style={{ color: 'var(--text-3)', fontSize: '.86rem', marginTop: '-.3rem', marginBottom: '1rem' }}>
+          Click a day, then add the exact times you&apos;ll take sessions. These become instantly bookable by students.
+        </p>
+        <FiveDayScheduler coachId={coach.id} />
+      </div>
+
+      <div className="widget" style={{ marginBottom: '1.5rem' }}>
+        <h4>Add recurring weekly slot</h4>
         <form onSubmit={handleAdd} style={{ display: 'flex', gap: '1rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
           <div className="field" style={{ marginBottom: 0, minWidth: 160 }}>
             <label>Day</label>

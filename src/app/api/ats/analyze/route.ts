@@ -78,7 +78,10 @@ ${text.substring(0, 5000)}`;
             { role: 'system', content: 'You are a strict JSON API. Respond only with the requested JSON object and nothing else.' },
             { role: 'user', content: prompt },
           ],
-          { temperature: 0.2, maxTokens: 900, json: true, timeoutMs: 25000 },
+          // Tight timeout so results feel instant: deepseek-v4-flash normally
+          // answers in ~2-4s; if it stalls we fall straight through to the
+          // deterministic local analysis below rather than making the user wait.
+          { temperature: 0.2, maxTokens: 900, json: true, timeoutMs: 6000 },
         );
         result = parseJsonFromModel(content);
       } catch (aiErr) {

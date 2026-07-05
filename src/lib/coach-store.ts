@@ -235,6 +235,50 @@ export async function removeAvailability(id: string): Promise<void> {
   await supabase.from('coach_availability').delete().eq('id', id);
 }
 
+// ── Date-specific session slots (the 5-day calendar manager) ────────────────
+export interface DateSlot {
+  id: string;
+  slotDate: string;   // YYYY-MM-DD
+  startTime: string;  // HH:MM
+  endTime: string;    // HH:MM
+}
+
+/** All upcoming date-specific slots for a coach (today onward). Works for
+ *  coaches (own rows via RLS) and admins (any coach via is_admin()). */
+export async function getDateSlots(coachId: string): Promise<DateSlot[]> {
+  const supabase = createClient();
+  const today = new Date();
+  const isoToday = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const { data } = await supabase
+    .from('coach_date_slots')
+    .select('*')
+    .eq('coach_id', coachId)
+    .gte('slot_date', isoToday)
+    .order('slot_date', { ascending: true })
+    .order('start_time', { ascending: true });
+  if (!data) return [];
+  return data.map((s: any) => ({
+    id: s.id,
+    slotDate: s.slot_date,
+    startTime: String(s.start_time || '').slice(0, 5),
+    endTime: String(s.end_time || '').slice(0, 5),
+  }));
+}
+
+export async function addDateSlot(coachId: string, slotDate: string, startTime: string, endTime: string): Promise<void> {
+  const supabase = createClient();
+  const { error } = await supabase
+    .from('coach_date_slots')
+    .insert({ coach_id: coachId, slot_date: slotDate, start_time: startTime, end_time: endTime });
+  // Ignore duplicate-slot unique-violation; surface anything else.
+  if (error && error.code !== '23505') throw new Error(error.message);
+}
+
+export async function removeDateSlot(id: string): Promise<void> {
+  const supabase = createClient();
+  await supabase.from('coach_date_slots').delete().eq('id', id);
+}
+
 export interface CoachEarnings {
   paidTotal: number;
   pendingTotal: number;

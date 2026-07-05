@@ -28,6 +28,7 @@ import {
   type CoachBookingRow,
 } from '@/lib/admin-store';
 import { uploadCertificate, WEEKDAYS } from '@/lib/coach-store';
+import FiveDayScheduler from '@/components/FiveDayScheduler';
 
 function PasswordField({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
   const [show, setShow] = useState(false);
@@ -362,6 +363,12 @@ export default function AdminCoachEditorPage() {
               <button className={`btn btn-sm ${acceptingBookings ? 'btn-ghost' : 'btn-primary'}`} onClick={handleToggleAccepting} disabled={calendarBusy}>
                 <Ban size={14} /> {acceptingBookings ? 'Close bookings' : 'Reopen bookings'}
               </button>
+            </div>
+
+            <p style={{ fontSize: '.82rem', fontWeight: 600, color: 'var(--text-2)', marginBottom: '.5rem', textTransform: 'uppercase', letterSpacing: '.03em' }}>Next 5 days — manage sessions</p>
+            <p style={{ color: 'var(--text-3)', fontSize: '.82rem', marginBottom: '.8rem' }}>Add or remove exact session timings on a coach&apos;s behalf. These become instantly bookable.</p>
+            <div style={{ marginBottom: '1.25rem' }}>
+              <FiveDayScheduler coachId={coach.id} />
             </div>
 
             <p style={{ fontSize: '.82rem', fontWeight: 600, color: 'var(--text-2)', marginBottom: '.5rem', textTransform: 'uppercase', letterSpacing: '.03em' }}>Weekly availability (set by coach)</p>

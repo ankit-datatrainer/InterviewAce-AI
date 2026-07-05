@@ -15,6 +15,7 @@ export async function GET() {
     videosdk: present(process.env.VIDEOSDK_API_KEY, process.env.VIDEOSDK_SECRET),
     heygen: present(process.env.HEYGEN_API_KEY),
     deepgram: present(process.env.DEEPGRAM_API_KEY),
+    openrouter: present(process.env.OPENROUTER_API_KEY),
     nim: present(process.env.NVIDIA_NIM_API_KEY),
     email: anyPresent(process.env.SMTP_USER) && anyPresent(process.env.SMTP_PASS),
   });

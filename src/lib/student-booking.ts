@@ -51,12 +51,15 @@ export async function getCoachBookingInfo(name: string): Promise<CoachBookingInf
   let weekly: { weekday: number; start: string; end: string }[] = [];
   const booked = new Set<string>();
   const blockedDates = new Set<string>();
+  // Exact per-date session timings the coach/admin set in the 5-day calendar.
+  const dateWindows = new Map<string, { start: string; end: string }[]>();
 
   if (coachId && acceptingBookings) {
-    const [{ data: av }, { data: bk }, { data: blocked }] = await Promise.all([
+    const [{ data: av }, { data: bk }, { data: blocked }, { data: dateSlots }] = await Promise.all([
       supabase.from('coach_availability').select('weekday, start_time, end_time').eq('coach_id', coachId),
       supabase.from('bookings').select('session_date, time_slot').eq('coach_id', coachId).neq('status', 'cancelled'),
       supabase.from('coach_blocked_dates').select('blocked_date').eq('coach_id', coachId),
+      supabase.from('coach_date_slots').select('slot_date, start_time, end_time').eq('coach_id', coachId),
     ]);
     weekly = (av || []).map((s: any) => ({
       weekday: s.weekday,
@@ -65,9 +68,14 @@ export async function getCoachBookingInfo(name: string): Promise<CoachBookingInf
     }));
     (bk || []).forEach((b: any) => booked.add(`${b.session_date}|${b.time_slot}`));
     (blocked || []).forEach((b: any) => blockedDates.add(b.blocked_date));
+    (dateSlots || []).forEach((s: any) => {
+      const arr = dateWindows.get(s.slot_date) || [];
+      arr.push({ start: String(s.start_time || '').slice(0, 5), end: String(s.end_time || '').slice(0, 5) });
+      dateWindows.set(s.slot_date, arr);
+    });
   }
 
-  const source: 'published' | 'default' = weekly.length > 0 ? 'published' : 'default';
+  const source: 'published' | 'default' = weekly.length > 0 || dateWindows.size > 0 ? 'published' : 'default';
 
   const slots: BookableSlot[] = [];
   if (acceptingBookings) {
@@ -77,10 +85,14 @@ export async function getCoachBookingInfo(name: string): Promise<CoachBookingInf
       d.setDate(today.getDate() + i);
       const dateStr = isoDate(d);
       if (blockedDates.has(dateStr)) continue; // admin holiday / blocked day
-      const windows =
-        source === 'published'
-          ? weekly.filter((w) => w.weekday === d.getDay()).map((w) => ({ start: w.start, end: w.end }))
-          : DEFAULT_WINDOWS;
+      // Date-specific slots take precedence; otherwise weekly recurring; else default.
+      const weeklyWindows = weekly.filter((w) => w.weekday === d.getDay()).map((w) => ({ start: w.start, end: w.end }));
+      const perDate = dateWindows.get(dateStr) || [];
+      // Union date-specific + weekly, de-duped by "start-end".
+      const merged = [...perDate, ...weeklyWindows];
+      const seen = new Set<string>();
+      const unioned = merged.filter((w) => { const k = `${w.start}-${w.end}`; if (seen.has(k)) return false; seen.add(k); return true; });
+      const windows = unioned.length > 0 ? unioned : (source === 'default' ? DEFAULT_WINDOWS : []);
       for (const w of windows) {
         const time = `${w.start} - ${w.end}`;
         const id = `${dateStr}|${time}`;

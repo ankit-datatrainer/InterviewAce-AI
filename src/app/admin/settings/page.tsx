@@ -21,7 +21,8 @@ const INTEGRATION_LABELS: Record<string, string> = {
   videosdk: 'VideoSDK (live rooms)',
   heygen: 'HeyGen (AI avatar)',
   deepgram: 'Deepgram (speech)',
-  nim: 'NVIDIA NIM (AI model)',
+  openrouter: 'OpenRouter (AI model)',
+  nim: 'NVIDIA NIM (AI fallback)',
   email: 'SMTP (email)',
 };
 
