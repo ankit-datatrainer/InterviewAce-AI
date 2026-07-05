@@ -17,6 +17,8 @@ export interface CoachBookingInfo {
   pricePerSession: number | null;
   slots: BookableSlot[];
   source: 'published' | 'default';
+  /** false when the admin has paused new bookings for this coach. */
+  acceptingBookings: boolean;
 }
 
 const DEFAULT_WINDOWS = [
@@ -37,20 +39,24 @@ export async function getCoachBookingInfo(name: string): Promise<CoachBookingInf
 
   const { data: coach } = await supabase
     .from('coaches')
-    .select('id, price_per_session')
+    .select('id, price_per_session, accepting_bookings')
     .ilike('name', name)
     .maybeSingle();
 
   const coachId = coach?.id ?? null;
   const pricePerSession = coach?.price_per_session ?? null;
+  // Missing column (pre-migration) reads as undefined — treat as accepting.
+  const acceptingBookings = coach?.accepting_bookings !== false;
 
   let weekly: { weekday: number; start: string; end: string }[] = [];
   const booked = new Set<string>();
+  const blockedDates = new Set<string>();
 
-  if (coachId) {
-    const [{ data: av }, { data: bk }] = await Promise.all([
+  if (coachId && acceptingBookings) {
+    const [{ data: av }, { data: bk }, { data: blocked }] = await Promise.all([
       supabase.from('coach_availability').select('weekday, start_time, end_time').eq('coach_id', coachId),
       supabase.from('bookings').select('session_date, time_slot').eq('coach_id', coachId).neq('status', 'cancelled'),
+      supabase.from('coach_blocked_dates').select('blocked_date').eq('coach_id', coachId),
     ]);
     weekly = (av || []).map((s: any) => ({
       weekday: s.weekday,
@@ -58,28 +64,33 @@ export async function getCoachBookingInfo(name: string): Promise<CoachBookingInf
       end: String(s.end_time || '').slice(0, 5),
     }));
     (bk || []).forEach((b: any) => booked.add(`${b.session_date}|${b.time_slot}`));
+    (blocked || []).forEach((b: any) => blockedDates.add(b.blocked_date));
   }
 
   const source: 'published' | 'default' = weekly.length > 0 ? 'published' : 'default';
 
   const slots: BookableSlot[] = [];
-  const today = new Date();
-  for (let i = 1; i <= 14 && slots.length < 15; i++) {
-    const d = new Date(today);
-    d.setDate(today.getDate() + i);
-    const windows =
-      source === 'published'
-        ? weekly.filter((w) => w.weekday === d.getDay()).map((w) => ({ start: w.start, end: w.end }))
-        : DEFAULT_WINDOWS;
-    for (const w of windows) {
-      const time = `${w.start} - ${w.end}`;
-      const id = `${isoDate(d)}|${time}`;
-      if (booked.has(id)) continue;
-      slots.push({ id, date: isoDate(d), label: labelDate(d), time });
+  if (acceptingBookings) {
+    const today = new Date();
+    for (let i = 1; i <= 14 && slots.length < 15; i++) {
+      const d = new Date(today);
+      d.setDate(today.getDate() + i);
+      const dateStr = isoDate(d);
+      if (blockedDates.has(dateStr)) continue; // admin holiday / blocked day
+      const windows =
+        source === 'published'
+          ? weekly.filter((w) => w.weekday === d.getDay()).map((w) => ({ start: w.start, end: w.end }))
+          : DEFAULT_WINDOWS;
+      for (const w of windows) {
+        const time = `${w.start} - ${w.end}`;
+        const id = `${dateStr}|${time}`;
+        if (booked.has(id)) continue;
+        slots.push({ id, date: dateStr, label: labelDate(d), time });
+      }
     }
   }
 
-  return { coachId, pricePerSession, slots, source };
+  return { coachId, pricePerSession, slots, source, acceptingBookings };
 }
 
 /** Dates (YYYY-MM-DD) the signed-in student already has a live booking on — used to enforce one session per day. */

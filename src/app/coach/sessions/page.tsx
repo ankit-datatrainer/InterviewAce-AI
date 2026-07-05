@@ -2,11 +2,12 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Video, CalendarDays, Clock, CheckCircle, FileText, X, Bell } from 'lucide-react';
+import { Video, CalendarDays, Clock, CheckCircle, FileText, X, Bell, Download } from 'lucide-react';
 import { useToast } from '@/components/Toast';
 import CoachShell from '@/components/CoachShell';
 import { getMySessions, updateSession, type CoachProfile, type CoachSession } from '@/lib/coach-store';
 import { useSessionWindow, parseSessionTimes } from '@/lib/session-window';
+import { getRecordingDownloadUrl } from '@/lib/session-recordings';
 
 type Filter = 'upcoming' | 'completed' | 'all';
 
@@ -81,6 +82,13 @@ function SessionsInner({ coach }: { coach: CoachProfile }) {
     load();
   };
 
+  const downloadRecording = async (s: CoachSession) => {
+    if (!s.recordingUrl) return;
+    const url = await getRecordingDownloadUrl(s.recordingUrl);
+    if (url) window.open(url, '_blank');
+    else toast('Could not generate a download link.');
+  };
+
   return (
     <>
       <div className="app-head">
@@ -118,6 +126,9 @@ function SessionsInner({ coach }: { coach: CoachProfile }) {
                 </div>
                 <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
                   <button className="btn btn-ghost btn-sm" onClick={() => { setNoteFor(s); setNoteText(s.notes || ''); }}><FileText size={15} /> Notes</button>
+                  {s.recordingUrl && (
+                    <button className="btn btn-ghost btn-sm" onClick={() => downloadRecording(s)}><Download size={15} /> Recording</button>
+                  )}
                   {s.status === 'confirmed' && (
                     <>
                       <button className="btn btn-ghost btn-sm" onClick={() => markComplete(s)}><CheckCircle size={15} /> Complete</button>

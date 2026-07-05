@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import {
   ArrowLeft, Save, Star, Upload, FileText, Trash2, ShieldCheck, Loader2,
-  Lock, Eye, EyeOff, Link2, MessageSquarePlus,
+  Lock, Eye, EyeOff, Link2, MessageSquarePlus, CalendarDays, CalendarX, X, Ban,
 } from 'lucide-react';
 import { useToast } from '@/components/Toast';
 import {
@@ -16,10 +16,18 @@ import {
   addCoachReviewAdmin,
   editCoachReviewAdmin,
   deleteCoachReviewAdmin,
+  getCoachCalendar,
+  adminAddBlockedDate,
+  adminRemoveBlockedDate,
+  adminSetAcceptingBookings,
+  adminCancelBooking,
   type AdminCoachDetail,
   type AdminReviewItem,
+  type CoachCalendarSlot,
+  type CoachBlockedDate,
+  type CoachBookingRow,
 } from '@/lib/admin-store';
-import { uploadCertificate } from '@/lib/coach-store';
+import { uploadCertificate, WEEKDAYS } from '@/lib/coach-store';
 
 function PasswordField({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
   const [show, setShow] = useState(false);
@@ -83,6 +91,14 @@ export default function AdminCoachEditorPage() {
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewComment, setReviewComment] = useState('');
   const [addingReview, setAddingReview] = useState(false);
+
+  // Calendar control
+  const [availability, setAvailability] = useState<CoachCalendarSlot[]>([]);
+  const [blockedDates, setBlockedDates] = useState<CoachBlockedDate[]>([]);
+  const [coachBookings, setCoachBookings] = useState<CoachBookingRow[]>([]);
+  const [acceptingBookings, setAcceptingBookings] = useState(true);
+  const [newBlockDate, setNewBlockDate] = useState('');
+  const [calendarBusy, setCalendarBusy] = useState(false);
   const [editingReviewId, setEditingReviewId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -98,6 +114,11 @@ export default function AdminCoachEditorPage() {
       setVerified(c.isVerified); setKyc(c.kycVerified);
       setLinkEmail(c.email || '');
       setReviews(await getCoachReviewsAdmin(id));
+      const cal = await getCoachCalendar(id);
+      setAvailability(cal.availability);
+      setBlockedDates(cal.blockedDates);
+      setCoachBookings(cal.bookings);
+      setAcceptingBookings(cal.acceptingBookings);
     }
     setLoaded(true);
   }, [id]);
@@ -221,6 +242,52 @@ export default function AdminCoachEditorPage() {
 
   const certName = (url: string) => decodeURIComponent(url.split('/').pop() || 'certificate');
 
+  const handleToggleAccepting = async () => {
+    if (!coach) return;
+    setCalendarBusy(true);
+    try {
+      await adminSetAcceptingBookings(coach.id, !acceptingBookings);
+      setAcceptingBookings((v) => !v);
+      toast(acceptingBookings ? 'Bookings closed for this coach.' : 'Bookings reopened for this coach.');
+    } catch (e: any) {
+      toast(e?.message?.includes('column') ? 'Run deploy/phase2-update.sql in Supabase first.' : (e?.message || 'Failed.'));
+    } finally {
+      setCalendarBusy(false);
+    }
+  };
+
+  const handleAddBlockedDate = async () => {
+    if (!coach || !newBlockDate) return;
+    setCalendarBusy(true);
+    try {
+      await adminAddBlockedDate(coach.id, newBlockDate);
+      setNewBlockDate('');
+      toast('Date blocked.');
+      load();
+    } catch (e: any) {
+      toast(e?.message || 'Failed to block date.');
+    } finally {
+      setCalendarBusy(false);
+    }
+  };
+
+  const handleRemoveBlockedDate = async (blockId: string) => {
+    await adminRemoveBlockedDate(blockId);
+    toast('Blocked date removed.');
+    load();
+  };
+
+  const handleCancelBooking = async (bookingId: string) => {
+    if (!confirm('Cancel this booking? The student will need to rebook.')) return;
+    try {
+      await adminCancelBooking(bookingId);
+      toast('Booking cancelled.');
+      load();
+    } catch (e: any) {
+      toast(e?.message || 'Failed to cancel booking.');
+    }
+  };
+
   if (!loaded) return null;
   if (!coach) {
     return (
@@ -281,6 +348,67 @@ export default function AdminCoachEditorPage() {
             <button className="btn btn-ghost btn-sm" onClick={() => certRef.current?.click()} disabled={uploading}>
               {uploading ? <Loader2 size={15} className="spin" /> : <Upload size={15} />} {uploading ? 'Uploading…' : 'Upload certificate'}
             </button>
+          </div>
+
+          {/* Calendar control */}
+          <div className="widget">
+            <h4 style={{ display: 'flex', alignItems: 'center', gap: '.5rem' }}><CalendarDays size={16} /> Calendar control</h4>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: '1px solid var(--line)', borderRadius: 8, padding: '.7rem .9rem', marginBottom: '1rem' }}>
+              <div>
+                <p style={{ margin: 0, fontWeight: 600, fontSize: '.9rem' }}>{acceptingBookings ? 'Accepting new bookings' : 'Bookings closed'}</p>
+                <p style={{ margin: 0, color: 'var(--text-3)', fontSize: '.8rem' }}>Pauses new bookings without hiding the coach&apos;s profile.</p>
+              </div>
+              <button className={`btn btn-sm ${acceptingBookings ? 'btn-ghost' : 'btn-primary'}`} onClick={handleToggleAccepting} disabled={calendarBusy}>
+                <Ban size={14} /> {acceptingBookings ? 'Close bookings' : 'Reopen bookings'}
+              </button>
+            </div>
+
+            <p style={{ fontSize: '.82rem', fontWeight: 600, color: 'var(--text-2)', marginBottom: '.5rem', textTransform: 'uppercase', letterSpacing: '.03em' }}>Weekly availability (set by coach)</p>
+            {availability.length === 0 ? (
+              <p style={{ color: 'var(--text-3)', fontSize: '.86rem', marginBottom: '1rem' }}>No availability published yet.</p>
+            ) : (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.4rem', marginBottom: '1rem' }}>
+                {availability.map((a) => (
+                  <span key={a.id} className="tag blue">{WEEKDAYS[a.weekday]} {a.startTime}-{a.endTime}</span>
+                ))}
+              </div>
+            )}
+
+            <p style={{ fontSize: '.82rem', fontWeight: 600, color: 'var(--text-2)', marginBottom: '.5rem', textTransform: 'uppercase', letterSpacing: '.03em' }}>Blocked dates / holidays</p>
+            {blockedDates.length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.4rem', marginBottom: '.6rem' }}>
+                {blockedDates.map((b) => (
+                  <span key={b.id} className="tag amber" style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem' }}>
+                    {b.blockedDate}
+                    <button onClick={() => handleRemoveBlockedDate(b.id)} style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', display: 'flex' }}><X size={12} /></button>
+                  </span>
+                ))}
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: '.5rem', marginBottom: '1rem' }}>
+              <input type="date" className="input" style={{ flex: 1 }} value={newBlockDate} onChange={(e) => setNewBlockDate(e.target.value)} />
+              <button className="btn btn-ghost btn-sm" onClick={handleAddBlockedDate} disabled={calendarBusy || !newBlockDate}>Block date</button>
+            </div>
+
+            <p style={{ fontSize: '.82rem', fontWeight: 600, color: 'var(--text-2)', marginBottom: '.5rem', textTransform: 'uppercase', letterSpacing: '.03em' }}>Recent bookings</p>
+            {coachBookings.length === 0 ? (
+              <p style={{ color: 'var(--text-3)', fontSize: '.86rem' }}>No bookings yet.</p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem', maxHeight: 220, overflowY: 'auto' }}>
+                {coachBookings.map((b) => (
+                  <div key={b.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: '1px solid var(--line)', borderRadius: 8, padding: '.5rem .7rem', fontSize: '.84rem' }}>
+                    <span>{b.studentName} · {b.sessionDate} · {b.timeSlot}</span>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '.5rem' }}>
+                      <span className={`tag ${b.status === 'completed' ? 'green' : b.status === 'cancelled' ? 'red' : 'blue'}`}>{b.status}</span>
+                      {b.status === 'confirmed' && (
+                        <button className="btn btn-ghost btn-sm" style={{ padding: '0 .4rem', height: 22 }} onClick={() => handleCancelBooking(b.id)} title="Cancel booking"><CalendarX size={13} /></button>
+                      )}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Account & security */}

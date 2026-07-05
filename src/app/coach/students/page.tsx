@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { Users, ChevronRight, ArrowLeft, StickyNote, ClipboardList, Target, Plus, Mail, Phone, BarChart, CheckCircle } from 'lucide-react';
+import { Users, ChevronRight, ArrowLeft, StickyNote, ClipboardList, Target, Plus, Mail, Phone, BarChart, CheckCircle, FileText } from 'lucide-react';
 import CoachShell from '@/components/CoachShell';
 import { useToast } from '@/components/Toast';
 import {
@@ -84,6 +84,30 @@ function StudentDetailView({ coach, student, onBack }: { coach: CoachProfile; st
                       <b style={{ color: scoreColor(iv.score) }}>{iv.score}</b>
                       <span style={{ color: 'var(--text-3)', fontSize: '.8rem' }}>{new Date(iv.date).toLocaleDateString()}</span>
                     </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Resume + ATS score — so the coach can personalize the session */}
+          <div className="widget">
+            <h4 style={{ display: 'flex', alignItems: 'center', gap: '.45rem', fontSize: '.95rem' }}><FileText size={15} /> Resume &amp; ATS score</h4>
+            {!detail || detail.resumes.length === 0 ? (
+              <p style={{ color: 'var(--text-3)', fontSize: '.88rem', padding: '.5rem 0' }}>No resume uploaded yet.</p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '.6rem' }}>
+                {detail.resumes.map((r) => (
+                  <div key={r.id} style={{ border: '1px solid var(--line)', borderRadius: 8, padding: '.6rem .8rem', fontSize: '.88rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: r.summary || r.topSuggestion ? '.4rem' : 0 }}>
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 200 }}>{r.fileName}{r.targetRole ? ` · ${r.targetRole}` : ''}</span>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '.8rem' }}>
+                        {r.atsScore != null && <b style={{ color: scoreColor(r.atsScore) }}>ATS {r.atsScore}</b>}
+                        <span style={{ color: 'var(--text-3)', fontSize: '.8rem' }}>{new Date(r.date).toLocaleDateString()}</span>
+                      </span>
+                    </div>
+                    {r.summary && <p style={{ margin: '0 0 .3rem', color: 'var(--text-2)', fontSize: '.84rem' }}>{r.summary}</p>}
+                    {r.topSuggestion && <p style={{ margin: 0, color: 'var(--text-3)', fontSize: '.82rem' }}><b>Top tip:</b> {r.topSuggestion}</p>}
                   </div>
                 ))}
               </div>

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { Search } from 'lucide-react';
 import {
   getAdminUsers,
@@ -25,6 +26,7 @@ const planColor: Record<string, string> = {
 };
 
 export default function UsersPage() {
+  const router = useRouter();
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [search, setSearch] = useState('');
   const { toast } = useToast();
@@ -42,7 +44,7 @@ export default function UsersPage() {
   );
 
   const handleView = (u: AdminUser) => {
-    toast(`${u.name} — ${u.email} | Plan: ${u.plan} | Interviews: ${u.interviews} | Status: ${u.status}`);
+    router.push(`/admin/users/${u.id}`);
   };
 
   const handleToggleStatus = async (u: AdminUser) => {

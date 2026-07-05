@@ -1009,3 +1009,134 @@ export async function adminEndSession(bookingId: string): Promise<void> {
   await supabase.from('bookings').update({ status: 'completed' }).eq('id', bookingId);
   await logAudit('session_force_ended', 'booking', bookingId);
 }
+
+// ─────────────────────────── Per-user drill-down (admin) ───────────────────────────
+
+export interface AdminUserDetail {
+  id: string;
+  name: string;
+  email: string;
+  phone: string | null;
+  plan: string;
+  joined: string;
+  isBanned: boolean;
+  bookings: { id: string; coachName: string; date: string; timeSlot: string; status: string; amount: number | null }[];
+  interviews: { id: string; type: string; role: string; score: number; date: string }[];
+  resumes: { id: string; fileName: string; targetRole: string | null; atsScore: number | null; date: string }[];
+}
+
+/** Everything the admin needs to see about one user: profile, bookings, AI interviews, resumes. */
+export async function getUserDetailAdmin(userId: string): Promise<AdminUserDetail | null> {
+  const supabase = createClient();
+  const [profileRes, bookingsRes, interviewsRes, resumesRes] = await Promise.all([
+    supabase.from('profiles').select('*').eq('id', userId).maybeSingle(),
+    supabase.from('bookings').select('id, session_date, time_slot, status, amount, coaches(name)').eq('user_id', userId).order('session_date', { ascending: false }),
+    supabase.from('interviews').select('id, interview_type, target_role, overall_score, created_at').eq('user_id', userId).order('created_at', { ascending: false }).limit(20),
+    supabase.from('resumes').select('id, file_name, target_role, ats_score, created_at').eq('user_id', userId).order('created_at', { ascending: false }).limit(10),
+  ]);
+
+  const p: any = profileRes.data;
+  if (!p) return null;
+
+  return {
+    id: p.id,
+    name: p.full_name || 'Unknown User',
+    email: p.email || '—',
+    phone: p.phone ?? null,
+    plan: p.plan === 'pro' ? 'Pro' : p.plan === 'premium' ? 'Premium' : 'Free',
+    joined: p.created_at ? new Date(p.created_at).toISOString().split('T')[0] : '',
+    isBanned: !!p.is_banned,
+    bookings: (bookingsRes.data || []).map((b: any) => ({
+      id: b.id, coachName: b.coaches?.name || 'Coach', date: b.session_date,
+      timeSlot: b.time_slot, status: b.status, amount: b.amount ?? null,
+    })),
+    interviews: (interviewsRes.data || []).map((iv: any) => ({
+      id: iv.id, type: iv.interview_type || 'Interview', role: iv.target_role || '—',
+      score: iv.overall_score ?? 0, date: iv.created_at,
+    })),
+    resumes: (resumesRes.data || []).map((r: any) => ({
+      id: r.id, fileName: r.file_name, targetRole: r.target_role ?? null,
+      atsScore: r.ats_score ?? null, date: r.created_at,
+    })),
+  };
+}
+
+// ─────────────────────────── Admin calendar control ───────────────────────────
+
+export interface CoachCalendarSlot { id: string; weekday: number; startTime: string; endTime: string; }
+export interface CoachBlockedDate { id: string; blockedDate: string; }
+export interface CoachBookingRow { id: string; studentName: string; sessionDate: string; timeSlot: string; status: string; }
+
+export async function getCoachCalendar(coachId: string): Promise<{
+  availability: CoachCalendarSlot[];
+  blockedDates: CoachBlockedDate[];
+  bookings: CoachBookingRow[];
+  acceptingBookings: boolean;
+}> {
+  const supabase = createClient();
+  const [availRes, blockedRes, bookingsRes, coachRes] = await Promise.all([
+    supabase.from('coach_availability').select('id, weekday, start_time, end_time').eq('coach_id', coachId),
+    supabase.from('coach_blocked_dates').select('id, blocked_date').eq('coach_id', coachId).order('blocked_date'),
+    supabase.from('bookings').select('id, session_date, time_slot, status, profiles(full_name)').eq('coach_id', coachId).order('session_date', { ascending: false }).limit(30),
+    supabase.from('coaches').select('accepting_bookings').eq('id', coachId).maybeSingle(),
+  ]);
+  return {
+    availability: (availRes.data || []).map((a: any) => ({ id: a.id, weekday: a.weekday, startTime: String(a.start_time).slice(0, 5), endTime: String(a.end_time).slice(0, 5) })),
+    blockedDates: (blockedRes.data || []).map((b: any) => ({ id: b.id, blockedDate: b.blocked_date })),
+    bookings: (bookingsRes.data || []).map((b: any) => ({ id: b.id, studentName: b.profiles?.full_name || 'Student', sessionDate: b.session_date, timeSlot: b.time_slot, status: b.status })),
+    acceptingBookings: coachRes.data?.accepting_bookings !== false,
+  };
+}
+
+export async function adminAddBlockedDate(coachId: string, date: string): Promise<void> {
+  const supabase = createClient();
+  const { error } = await supabase.from('coach_blocked_dates').insert({ coach_id: coachId, blocked_date: date });
+  if (error) throw new Error(error.message);
+}
+
+export async function adminRemoveBlockedDate(id: string): Promise<void> {
+  const supabase = createClient();
+  await supabase.from('coach_blocked_dates').delete().eq('id', id);
+}
+
+export async function adminSetAcceptingBookings(coachId: string, accepting: boolean): Promise<void> {
+  const supabase = createClient();
+  const { error } = await supabase.from('coaches').update({ accepting_bookings: accepting }).eq('id', coachId);
+  if (error) throw new Error(error.message);
+}
+
+/** Cancels one specific booking (e.g. resolving a conflict or a student complaint). */
+export async function adminCancelBooking(bookingId: string): Promise<void> {
+  const supabase = createClient();
+  const { error } = await supabase.from('bookings').update({ status: 'cancelled' }).eq('id', bookingId);
+  if (error) throw new Error(error.message);
+  await logAudit('booking_cancelled_by_admin', 'booking', bookingId);
+}
+
+export interface RecordedSession {
+  id: string;
+  coachName: string;
+  studentName: string;
+  sessionDate: string;
+  timeSlot: string;
+  recordingUrl: string;
+}
+
+/** Most recent sessions that have a saved recording — for admin download/audit. */
+export async function getRecordedSessions(): Promise<RecordedSession[]> {
+  const supabase = createClient();
+  const { data } = await supabase
+    .from('bookings')
+    .select('id, session_date, time_slot, recording_url, coaches(name), profiles(full_name)')
+    .not('recording_url', 'is', null)
+    .order('session_date', { ascending: false })
+    .limit(30);
+  return (data || []).map((b: any) => ({
+    id: b.id,
+    coachName: b.coaches?.name || 'Coach',
+    studentName: b.profiles?.full_name || 'Student',
+    sessionDate: b.session_date,
+    timeSlot: b.time_slot,
+    recordingUrl: b.recording_url,
+  }));
+}

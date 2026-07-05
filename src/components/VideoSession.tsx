@@ -3,13 +3,15 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { MeetingProvider, useMeeting, useParticipant } from '@videosdk.live/react-sdk';
-import { Mic, MicOff, Video, VideoOff, PhoneOff, ScreenShare, Loader2, AlertCircle, Settings } from 'lucide-react';
+import { Mic, MicOff, Video, VideoOff, PhoneOff, ScreenShare, Loader2, AlertCircle, Settings, Circle, Square as StopIcon } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 
 type Role = 'coach' | 'student' | 'monitor';
 
+export interface TileMedia { video: HTMLVideoElement | null; micStream: MediaStream | null; }
+
 // ── One participant's video/audio tile ──────────────────────────
-function ParticipantTile({ participantId }: { participantId: string }) {
+function ParticipantTile({ participantId, onReady }: { participantId: string; onReady?: (id: string, media: TileMedia) => void }) {
   const { webcamStream, micStream, webcamOn, micOn, isLocal, displayName } = useParticipant(participantId);
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -39,6 +41,13 @@ function ParticipantTile({ participantId }: { participantId: string }) {
     }
   }, [micStream, micOn, isLocal]);
 
+  // Report this tile's video element + mic stream up so a parent recorder can
+  // composite both seats onto a single canvas + mixed audio track.
+  useEffect(() => {
+    const ms = micStream ? new MediaStream([micStream.track]) : null;
+    onReady?.(participantId, { video: videoRef.current, micStream: ms });
+  }, [participantId, micStream, onReady]);
+
   return (
     <div style={{ position: 'relative', background: '#111', borderRadius: 'var(--r-md)', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 240 }}>
       {!isLocal && <audio ref={audioRef} autoPlay playsInline />}
@@ -61,14 +70,14 @@ function ParticipantTile({ participantId }: { participantId: string }) {
 }
 
 // ── A fixed seat (Coach / Student). Shows the participant, or a placeholder. ──
-function SeatTile({ id, seat }: { id: string | null; seat: 'Coach' | 'Student' }) {
+function SeatTile({ id, seat, onReady }: { id: string | null; seat: string; onReady?: (id: string, media: TileMedia) => void }) {
   return (
     <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', minHeight: 240 }}>
       <div style={{ position: 'absolute', top: '.7rem', left: '.7rem', zIndex: 3, background: seat === 'Coach' ? 'rgba(37,99,235,0.9)' : 'rgba(16,185,129,0.9)', color: '#fff', padding: '.25rem .75rem', borderRadius: 'var(--r-full)', fontSize: '.78rem', fontWeight: 700, letterSpacing: '.03em' }}>
         {seat}
       </div>
       {id ? (
-        <ParticipantTile participantId={id} />
+        <ParticipantTile participantId={id} onReady={onReady} />
       ) : (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '.6rem', color: 'var(--text-3)', border: '1px dashed var(--line)', borderRadius: 'var(--r-md)', background: '#0d0d0d', minHeight: 240 }}>
           <Loader2 size={22} style={{ animation: 'spin 1s linear infinite' }} />
@@ -98,7 +107,7 @@ function Control({ children, label, onClick, active = true, danger = false, high
 }
 
 // ── The live meeting view (inside MeetingProvider) ──────────────
-function MeetingView({ role, leaveHref }: { role: Role; leaveHref: string }) {
+function MeetingView({ role, leaveHref, roomId, canRecord }: { role: Role; leaveHref: string; roomId: string; canRecord: boolean }) {
   const router = useRouter();
   const isMonitor = role === 'monitor';
   const [joined, setJoined] = useState(false);
@@ -113,6 +122,16 @@ function MeetingView({ role, leaveHref }: { role: Role; leaveHref: string }) {
   const [activeCam, setActiveCam] = useState('');
   const [activeMic, setActiveMic] = useState('');
   const joinedRef = useRef(false);
+
+  // ── Session recording (coach / admin only) ──
+  const [recording, setRecording] = useState(false);
+  const [savingRecording, setSavingRecording] = useState(false);
+  const tileRegistry = useRef<Map<string, TileMedia>>(new Map());
+  const registerTile = useRef((id: string, media: TileMedia) => { tileRegistry.current.set(id, media); }).current;
+  const recRafRef = useRef<number | null>(null);
+  const recAudioCtxRef = useRef<AudioContext | null>(null);
+  const recRecorderRef = useRef<MediaRecorder | null>(null);
+  const recChunksRef = useRef<BlobPart[]>([]);
 
   const { join, leave, toggleMic, toggleWebcam, enableScreenShare, disableScreenShare, changeWebcam, changeMic, getWebcams, getMics, participants, localParticipant } = useMeeting({
     onMeetingJoined: () => { setJoined(true); setJoinError(null); },
@@ -215,6 +234,104 @@ function MeetingView({ role, leaveHref }: { role: Role; leaveHref: string }) {
   const seatLabel = (id: string | null, fallback: string) =>
     (id && (participants.get(id) as any)?.displayName) || fallback;
 
+  // ── Composite both seats onto a canvas + mix both mics into one recording ──
+  const startRecording = () => {
+    if (recRecorderRef.current) return;
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = 1280;
+      canvas.height = 480;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      const drawCover = (video: HTMLVideoElement | null | undefined, dx: number, dy: number, dw: number, dh: number) => {
+        if (!video || video.readyState < 2) return;
+        const vw = video.videoWidth, vh = video.videoHeight;
+        if (!vw || !vh) return;
+        const scale = Math.max(dw / vw, dh / vh);
+        const sw = dw / scale, sh = dh / scale;
+        ctx.drawImage(video, (vw - sw) / 2, (vh - sh) / 2, sw, sh, dx, dy, dw, dh);
+      };
+
+      const draw = () => {
+        ctx.fillStyle = '#0b1220';
+        ctx.fillRect(0, 0, 1280, 480);
+        drawCover(coachId ? tileRegistry.current.get(coachId)?.video : null, 0, 0, 640, 480);
+        drawCover(studentId ? tileRegistry.current.get(studentId)?.video : null, 640, 0, 640, 480);
+        ctx.fillStyle = 'rgba(0,0,0,0.45)';
+        ctx.fillRect(0, 446, 1280, 34);
+        ctx.fillStyle = '#fff';
+        ctx.font = '16px Inter, sans-serif';
+        ctx.fillText('Coach', 14, 469);
+        ctx.fillText('Student', 654, 469);
+        recRafRef.current = requestAnimationFrame(draw);
+      };
+      draw();
+
+      const canvasStream = canvas.captureStream(30);
+
+      const AC = window.AudioContext || (window as any).webkitAudioContext;
+      const actx: AudioContext = new AC();
+      recAudioCtxRef.current = actx;
+      const dest = actx.createMediaStreamDestination();
+      const addAudio = (stream: MediaStream | null | undefined) => {
+        try {
+          const tracks = stream?.getAudioTracks?.() ?? [];
+          if (tracks.length) actx.createMediaStreamSource(new MediaStream(tracks)).connect(dest);
+        } catch { /* ignore */ }
+      };
+      addAudio(coachId ? tileRegistry.current.get(coachId)?.micStream : null);
+      addAudio(studentId ? tileRegistry.current.get(studentId)?.micStream : null);
+
+      const combined = new MediaStream([...canvasStream.getVideoTracks(), ...dest.stream.getAudioTracks()]);
+      recChunksRef.current = [];
+      const mime = MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus') ? 'video/webm;codecs=vp9,opus' : 'video/webm';
+      const rec = new MediaRecorder(combined, { mimeType: mime });
+      rec.ondataavailable = (e) => { if (e.data.size > 0) recChunksRef.current.push(e.data); };
+      rec.start(1000);
+      recRecorderRef.current = rec;
+      setRecording(true);
+    } catch (e) {
+      console.warn('Recording could not start.', e);
+    }
+  };
+
+  const stopRecording = () => {
+    if (recRafRef.current) { cancelAnimationFrame(recRafRef.current); recRafRef.current = null; }
+    const rec = recRecorderRef.current;
+    if (!rec || rec.state === 'inactive') return;
+    setSavingRecording(true);
+    rec.onstop = async () => {
+      try { recAudioCtxRef.current?.close(); } catch { /* ignore */ }
+      recAudioCtxRef.current = null;
+      recRecorderRef.current = null;
+      setRecording(false);
+      const blob = recChunksRef.current.length ? new Blob(recChunksRef.current, { type: 'video/webm' }) : null;
+      recChunksRef.current = [];
+      if (!blob) { setSavingRecording(false); return; }
+      try {
+        const supabase = createClient();
+        const path = `${roomId}/${Date.now()}.webm`;
+        const { error: upErr } = await supabase.storage.from('session-recordings').upload(path, blob, { contentType: 'video/webm' });
+        if (upErr) throw upErr;
+        await supabase.from('bookings').update({ recording_url: path }).eq('room_id', roomId);
+      } catch (e) {
+        console.warn('Could not save the recording.', e);
+      } finally {
+        setSavingRecording(false);
+      }
+    };
+    rec.stop();
+  };
+
+  useEffect(() => {
+    return () => {
+      if (recRafRef.current) cancelAnimationFrame(recRafRef.current);
+      if (recRecorderRef.current && recRecorderRef.current.state !== 'inactive') recRecorderRef.current.stop();
+      try { recAudioCtxRef.current?.close(); } catch { /* ignore */ }
+    };
+  }, []);
+
   if (!joined) {
     if (joinError) {
       return (
@@ -248,6 +365,11 @@ function MeetingView({ role, leaveHref }: { role: Role; leaveHref: string }) {
               Admin · observing
             </span>
           )}
+          {recording && (
+            <span style={{ display: 'flex', alignItems: 'center', gap: '.4rem', background: 'rgba(239,68,68,0.12)', color: '#ef4444', padding: '.2rem .8rem', borderRadius: 'var(--r-full)', fontSize: '.85rem', fontWeight: 600 }}>
+              <Circle size={9} fill="currentColor" style={{ animation: 'pulseRec 1.2s infinite' }} /> Recording
+            </span>
+          )}
           <span style={{ background: 'rgba(16,185,129,0.1)', color: '#10b981', padding: '.2rem .8rem', borderRadius: 'var(--r-full)', fontSize: '.85rem', fontWeight: 600 }}>
             ● Live · {allIds.length} in room
           </span>
@@ -255,11 +377,17 @@ function MeetingView({ role, leaveHref }: { role: Role; leaveHref: string }) {
       </div>
 
       <div style={{ flex: 1, padding: '1rem', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', background: '#000', overflow: 'auto' }}>
-        <SeatTile id={coachId} seat={isMonitor ? seatLabel(coachId, 'Participant 1') : 'Coach'} />
-        <SeatTile id={studentId} seat={isMonitor ? seatLabel(studentId, 'Waiting for participants…') : 'Student'} />
+        <SeatTile id={coachId} seat={isMonitor ? seatLabel(coachId, 'Participant 1') : 'Coach'} onReady={registerTile} />
+        <SeatTile id={studentId} seat={isMonitor ? seatLabel(studentId, 'Waiting for participants…') : 'Student'} onReady={registerTile} />
       </div>
 
       <div style={{ padding: '1.1rem 1.25rem', background: '#1a1a1f', borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'center', alignItems: 'flex-start', gap: '1.5rem' }}>
+        {(isMonitor || canRecord) && (
+          <Control label={savingRecording ? 'Saving…' : recording ? 'Stop recording' : 'Record'} active highlight={recording} danger={recording}
+            onClick={() => { if (savingRecording) return; recording ? stopRecording() : startRecording(); }}>
+            {savingRecording ? <Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} /> : recording ? <StopIcon size={20} /> : <Circle size={20} />}
+          </Control>
+        )}
         {!isMonitor && (<>
         <Control label={micEnabled ? 'Mute' : 'Unmute'} active={micEnabled} danger={!micEnabled}
           onClick={() => { toggleMic(); setMicEnabled((v) => !v); }}>
@@ -311,6 +439,7 @@ function MeetingView({ role, leaveHref }: { role: Role; leaveHref: string }) {
           <span style={{ fontSize: '.72rem', color: '#fca5a5', fontWeight: 600 }}>{isMonitor ? 'Leave' : 'End'}</span>
         </div>
       </div>
+      <style>{`@keyframes pulseRec { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } } @keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 }
@@ -322,6 +451,21 @@ export default function VideoSession({ paramRoomId, role, leaveHref, canonicalBa
   const [token, setToken] = useState('');
   const [roomId, setRoomId] = useState('');
   const [name, setName] = useState(role === 'coach' ? 'Coach' : role === 'monitor' ? 'Admin (monitoring)' : 'Student');
+  // Whether THIS coach is allowed to record — admin can disable per coach.
+  const [canRecord, setCanRecord] = useState(false);
+
+  useEffect(() => {
+    if (role !== 'coach') return;
+    (async () => {
+      try {
+        const supabase = createClient();
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+        const { data } = await supabase.from('coaches').select('recording_enabled').eq('user_id', user.id).maybeSingle();
+        setCanRecord(data?.recording_enabled !== false);
+      } catch { /* default: not allowed if we can't check */ }
+    })();
+  }, [role]);
 
   useEffect(() => {
     let active = true;
@@ -389,7 +533,7 @@ export default function VideoSession({ paramRoomId, role, leaveHref, canonicalBa
       config={{ meetingId: roomId, name, micEnabled: role !== 'monitor', webcamEnabled: role !== 'monitor', debugMode: false }}
       joinWithoutUserInteraction={false}
     >
-      <MeetingView role={role} leaveHref={leaveHref} />
+      <MeetingView role={role} leaveHref={leaveHref} roomId={roomId} canRecord={role === 'coach' && canRecord} />
     </MeetingProvider>
   );
 }

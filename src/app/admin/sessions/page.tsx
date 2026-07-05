@@ -2,21 +2,30 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { Video, Eye, PhoneOff, RefreshCw, CalendarDays, Clock, Users } from 'lucide-react';
+import { Video, Eye, PhoneOff, RefreshCw, CalendarDays, Clock, Users, Download, Film } from 'lucide-react';
 import { useToast } from '@/components/Toast';
-import { getLiveSessions, adminEndSession, type LiveSession } from '@/lib/admin-store';
+import { getLiveSessions, adminEndSession, getRecordedSessions, type LiveSession, type RecordedSession } from '@/lib/admin-store';
+import { getRecordingDownloadUrl } from '@/lib/session-recordings';
 
 export default function AdminSessionsPage() {
   const router = useRouter();
   const { toast } = useToast();
   const [sessions, setSessions] = useState<LiveSession[]>([]);
+  const [recordings, setRecordings] = useState<RecordedSession[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [ending, setEnding] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setSessions(await getLiveSessions());
+    setRecordings(await getRecordedSessions());
     setLoaded(true);
   }, []);
+
+  const downloadRecording = async (path: string) => {
+    const url = await getRecordingDownloadUrl(path);
+    if (url) window.open(url, '_blank');
+    else toast('Could not generate a download link.');
+  };
 
   useEffect(() => {
     refresh();
@@ -88,6 +97,22 @@ export default function AdminSessionsPage() {
                     <PhoneOff size={15} /> {ending === s.id ? 'Ending…' : 'End session'}
                   </button>
                 </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="widget" style={{ marginTop: '1rem' }}>
+        <h4 style={{ display: 'flex', alignItems: 'center', gap: '.5rem' }}><Film size={17} /> Recorded sessions</h4>
+        {recordings.length === 0 ? (
+          <p style={{ color: 'var(--text-3)', fontSize: '.88rem', padding: '.5rem 0' }}>No sessions have been recorded yet.</p>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
+            {recordings.map((r) => (
+              <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: '1px solid var(--line)', borderRadius: 8, padding: '.6rem .9rem', fontSize: '.88rem' }}>
+                <span>{r.coachName} × {r.studentName} · {r.sessionDate} · {r.timeSlot}</span>
+                <button className="btn btn-ghost btn-sm" onClick={() => downloadRecording(r.recordingUrl)}><Download size={14} /> Download</button>
               </div>
             ))}
           </div>

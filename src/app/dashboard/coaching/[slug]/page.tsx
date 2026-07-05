@@ -321,6 +321,8 @@ export default function InstructorPage() {
 
             {!info ? (
               <p style={{ color: 'var(--text-3)', padding: '1rem 0' }}>Loading availability…</p>
+            ) : !info.acceptingBookings ? (
+              <p style={{ color: 'var(--text-3)', padding: '1rem 0' }}>This coach isn&apos;t accepting new bookings right now. Please check back soon.</p>
             ) : info.slots.length === 0 ? (
               <p style={{ color: 'var(--text-3)', padding: '1rem 0' }}>This coach hasn&apos;t published any availability yet. Please check back soon.</p>
             ) : (

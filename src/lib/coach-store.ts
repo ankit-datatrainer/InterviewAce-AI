@@ -44,6 +44,7 @@ export interface CoachSession {
   amount: number | null;
   roomId: string | null;
   notes: string | null;
+  recordingUrl: string | null;
 }
 
 export interface CoachReview {
@@ -172,6 +173,7 @@ export async function getMySessions(coachId: string): Promise<CoachSession[]> {
     amount: b.amount ?? null,
     roomId: b.room_id ?? null,
     notes: b.notes ?? null,
+    recordingUrl: b.recording_url ?? null,
   }));
 }
 
@@ -293,17 +295,19 @@ export interface CrmGoal { id: string; studentId: string; goal: string; progress
 export interface StudentDetail {
   profile: { id: string; name: string; email: string | null; phone: string | null } | null;
   interviews: { id: string; type: string; role: string; score: number; date: string }[];
+  resumes: { id: string; fileName: string; targetRole: string | null; atsScore: number | null; summary: string | null; topSuggestion: string | null; date: string }[];
   notes: CrmNote[];
   homework: CrmHomework[];
   goals: CrmGoal[];
 }
 
-/** Full CRM view of one student: profile, AI interview history, notes, homework, goals. */
+/** Full CRM view of one student: profile, AI interview history, resumes/ATS, notes, homework, goals. */
 export async function getStudentDetail(coachId: string, studentId: string): Promise<StudentDetail> {
   const supabase = createClient();
-  const [profileRes, interviewsRes, notesRes, hwRes, goalsRes] = await Promise.all([
+  const [profileRes, interviewsRes, resumesRes, notesRes, hwRes, goalsRes] = await Promise.all([
     supabase.from('profiles').select('id, full_name, email, phone').eq('id', studentId).maybeSingle(),
     supabase.from('interviews').select('id, interview_type, target_role, overall_score, created_at').eq('user_id', studentId).order('created_at', { ascending: false }).limit(10),
+    supabase.from('resumes').select('id, file_name, target_role, ats_score, analysis, created_at').eq('user_id', studentId).order('created_at', { ascending: false }).limit(5),
     supabase.from('coach_notes').select('*').eq('coach_id', coachId).eq('student_id', studentId).order('created_at', { ascending: false }),
     supabase.from('coach_homework').select('*').eq('coach_id', coachId).eq('student_id', studentId).order('created_at', { ascending: false }),
     supabase.from('coach_goals').select('*').eq('coach_id', coachId).eq('student_id', studentId).order('created_at', { ascending: false }),
@@ -316,6 +320,16 @@ export async function getStudentDetail(coachId: string, studentId: string): Prom
       id: iv.id, type: iv.interview_type || 'Interview', role: iv.target_role || '—',
       score: iv.overall_score ?? 0, date: iv.created_at,
     })),
+    resumes: (resumesRes.data || []).map((r: any) => {
+      const analysis = typeof r.analysis === 'string' ? JSON.parse(r.analysis) : r.analysis;
+      return {
+        id: r.id, fileName: r.file_name,
+        targetRole: r.target_role ?? null, atsScore: r.ats_score ?? null,
+        summary: analysis?.extractedData?.summary || null,
+        topSuggestion: analysis?.suggestions?.[0]?.text || null,
+        date: r.created_at,
+      };
+    }),
     notes: (notesRes.data || []).map((n: any) => ({ id: n.id, studentId: n.student_id, notes: n.notes, createdAt: n.created_at })),
     homework: (hwRes.data || []).map((h: any) => ({ id: h.id, studentId: h.student_id, task: h.task, status: h.status, dueDate: h.due_date ?? null, createdAt: h.created_at })),
     goals: (goalsRes.data || []).map((g: any) => ({ id: g.id, studentId: g.student_id, goal: g.goal, progress: g.progress ?? 0, createdAt: g.created_at })),
