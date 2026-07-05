@@ -2,9 +2,9 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { CalendarClock, RefreshCw, Eye, Ban, Search, CalendarDays, Clock } from 'lucide-react';
+import { CalendarClock, RefreshCw, Eye, Ban, Search, CalendarDays, Clock, Pencil, Trash2, Video, X, Link2 } from 'lucide-react';
 import { useToast } from '@/components/Toast';
-import { getAllBookings, adminCancelBooking, type AdminBookingRow } from '@/lib/admin-store';
+import { getAllBookings, adminCancelBooking, adminUpdateBooking, adminDeleteBooking, type AdminBookingRow } from '@/lib/admin-store';
 
 type Filter = 'all' | 'confirmed' | 'completed' | 'cancelled';
 const FILTERS: Filter[] = ['all', 'confirmed', 'completed', 'cancelled'];
@@ -27,6 +27,72 @@ export default function AdminBookingsPage() {
   const [query, setQuery] = useState('');
   const [cancelling, setCancelling] = useState<string | null>(null);
   const [confirmFor, setConfirmFor] = useState<AdminBookingRow | null>(null);
+  const [deleteFor, setDeleteFor] = useState<AdminBookingRow | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  // Edit modal state
+  const [editFor, setEditFor] = useState<AdminBookingRow | null>(null);
+  const [eDate, setEDate] = useState('');
+  const [eTime, setETime] = useState('');
+  const [eStatus, setEStatus] = useState('confirmed');
+  const [eRoom, setERoom] = useState('');
+  const [minting, setMinting] = useState(false);
+
+  const openEdit = (r: AdminBookingRow) => {
+    setEditFor(r);
+    setEDate(r.sessionDate);
+    setETime(r.timeSlot);
+    setEStatus(r.status);
+    setERoom(r.roomId || '');
+  };
+
+  const generateRoom = async () => {
+    setMinting(true);
+    try {
+      const res = await fetch('/api/videosdk/room', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+      const data = await res.json();
+      if (data.roomId) { setERoom(data.roomId); toast('New meeting room generated.'); }
+      else toast('Could not generate a room.');
+    } catch {
+      toast('Could not generate a room.');
+    } finally {
+      setMinting(false);
+    }
+  };
+
+  const saveEdit = async () => {
+    if (!editFor) return;
+    setBusy(true);
+    try {
+      await adminUpdateBooking(editFor.id, {
+        sessionDate: eDate,
+        timeSlot: eTime.trim(),
+        status: eStatus,
+        roomId: eRoom.trim() || null,
+      });
+      toast('Session updated.');
+      setEditFor(null);
+      refresh();
+    } catch {
+      toast('Could not update the session.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const doDelete = async (r: AdminBookingRow) => {
+    setBusy(true);
+    try {
+      await adminDeleteBooking(r.id);
+      toast('Session deleted.');
+      setDeleteFor(null);
+      refresh();
+    } catch {
+      toast('Could not delete the session.');
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const refresh = useCallback(async () => {
     try { setRows(await getAllBookings()); } catch { /* ignore */ }
@@ -151,6 +217,9 @@ export default function AdminBookingsPage() {
                             <Eye size={14} /> Monitor
                           </button>
                         )}
+                        <button className="btn btn-ghost btn-sm" title="Edit session" onClick={() => openEdit(r)}>
+                          <Pencil size={14} /> Edit
+                        </button>
                         {r.status === 'confirmed' && (
                           <button
                             className="btn btn-ghost btn-sm"
@@ -161,6 +230,14 @@ export default function AdminBookingsPage() {
                             <Ban size={14} /> {cancelling === r.id ? 'Cancelling…' : 'Cancel'}
                           </button>
                         )}
+                        <button
+                          className="btn btn-ghost btn-sm"
+                          style={{ color: '#ef4444', borderColor: 'rgba(239,68,68,0.4)' }}
+                          title="Delete permanently"
+                          onClick={() => setDeleteFor(r)}
+                        >
+                          <Trash2 size={14} /> Delete
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -184,6 +261,76 @@ export default function AdminBookingsPage() {
                 {cancelling === confirmFor.id ? 'Cancelling…' : 'Yes, cancel session'}
               </button>
               <button className="btn btn-ghost" onClick={() => setConfirmFor(null)}>Keep it</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit session */}
+      {editFor && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }} onClick={() => setEditFor(null)}>
+          <div className="widget" style={{ maxWidth: 480, width: '100%' }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.3rem' }}>
+              <h4 style={{ margin: 0 }}>Edit session</h4>
+              <button className="btn btn-ghost btn-sm" onClick={() => setEditFor(null)}><X size={16} /></button>
+            </div>
+            <p style={{ color: 'var(--text-3)', fontSize: '.82rem', marginTop: 0 }}>{editFor.studentName} · {editFor.coachName}</p>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.75rem' }}>
+              <div className="field" style={{ marginBottom: 0 }}>
+                <label>Date</label>
+                <input type="date" className="input" value={eDate} onChange={(e) => setEDate(e.target.value)} />
+              </div>
+              <div className="field" style={{ marginBottom: 0 }}>
+                <label>Time slot</label>
+                <input className="input" value={eTime} onChange={(e) => setETime(e.target.value)} placeholder="10:00 - 11:00" />
+              </div>
+            </div>
+
+            <div className="field" style={{ marginTop: '.75rem', marginBottom: 0 }}>
+              <label>Status</label>
+              <select className="input" value={eStatus} onChange={(e) => setEStatus(e.target.value)}>
+                <option value="confirmed">Upcoming</option>
+                <option value="completed">Completed</option>
+                <option value="cancelled">Cancelled</option>
+              </select>
+            </div>
+
+            <div className="field" style={{ marginTop: '.75rem', marginBottom: 0 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '.35rem' }}><Link2 size={13} /> Meeting room / link</label>
+              <input className="input" value={eRoom} onChange={(e) => setERoom(e.target.value)} placeholder="Room ID both sides will join" />
+              <div style={{ display: 'flex', gap: '.5rem', marginTop: '.5rem' }}>
+                <button type="button" className="btn btn-ghost btn-sm" onClick={generateRoom} disabled={minting}>
+                  <Video size={14} /> {minting ? 'Generating…' : 'Generate new room'}
+                </button>
+                {eRoom && <button type="button" className="btn btn-ghost btn-sm" onClick={() => setERoom('')}>Clear</button>}
+              </div>
+              <span style={{ display: 'block', color: 'var(--text-3)', fontSize: '.76rem', marginTop: '.4rem' }}>
+                This is the room the student and coach join. Assign one so the session has a working video link.
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', gap: '.5rem', marginTop: '1.2rem' }}>
+              <button className="btn btn-primary" disabled={busy} onClick={saveEdit}>{busy ? 'Saving…' : 'Save changes'}</button>
+              <button className="btn btn-ghost" onClick={() => setEditFor(null)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete session */}
+      {deleteFor && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }} onClick={() => setDeleteFor(null)}>
+          <div className="widget" style={{ maxWidth: 440, width: '100%' }} onClick={(e) => e.stopPropagation()}>
+            <h4 style={{ marginTop: 0 }}>Delete this session?</h4>
+            <p style={{ color: 'var(--text-2)', fontSize: '.9rem' }}>
+              {deleteFor.studentName}&apos;s session with {deleteFor.coachName} on {formatDate(deleteFor.sessionDate)} at {deleteFor.timeSlot} will be <strong>permanently removed</strong> and cleared from every view. This cannot be undone.
+            </p>
+            <div style={{ display: 'flex', gap: '.5rem', marginTop: '1.2rem' }}>
+              <button className="btn btn-primary" style={{ background: '#ef4444', borderColor: '#ef4444' }} disabled={busy} onClick={() => doDelete(deleteFor)}>
+                {busy ? 'Deleting…' : 'Yes, delete permanently'}
+              </button>
+              <button className="btn btn-ghost" onClick={() => setDeleteFor(null)}>Keep it</button>
             </div>
           </div>
         </div>

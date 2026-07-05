@@ -1113,6 +1113,31 @@ export async function adminCancelBooking(bookingId: string): Promise<void> {
   await logAudit('booking_cancelled_by_admin', 'booking', bookingId);
 }
 
+/** Edits a booking's schedule / status / meeting room on the user's behalf. */
+export async function adminUpdateBooking(
+  bookingId: string,
+  patch: { sessionDate?: string; timeSlot?: string; status?: string; roomId?: string | null },
+): Promise<void> {
+  const supabase = createClient();
+  const db: Record<string, unknown> = {};
+  if (patch.sessionDate !== undefined) db.session_date = patch.sessionDate;
+  if (patch.timeSlot !== undefined) db.time_slot = patch.timeSlot;
+  if (patch.status !== undefined) db.status = patch.status;
+  if (patch.roomId !== undefined) db.room_id = patch.roomId;
+  if (Object.keys(db).length === 0) return;
+  const { error } = await supabase.from('bookings').update(db).eq('id', bookingId);
+  if (error) throw new Error(error.message);
+  await logAudit('booking_edited_by_admin', 'booking', bookingId, patch);
+}
+
+/** Permanently removes a booking row — clears it from every view. */
+export async function adminDeleteBooking(bookingId: string): Promise<void> {
+  const supabase = createClient();
+  const { error } = await supabase.from('bookings').delete().eq('id', bookingId);
+  if (error) throw new Error(error.message);
+  await logAudit('booking_deleted_by_admin', 'booking', bookingId);
+}
+
 export interface RecordedSession {
   id: string;
   coachName: string;
