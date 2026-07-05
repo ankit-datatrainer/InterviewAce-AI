@@ -1,10 +1,12 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { IndianRupee } from 'lucide-react';
+import { IndianRupee, FileText } from 'lucide-react';
 import { useToast } from '@/components/Toast';
 import { getAdminPayments, updateAdminPayment } from '@/lib/admin-store';
 import type { AdminPayment } from '@/lib/admin-store';
+import { usePlatformSettings } from '@/lib/platform-settings';
+import { openInvoice, parsePrice } from '@/lib/invoice';
 
 const statusColor = (s: AdminPayment['status']) =>
   s === 'Paid' ? 'green' : s === 'Failed' ? 'red' : 'amber';
@@ -13,8 +15,19 @@ const FILTERS = ['All', 'Paid', 'Failed', 'Refund req.'] as const;
 
 export default function PaymentsPage() {
   const { toast } = useToast();
+  const { settings } = usePlatformSettings();
   const [payments, setPayments] = useState<AdminPayment[]>([]);
   const [filter, setFilter] = useState<string>('All');
+
+  const downloadInvoice = (p: AdminPayment) => {
+    openInvoice({
+      invoiceNo: String(p.id).slice(0, 8).toUpperCase(),
+      date: p.date,
+      billedToName: p.userName,
+      description: p.item,
+      baseAmount: parsePrice(p.amount),
+    }, settings);
+  };
 
   const refresh = useCallback(async () => setPayments(await getAdminPayments()), []);
 
@@ -96,6 +109,11 @@ export default function PaymentsPage() {
                     {p.status === 'Refund req.' && (
                       <button className="btn btn-primary btn-sm" onClick={() => handleApproveRefund(p.id)}>
                         Approve refund
+                      </button>
+                    )}
+                    {p.status === 'Paid' && (
+                      <button className="btn btn-ghost btn-sm" onClick={() => downloadInvoice(p)} title="Download invoice">
+                        <FileText size={13} /> Invoice
                       </button>
                     )}
                   </td>

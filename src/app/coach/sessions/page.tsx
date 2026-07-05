@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Video, CalendarDays, Clock, CheckCircle, FileText, X, Bell, Download } from 'lucide-react';
+import { Video, CalendarDays, Clock, CheckCircle, FileText, X, Bell, Download, Repeat } from 'lucide-react';
 import { useToast } from '@/components/Toast';
 import CoachShell from '@/components/CoachShell';
 import { getMySessions, updateSession, type CoachProfile, type CoachSession } from '@/lib/coach-store';
@@ -59,6 +59,8 @@ function SessionsInner({ coach }: { coach: CoachProfile }) {
   const [filter, setFilter] = useState<Filter>('upcoming');
   const [noteFor, setNoteFor] = useState<CoachSession | null>(null);
   const [noteText, setNoteText] = useState('');
+  const [followFor, setFollowFor] = useState<CoachSession | null>(null);
+  const [followText, setFollowText] = useState('');
 
   const load = () => getMySessions(coach.id).then(setSessions);
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [coach.id]);
@@ -79,6 +81,14 @@ function SessionsInner({ coach }: { coach: CoachProfile }) {
     toast('Session notes saved.');
     setNoteFor(null);
     setNoteText('');
+    load();
+  };
+
+  const saveFollowUp = async () => {
+    if (!followFor) return;
+    await updateSession(followFor.id, { followUpRecommended: true, followUpNote: followText });
+    toast('Follow-up session recommended — the student will see it.');
+    setFollowFor(null); setFollowText('');
     load();
   };
 
@@ -126,6 +136,9 @@ function SessionsInner({ coach }: { coach: CoachProfile }) {
                 </div>
                 <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
                   <button className="btn btn-ghost btn-sm" onClick={() => { setNoteFor(s); setNoteText(s.notes || ''); }}><FileText size={15} /> Notes</button>
+                  <button className="btn btn-ghost btn-sm" onClick={() => { setFollowFor(s); setFollowText(s.followUpNote || ''); }} title="Recommend another session">
+                    <Repeat size={15} /> {s.followUpRecommended ? 'Recommended' : 'Follow-up'}
+                  </button>
                   {s.recordingUrl && (
                     <button className="btn btn-ghost btn-sm" onClick={() => downloadRecording(s)}><Download size={15} /> Recording</button>
                   )}
@@ -153,6 +166,23 @@ function SessionsInner({ coach }: { coach: CoachProfile }) {
             <div style={{ display: 'flex', gap: '.5rem', marginTop: '1rem' }}>
               <button className="btn btn-primary" onClick={saveNote}>Save notes</button>
               <button className="btn btn-ghost" onClick={() => setNoteFor(null)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {followFor && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }} onClick={() => setFollowFor(null)}>
+          <div className="widget" style={{ maxWidth: 480, width: '100%' }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h4 style={{ margin: 0 }}>Recommend follow-up · {followFor.studentName}</h4>
+              <button className="btn btn-ghost btn-sm" onClick={() => setFollowFor(null)}><X size={16} /></button>
+            </div>
+            <p style={{ fontSize: '.85rem', color: 'var(--text-3)', marginTop: 0 }}>The student sees this on their Bookings page with a one-click &ldquo;Book again&rdquo; button.</p>
+            <textarea className="input" rows={4} value={followText} onChange={(e) => setFollowText(e.target.value)} placeholder="Why another session would help, what to focus on next…" />
+            <div style={{ display: 'flex', gap: '.5rem', marginTop: '1rem' }}>
+              <button className="btn btn-primary" onClick={saveFollowUp}>Recommend session</button>
+              <button className="btn btn-ghost" onClick={() => setFollowFor(null)}>Cancel</button>
             </div>
           </div>
         </div>

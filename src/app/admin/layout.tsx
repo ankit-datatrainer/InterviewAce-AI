@@ -23,7 +23,8 @@ import {
   X,
   LogOut,
   Video,
-  Percent
+  Percent,
+  MessageSquareWarning
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 
@@ -41,6 +42,7 @@ const adminLinks = [
   { href: '/admin/announcements', label: 'Announcements', icon: Megaphone },
   { href: '/admin/content', label: 'Content Management', icon: Database },
   { href: '/admin/tickets', label: 'Support Tickets', icon: TicketCheck },
+  { href: '/admin/complaints', label: 'Complaints', icon: MessageSquareWarning },
   { href: '/admin/audit', label: 'Audit Log', icon: ScrollText },
   { href: '/admin/settings', label: 'Settings', icon: Settings },
 ];

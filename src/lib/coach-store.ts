@@ -45,6 +45,8 @@ export interface CoachSession {
   roomId: string | null;
   notes: string | null;
   recordingUrl: string | null;
+  followUpRecommended: boolean;
+  followUpNote: string | null;
 }
 
 export interface CoachReview {
@@ -174,14 +176,18 @@ export async function getMySessions(coachId: string): Promise<CoachSession[]> {
     roomId: b.room_id ?? null,
     notes: b.notes ?? null,
     recordingUrl: b.recording_url ?? null,
+    followUpRecommended: b.follow_up_recommended ?? false,
+    followUpNote: b.follow_up_note ?? null,
   }));
 }
 
-export async function updateSession(id: string, updates: { status?: string; notes?: string }): Promise<void> {
+export async function updateSession(id: string, updates: { status?: string; notes?: string; followUpRecommended?: boolean; followUpNote?: string }): Promise<void> {
   const supabase = createClient();
   const db: any = {};
   if (updates.status) db.status = updates.status;
   if (updates.notes !== undefined) db.notes = updates.notes;
+  if (updates.followUpRecommended !== undefined) db.follow_up_recommended = updates.followUpRecommended;
+  if (updates.followUpNote !== undefined) db.follow_up_note = updates.followUpNote;
   if (Object.keys(db).length > 0) await supabase.from('bookings').update(db).eq('id', id);
 }
 

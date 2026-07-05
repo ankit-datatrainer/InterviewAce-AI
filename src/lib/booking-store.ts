@@ -13,6 +13,10 @@ export interface BookingRecord {
   price: string;
   bookedAt: string;
   roomId?: string;
+  coachSlug?: string;
+  notes?: string | null;
+  followUpRecommended?: boolean;
+  followUpNote?: string | null;
 }
 
 const STORAGE_KEY = 'interviewace_bookings';
@@ -57,6 +61,10 @@ export function clearBookings(): void {
   }
 }
 
+function slugify(name: string): string {
+  return name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+}
+
 function fromDbStatus(s: string): BookingRecord['status'] {
   if (s === 'cancelled') return 'cancelled';
   if (s === 'completed') return 'completed';
@@ -82,6 +90,7 @@ export async function fetchBookingsFromDb(): Promise<BookingRecord[]> {
       coachName: r.coaches?.name || 'Coach',
       coachImage: r.coaches?.image_url || undefined,
       coachCategory: r.coaches?.category || '',
+      coachSlug: r.coaches?.name ? slugify(r.coaches.name) : undefined,
       date: r.session_date,
       timeSlot: r.time_slot,
       goal: r.goal || '',
@@ -89,6 +98,9 @@ export async function fetchBookingsFromDb(): Promise<BookingRecord[]> {
       price: r.amount ? `₹${r.amount}` : (r.coaches?.price_per_session ? `₹${r.coaches.price_per_session}` : ''),
       bookedAt: r.created_at,
       roomId: r.room_id || undefined,
+      notes: r.notes ?? null,
+      followUpRecommended: r.follow_up_recommended ?? false,
+      followUpNote: r.follow_up_note ?? null,
     }));
   } catch {
     return [];
