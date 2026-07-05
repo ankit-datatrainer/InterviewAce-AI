@@ -139,6 +139,29 @@ export async function updateMyCoachProfile(coachId: string, updates: Partial<Coa
  * Uploads a certificate (PDF or image, ≤5 MB) to the public
  * `coach-certificates` storage bucket and returns its public URL.
  */
+/**
+ * Uploads a coach profile photo (PNG/JPG/WEBP, ≤2 MB) to the public
+ * `coach-avatars` bucket and returns its public URL. `coachId` may be a real
+ * coach id, or '_new' when the super admin is uploading a photo for a coach
+ * they haven't created yet (the image still lives in the public bucket, so its
+ * URL is valid and gets attached to the coach row on create).
+ */
+export async function uploadCoachImage(coachId: string, file: File): Promise<string> {
+  const okTypes = ['image/png', 'image/jpeg', 'image/webp'];
+  if (!okTypes.includes(file.type)) throw new Error('Only PNG, JPG or WEBP images are allowed.');
+  if (file.size > 2 * 1024 * 1024) throw new Error('Image must be under 2 MB.');
+  const supabase = createClient();
+  const ext = file.name.split('.').pop() || 'jpg';
+  const path = `${coachId || '_new'}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  const { error } = await supabase.storage.from('coach-avatars').upload(path, file, {
+    cacheControl: '3600',
+    contentType: file.type,
+  });
+  if (error) throw new Error(error.message);
+  const { data } = supabase.storage.from('coach-avatars').getPublicUrl(path);
+  return data.publicUrl;
+}
+
 export async function uploadCertificate(coachId: string, file: File): Promise<string> {
   const okTypes = ['application/pdf', 'image/png', 'image/jpeg', 'image/webp'];
   if (!okTypes.includes(file.type)) throw new Error('Only PDF, PNG, JPG or WEBP files are allowed.');

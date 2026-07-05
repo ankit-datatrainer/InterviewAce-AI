@@ -4,7 +4,7 @@ import { useState, useRef } from 'react';
 import { Save, Star, Lock, Upload, FileText, Trash2, ShieldCheck, Loader2 } from 'lucide-react';
 import { useToast } from '@/components/Toast';
 import CoachShell from '@/components/CoachShell';
-import { updateMyCoachProfile, uploadCertificate, type CoachProfile } from '@/lib/coach-store';
+import { updateMyCoachProfile, uploadCertificate, uploadCoachImage, type CoachProfile } from '@/lib/coach-store';
 
 function ProfileInner({ coach }: { coach: CoachProfile }) {
   const { toast } = useToast();
@@ -18,7 +18,27 @@ function ProfileInner({ coach }: { coach: CoachProfile }) {
   const [certificates, setCertificates] = useState<string[]>(coach.certificates || []);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [photoUploading, setPhotoUploading] = useState(false);
   const certRef = useRef<HTMLInputElement>(null);
+  const photoRef = useRef<HTMLInputElement>(null);
+
+  const handlePhotoUpload = async () => {
+    const file = photoRef.current?.files?.[0];
+    if (!file) return;
+    setPhotoUploading(true);
+    try {
+      const url = await uploadCoachImage(coach.id, file);
+      setImageUrl(url);
+      // Persist immediately so the new photo shows on their public card at once.
+      await updateMyCoachProfile(coach.id, { imageUrl: url });
+      toast('Profile photo updated.');
+    } catch (e: any) {
+      toast(e?.message || 'Upload failed. Ask the admin to run deploy/phase6-update.sql.');
+    } finally {
+      setPhotoUploading(false);
+      if (photoRef.current) photoRef.current.value = '';
+    }
+  };
 
   const save = async () => {
     setSaving(true);
@@ -85,7 +105,22 @@ function ProfileInner({ coach }: { coach: CoachProfile }) {
             <div className="field"><label>Languages (comma separated)</label><input className="input" value={languages} onChange={(e) => setLanguages(e.target.value)} placeholder="English, Hindi" /></div>
             <div className="dash-grid-2">
               <div className="field"><label>Years of experience</label><input type="number" className="input" value={exp} onChange={(e) => setExp(Number(e.target.value))} /></div>
-              <div className="field"><label>Photo URL</label><input className="input" value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} placeholder="https://…" /></div>
+              <div className="field">
+                <label>Profile photo</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '.75rem' }}>
+                  <div style={{ width: 52, height: 52, borderRadius: '50%', overflow: 'hidden', flexShrink: 0, background: 'var(--bg-2)', display: 'grid', placeItems: 'center', border: '1px solid var(--line)', fontWeight: 700 }}>
+                    {imageUrl
+                      // eslint-disable-next-line @next/next/no-img-element
+                      ? <img src={imageUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      : coach.name.charAt(0)}
+                  </div>
+                  <input ref={photoRef} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={handlePhotoUpload} />
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => photoRef.current?.click()} disabled={photoUploading}>
+                    {photoUploading ? <Loader2 size={14} className="spin" /> : <Upload size={14} />} {photoUploading ? 'Uploading…' : 'Upload photo'}
+                  </button>
+                </div>
+                <input className="input" value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} placeholder="…or paste an image URL" style={{ marginTop: '.5rem' }} />
+              </div>
             </div>
             <div className="field"><label>Introduction video URL (optional)</label><input className="input" value={introVideoUrl} onChange={(e) => setIntroVideoUrl(e.target.value)} placeholder="YouTube / Drive link" /></div>
           </div>

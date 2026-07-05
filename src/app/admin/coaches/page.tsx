@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { GraduationCap, Star, Plus, X, Link2, Check, Ban, Settings2, Trash2, Eye, EyeOff } from 'lucide-react';
+import { GraduationCap, Star, Plus, X, Link2, Check, Ban, Settings2, Trash2, Eye, EyeOff, Upload, Loader2 } from 'lucide-react';
 import { useToast } from '@/components/Toast';
 import {
   getAdminCoaches,
@@ -13,6 +13,7 @@ import {
   type AdminCoach,
   type NewCoachInput,
 } from '@/lib/admin-store';
+import { uploadCoachImage } from '@/lib/coach-store';
 
 const statusColor = (s: string) => (s === 'Approved' ? 'green' : s === 'Pending' ? 'amber' : 'red');
 
@@ -83,7 +84,27 @@ export default function CoachManagementPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState<NewCoachInput>(emptyCoach);
   const [tagsStr, setTagsStr] = useState('');
+  const [photoUploading, setPhotoUploading] = useState(false);
+  const photoRef = useRef<HTMLInputElement>(null);
   const [linkFor, setLinkFor] = useState<AdminCoach | null>(null);
+
+  const handlePhotoUpload = async () => {
+    const file = photoRef.current?.files?.[0];
+    if (!file) return;
+    setPhotoUploading(true);
+    try {
+      // No coach id yet — upload to the '_new' folder; the URL is public and
+      // gets saved onto the coach row when "Create coach" runs.
+      const url = await uploadCoachImage('_new', file);
+      setForm((f) => ({ ...f, imageUrl: url }));
+      toast('Photo uploaded — it will be saved with the coach.');
+    } catch (e: any) {
+      toast(e?.message || 'Upload failed. Run deploy/phase6-update.sql.');
+    } finally {
+      setPhotoUploading(false);
+      if (photoRef.current) photoRef.current.value = '';
+    }
+  };
   const [linkEmail, setLinkEmail] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -256,7 +277,22 @@ export default function CoachManagementPage() {
               <div className="field"><label>Experience (years)</label><input type="number" className="input" value={form.experienceYears} onChange={(e) => setForm({ ...form, experienceYears: Number(e.target.value) })} /></div>
               <div className="field"><label>Commission %</label><input type="number" className="input" value={form.commissionPct} onChange={(e) => setForm({ ...form, commissionPct: Number(e.target.value) })} /></div>
               <div className="field"><label>Tags (comma separated)</label><input className="input" value={tagsStr} onChange={(e) => setTagsStr(e.target.value)} /></div>
-              <div className="field"><label>Profile Image URL</label><input className="input" placeholder="https://..." value={form.imageUrl || ''} onChange={(e) => setForm({ ...form, imageUrl: e.target.value })} /></div>
+              <div className="field">
+                <label>Profile photo</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '.75rem' }}>
+                  <div style={{ width: 52, height: 52, borderRadius: '50%', overflow: 'hidden', flexShrink: 0, background: 'var(--bg-2)', display: 'grid', placeItems: 'center', border: '1px solid var(--line)', fontWeight: 700 }}>
+                    {form.imageUrl
+                      // eslint-disable-next-line @next/next/no-img-element
+                      ? <img src={form.imageUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      : (form.name.charAt(0) || '?')}
+                  </div>
+                  <input ref={photoRef} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={handlePhotoUpload} />
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => photoRef.current?.click()} disabled={photoUploading}>
+                    {photoUploading ? <Loader2 size={14} className="spin" /> : <Upload size={14} />} {photoUploading ? 'Uploading…' : 'Upload photo'}
+                  </button>
+                </div>
+                <input className="input" placeholder="…or paste an image URL" value={form.imageUrl || ''} onChange={(e) => setForm({ ...form, imageUrl: e.target.value })} style={{ marginTop: '.5rem' }} />
+              </div>
               <div className="field" style={{ gridColumn: '1 / -1' }}><label>Intro Video URL</label><input className="input" placeholder="https://youtube.com/..." value={form.introVideoUrl || ''} onChange={(e) => setForm({ ...form, introVideoUrl: e.target.value })} /></div>
             </div>
 

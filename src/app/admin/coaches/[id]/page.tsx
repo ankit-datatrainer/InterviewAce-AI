@@ -27,7 +27,7 @@ import {
   type CoachBlockedDate,
   type CoachBookingRow,
 } from '@/lib/admin-store';
-import { uploadCertificate, WEEKDAYS } from '@/lib/coach-store';
+import { uploadCertificate, uploadCoachImage, WEEKDAYS } from '@/lib/coach-store';
 import FiveDayScheduler from '@/components/FiveDayScheduler';
 
 function PasswordField({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
@@ -77,7 +77,26 @@ export default function AdminCoachEditorPage() {
   const [verified, setVerified] = useState(false);
   const [kyc, setKyc] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [photoUploading, setPhotoUploading] = useState(false);
   const certRef = useRef<HTMLInputElement>(null);
+  const photoRef = useRef<HTMLInputElement>(null);
+
+  const handlePhotoUpload = async () => {
+    const file = photoRef.current?.files?.[0];
+    if (!file || !coach) return;
+    setPhotoUploading(true);
+    try {
+      const url = await uploadCoachImage(coach.id, file);
+      setImageUrl(url);
+      await updateAdminCoachFull(coach.id, { imageUrl: url });
+      toast('Coach photo updated.');
+    } catch (e: any) {
+      toast(e?.message || 'Upload failed. Run deploy/phase6-update.sql.');
+    } finally {
+      setPhotoUploading(false);
+      if (photoRef.current) photoRef.current.value = '';
+    }
+  };
 
   // Account
   const [linkEmail, setLinkEmail] = useState('');
@@ -324,7 +343,22 @@ export default function AdminCoachEditorPage() {
             <div className="field"><label>Languages (comma separated)</label><input className="input" value={languages} onChange={(e) => setLanguages(e.target.value)} /></div>
             <div className="dash-grid-2">
               <div className="field"><label>Years of experience</label><input type="number" className="input" value={exp} onChange={(e) => setExp(Number(e.target.value))} /></div>
-              <div className="field"><label>Photo URL</label><input className="input" value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} placeholder="https://…" /></div>
+              <div className="field">
+                <label>Profile photo</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '.75rem' }}>
+                  <div style={{ width: 52, height: 52, borderRadius: '50%', overflow: 'hidden', flexShrink: 0, background: 'var(--bg-2)', display: 'grid', placeItems: 'center', border: '1px solid var(--line)', fontWeight: 700 }}>
+                    {imageUrl
+                      // eslint-disable-next-line @next/next/no-img-element
+                      ? <img src={imageUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      : (name.charAt(0) || '?')}
+                  </div>
+                  <input ref={photoRef} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={handlePhotoUpload} />
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => photoRef.current?.click()} disabled={photoUploading}>
+                    {photoUploading ? <Loader2 size={14} className="spin" /> : <Upload size={14} />} {photoUploading ? 'Uploading…' : 'Upload photo'}
+                  </button>
+                </div>
+                <input className="input" value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} placeholder="…or paste an image URL" style={{ marginTop: '.5rem' }} />
+              </div>
             </div>
             <div className="field"><label>Introduction video URL</label><input className="input" value={introVideoUrl} onChange={(e) => setIntroVideoUrl(e.target.value)} /></div>
           </div>
