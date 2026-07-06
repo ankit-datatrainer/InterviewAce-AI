@@ -2,6 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import mammoth from 'mammoth';
 import { PDFParse } from 'pdf-parse';
 import { nimChat, isNimConfigured, parseJsonFromModel } from '@/lib/nim';
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
 if (typeof global !== 'undefined') {
   if (!(global as any).DOMMatrix) (global as any).DOMMatrix = class DOMMatrix {};
@@ -96,7 +102,30 @@ ${text.substring(0, 5000)}`;
       result = localAnalysis(text, targetRole);
     }
 
+    // Upload to Supabase Storage
+    let fileUrl = 'local';
+    try {
+      const fileExt = filename.split('.').pop() || 'pdf';
+      const filePath = `${Date.now()}_${crypto.randomUUID()}.${fileExt}`;
+      const { data: uploadData, error: uploadError } = await supabaseAdmin.storage
+        .from('resumes')
+        .upload(filePath, buffer, {
+          contentType: file.type,
+          upsert: false,
+        });
+
+      if (!uploadError && uploadData) {
+        const { data: publicUrlData } = supabaseAdmin.storage.from('resumes').getPublicUrl(uploadData.path);
+        if (publicUrlData?.publicUrl) {
+          fileUrl = publicUrlData.publicUrl;
+        }
+      }
+    } catch (uploadErr) {
+      console.error('Failed to upload resume to storage:', uploadErr);
+    }
+
     result.extractedData = extractedData;
+    result.fileUrl = fileUrl;
     return NextResponse.json(result);
   } catch (error: any) {
     console.error('ATS Analysis Error:', error);

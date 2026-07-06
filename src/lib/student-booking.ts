@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase';
+import { getBookedSlotsForCoach, isSlotBooked } from '@/lib/booking-actions';
 
 // Student-facing booking helper. Reads a coach's published weekly availability
 // (set in the Coach Portal) from Supabase, expands it into concrete upcoming
@@ -61,7 +62,7 @@ export async function getCoachBookingInfo(name: string): Promise<CoachBookingInf
   if (coachId && acceptingBookings) {
     const [{ data: av }, { data: bk }, { data: blocked }, { data: dateSlots, error: dateSlotsErr }] = await Promise.all([
       supabase.from('coach_availability').select('weekday, start_time, end_time').eq('coach_id', coachId),
-      supabase.from('bookings').select('session_date, time_slot').eq('coach_id', coachId).neq('status', 'cancelled'),
+      getBookedSlotsForCoach(coachId).then(data => ({ data })),
       supabase.from('coach_blocked_dates').select('blocked_date').eq('coach_id', coachId),
       supabase.from('coach_date_slots').select('slot_date, start_time, end_time').eq('coach_id', coachId),
     ]);
@@ -142,7 +143,7 @@ export async function createCoachBooking(params: {
   goal: string;
   roomId: string;
   amount: number;
-}): Promise<{ ok: boolean; id?: string; reason?: 'ALREADY_BOOKED_THAT_DAY' }> {
+}): Promise<{ ok: boolean; id?: string; reason?: 'ALREADY_BOOKED_THAT_DAY' | 'SLOT_ALREADY_BOOKED' }> {
   // Demo coaches without a DB row can't be persisted to Supabase (FK); the
   // caller still records the booking locally so the student can join the room.
   if (!params.coachId) return { ok: false };
@@ -160,6 +161,10 @@ export async function createCoachBooking(params: {
       .eq('session_date', params.date)
       .neq('status', 'cancelled');
     if ((count || 0) > 0) return { ok: false, reason: 'ALREADY_BOOKED_THAT_DAY' };
+
+    // Ensure the slot is not already booked by another user (Bypass RLS)
+    const slotAlreadyTaken = await isSlotBooked(params.coachId, params.date, params.timeSlot);
+    if (slotAlreadyTaken) return { ok: false, reason: 'SLOT_ALREADY_BOOKED' };
 
     const { data, error } = await supabase.from('bookings').insert({
       user_id: user.id,

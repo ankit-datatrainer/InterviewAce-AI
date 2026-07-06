@@ -70,16 +70,6 @@ const difficulties = [
 // the end for the paste-your-own-JD flow.
 const roleOptions = [...COMMON_ROLES, 'Custom Job Description'];
 
-const industries = [
-  'Technology / Software',
-  'Finance & Banking',
-  'Healthcare',
-  'E-commerce & Retail',
-  'Manufacturing',
-  'Consulting',
-  'Other'
-];
-
 function pad(n: number) {
   return n.toString().padStart(2, '0');
 }
@@ -101,11 +91,11 @@ export default function InterviewPage() {
   const [linkedinUrl, setLinkedinUrl] = useState('');
   const [extractingLinkedIn, setExtractingLinkedIn] = useState(false);
   const [customJD, setCustomJD] = useState('');
-  const [selectedIndustry, setSelectedIndustry] = useState('');
   const [resumeFile, setResumeFile] = useState<File | null>(null);
   const [resumeText, setResumeText] = useState('');
   const [hasSavedResume, setHasSavedResume] = useState(false);
   const [replaceResume, setReplaceResume] = useState(false);
+  const [isUploadingResume, setIsUploadingResume] = useState(false);
   const [demoStrikes, setDemoStrikes] = useState(0);
 
   // Room state
@@ -119,11 +109,30 @@ export default function InterviewPage() {
   // AI features state
 
   useEffect(() => {
-    const saved = localStorage.getItem('interview_resume_text');
-    if (saved) {
-      setResumeText(saved);
-      setHasSavedResume(true);
-    }
+    import('@/lib/resume-store').then(async ({ hydrateResumes, getLatestResume }) => {
+      await hydrateResumes().catch(console.error);
+      const saved = localStorage.getItem('interview_resume_text');
+      if (saved) {
+        setResumeText(saved);
+        setHasSavedResume(true);
+      } else {
+        const latest = getLatestResume();
+        if (latest && latest.extractedData) {
+          const d = latest.extractedData;
+          const text = [
+            d.name && `Name: ${d.name}`,
+            d.title && `Title: ${d.title}`,
+            d.summary && `Summary: ${d.summary}`,
+            d.experience?.length ? `Experience: ${d.experience.map(e => `${e.role} at ${e.company} (${e.date}) - ${e.desc}`).join('\\n')}` : '',
+            d.education?.length ? `Education: ${d.education.map(e => `${e.degree} at ${e.school} (${e.date})`).join('\\n')}` : '',
+            d.skills && `Skills: ${d.skills}`
+          ].filter(Boolean).join('\\n\\n');
+          setResumeText(text);
+          localStorage.setItem('interview_resume_text', text);
+          setHasSavedResume(true);
+        }
+      }
+    });
   }, []);
 
   const [showSetup, setShowSetup] = useState(false);
@@ -176,7 +185,6 @@ export default function InterviewPage() {
   const selectedRoleRef = useRef(selectedRole);
   const selectedDiffRef = useRef(selectedDiff);
   const customJDRef = useRef(customJD);
-  const selectedIndustryRef = useRef(selectedIndustry);
   const resumeTextRef = useRef(resumeText);
   const speakQuestionRef = useRef<((t: string) => Promise<void>) | null>(null);
   // LiveAvatar keep-alive heartbeat + session-duration guard timers.
@@ -199,7 +207,6 @@ export default function InterviewPage() {
   useEffect(() => { selectedRoleRef.current = selectedRole; }, [selectedRole]);
   useEffect(() => { selectedDiffRef.current = selectedDiff; }, [selectedDiff]);
   useEffect(() => { customJDRef.current = customJD; }, [customJD]);
-  useEffect(() => { selectedIndustryRef.current = selectedIndustry; }, [selectedIndustry]);
   useEffect(() => { resumeTextRef.current = resumeText; }, [resumeText]);
 
   const handleLinkedInExtract = async () => {
@@ -768,14 +775,14 @@ export default function InterviewPage() {
     setShowSetup(true);
   };
 
-  const handleJoinAfterSetup = async () => {
-    setShowSetup(false);
-    setConnecting(true);
-
-    if (resumeFile) {
+  const handleResumeUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      setResumeFile(file);
+      setIsUploadingResume(true);
       try {
         const formData = new FormData();
-        formData.append('file', resumeFile);
+        formData.append('file', file);
         const res = await fetch('/api/resume/extract', { method: 'POST', body: formData });
         if (res.ok) {
           const { text } = await res.json();
@@ -783,12 +790,52 @@ export default function InterviewPage() {
             setResumeText(text);
             localStorage.setItem('interview_resume_text', text);
             setHasSavedResume(true);
+            toast('Résumé processed and saved.');
           }
+        } else {
+          toast('Failed to extract text from résumé.');
         }
-      } catch(e) {
-        console.error('Resume extract error', e);
+
+        // Fire and forget DB save
+        const atsFormData = new FormData();
+        atsFormData.append('file', file);
+        atsFormData.append('targetRole', selectedRole === 'Custom Job Description' ? (customJD.slice(0, 50) || 'Custom Role') : selectedRole);
+        
+        fetch('/api/ats/analyze', { method: 'POST', body: atsFormData })
+          .then(res => res.json())
+          .then(data => {
+            if (data && data.atsScore !== undefined) {
+              import('@/lib/resume-store').then(({ saveResume }) => {
+                saveResume({
+                  id: crypto.randomUUID(),
+                  fileName: file.name,
+                  fileUrl: data.fileUrl || 'local',
+                  uploadDate: new Date().toISOString(),
+                  targetRole: selectedRole === 'Custom Job Description' ? 'Custom Role' : selectedRole,
+                  atsScore: data.atsScore,
+                  breakdown: data.breakdown,
+                  missingKeywords: data.missingKeywords || [],
+                  presentKeywords: data.presentKeywords || [],
+                  suggestions: data.suggestions || [],
+                  extractedData: data.extractedData,
+                });
+              });
+            }
+          })
+          .catch(e => console.error("Background ATS save failed:", e));
+
+      } catch (err) {
+        console.error('Resume extract error', err);
+        toast('An error occurred while parsing the résumé.');
+      } finally {
+        setIsUploadingResume(false);
       }
     }
+  };
+
+  const handleJoinAfterSetup = async () => {
+    setShowSetup(false);
+    setConnecting(true);
 
     // Initialize HeyGen (non-blocking)
     initHeygen();
@@ -1203,24 +1250,7 @@ export default function InterviewPage() {
               </div>
             )}
 
-            <h4>4 &middot; Preferred Industry / Domain</h4>
-            <div className="field" style={{ marginBottom: '1.4rem' }}>
-              {/* Free-text with suggestions: type any industry, or pick one. */}
-              <input
-                type="text"
-                list="industry-options"
-                placeholder="Type your industry (optional, e.g. FinTech, Healthcare)..."
-                value={selectedIndustry}
-                onChange={(e) => setSelectedIndustry(e.target.value)}
-              />
-              <datalist id="industry-options">
-                {industries.map((ind) => (
-                  <option key={ind} value={ind} />
-                ))}
-              </datalist>
-            </div>
-
-            <h4>5 &middot; Upload Resume</h4>
+            <h4>4 &middot; Upload Resume</h4>
             <div className="field" style={{ marginBottom: '1.4rem' }}>
               {hasSavedResume && !resumeFile && !replaceResume ? (
                 <div style={{ padding: '1rem', background: 'var(--card)', borderRadius: 'var(--r-md)', border: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
@@ -1232,13 +1262,11 @@ export default function InterviewPage() {
                   <input
                     type="file"
                     accept="application/pdf"
-                    onChange={(e) => {
-                      if (e.target.files && e.target.files[0]) {
-                        setResumeFile(e.target.files[0]);
-                      }
-                    }}
-                    style={{ padding: '0.8rem', background: 'var(--card)', borderRadius: 'var(--r-md)', border: '1px solid var(--line)' }}
+                    onChange={handleResumeUpload}
+                    disabled={isUploadingResume}
+                    style={{ padding: '0.8rem', background: 'var(--card)', borderRadius: 'var(--r-md)', border: '1px solid var(--line)', opacity: isUploadingResume ? 0.6 : 1, cursor: isUploadingResume ? 'not-allowed' : 'pointer' }}
                   />
+                  {isUploadingResume && <small style={{ display: 'block', marginTop: '0.4rem', color: 'var(--accent)' }}>Uploading and analyzing your résumé... Please wait.</small>}
                   <small style={{ display: 'block', marginTop: '0.4rem', color: 'var(--text-2)' }}>The AI will analyze your resume to personalize the interview questions.</small>
                   {hasSavedResume && replaceResume && (
                     <button type="button" className="btn btn-ghost btn-sm" style={{ marginTop: '0.5rem' }} onClick={() => { setReplaceResume(false); setResumeFile(null); }}>Keep saved résumé</button>

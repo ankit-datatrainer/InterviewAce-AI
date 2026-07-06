@@ -28,6 +28,7 @@ export interface AdminInterview {
 export interface AdminResume {
   id: string;
   fileName: string;
+  fileUrl?: string;
   userName: string;
   targetRole: string;
   atsScore: number;
@@ -218,6 +219,7 @@ export async function getAdminResumes(): Promise<AdminResume[]> {
   return resumes.map((r: any) => ({
     id: r.id,
     fileName: r.file_name,
+    fileUrl: r.file_url,
     userName: r.profiles?.full_name || 'Unknown',
     targetRole: r.target_role || 'Not specified',
     atsScore: r.ats_score || 0,

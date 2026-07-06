@@ -113,6 +113,17 @@ export default function InstructorPage() {
         setBooking(false);
         return;
       }
+      if (dbResult.reason === 'SLOT_ALREADY_BOOKED') {
+        toast('This slot has already been booked by another student. Please select a different time.');
+        getCoachBookingInfo(coach.name).then(setInfo);
+        setBooking(false);
+        return;
+      }
+      if (!dbResult.ok) {
+        toast('Could not complete the booking. Please make sure you are logged in and try again.');
+        setBooking(false);
+        return;
+      }
 
       // Always record locally so the student dashboard + room work, tagging
       // it with the DB id (when available) so it shows up once — not twice —

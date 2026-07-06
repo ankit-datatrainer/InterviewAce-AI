@@ -42,8 +42,11 @@ export function getSessionWindow(date: string, timeSlot: string, now = new Date(
   // Unparseable slot (legacy/demo data): don't block joining.
   if (!times) return { canJoin: true, isOver: false, countdown: null };
   const opensAt = times.start.getTime() - JOIN_EARLY_MS;
+  // Allow joining for up to 24 hours after the session ends (in case it is delayed by a day)
+  const closesAt = times.end.getTime() + 24 * 60 * 60 * 1000;
+  
   const t = now.getTime();
-  if (t > times.end.getTime()) return { canJoin: false, isOver: true, countdown: null };
+  if (t > closesAt) return { canJoin: false, isOver: true, countdown: null };
   if (t >= opensAt) return { canJoin: true, isOver: false, countdown: null };
   return { canJoin: false, isOver: false, countdown: fmt(opensAt - t) };
 }

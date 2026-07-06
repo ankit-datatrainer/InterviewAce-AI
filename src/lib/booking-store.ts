@@ -72,16 +72,18 @@ function fromDbStatus(s: string): BookingRecord['status'] {
 }
 
 /** Pulls every booking the signed-in student has made, straight from Supabase. */
-export async function fetchBookingsFromDb(): Promise<BookingRecord[]> {
+export async function fetchBookingsFromDb(): Promise<BookingRecord[] | null> {
   try {
     const supabase = createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return [];
-    const { data: rows } = await supabase
+    const { data: rows, error } = await supabase
       .from('bookings')
       .select('*, coaches(name, category, price_per_session, image_url)')
       .eq('user_id', user.id)
       .order('session_date', { ascending: false });
+    
+    if (error) return null;
     if (!rows) return [];
 
     return rows.map((r: any): BookingRecord => ({
@@ -103,7 +105,7 @@ export async function fetchBookingsFromDb(): Promise<BookingRecord[]> {
       followUpNote: r.follow_up_note ?? null,
     }));
   } catch {
-    return [];
+    return null;
   }
 }
 
@@ -122,12 +124,25 @@ export async function hydrateBookings(): Promise<BookingRecord[]> {
   const local = readStore();
   const db = await fetchBookingsFromDb();
 
-  if (db.length === 0) return local;
+  // If db is null, there was a network error; fall back to local only.
+  if (db === null) return local;
 
-  const dbKeys = new Set(db.map(bookingKey));
-  // Keep only local bookings that truly have no matching DB row (e.g. demo
-  // coaches with no DB id) — this also cleans up old pre-dbId duplicates.
-  const localOnly = local.filter((r) => !dbKeys.has(bookingKey(r)));
+  const dbSlotKeys = new Set(db.map(b => `slot:${b.coachName.trim().toLowerCase()}|${b.date}|${b.timeSlot}`));
+
+  const localOnly = local.filter((r) => {
+    if (r.dbId) {
+      // If it has a dbId, the DB is the source of truth.
+      // If it's in the DB, it's already in the `db` array.
+      // If it's NOT in the DB, an admin deleted it, so we must discard it.
+      return false;
+    } else {
+      // If it has NO dbId (e.g. demo booking or legacy local booking),
+      // keep it only if the DB doesn't have an exact match for this slot.
+      const slotKey = `slot:${r.coachName.trim().toLowerCase()}|${r.date}|${r.timeSlot}`;
+      return !dbSlotKeys.has(slotKey);
+    }
+  });
+
   const merged = [...db, ...localOnly];
   writeStore(merged);
   return merged;

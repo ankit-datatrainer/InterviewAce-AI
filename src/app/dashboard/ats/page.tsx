@@ -216,6 +216,7 @@ export default function ATSPage() {
       const analysis: ResumeRecord = {
         id: crypto.randomUUID(),
         fileName: file.name,
+        fileUrl: analysisData.fileUrl,
         uploadDate: new Date().toISOString(),
         targetRole,
         atsScore: analysisData.atsScore,

@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase';
 export interface ResumeRecord {
   id: string;
   fileName: string;
+  fileUrl?: string;
   uploadDate: string;
   targetRole: string;
   atsScore: number;
@@ -39,6 +40,7 @@ function mapResume(r: any): ResumeRecord {
     id: r.id,
     dbId: r.id,
     fileName: r.file_name,
+    fileUrl: r.file_url,
     uploadDate: r.created_at,
     targetRole: r.target_role,
     atsScore: r.ats_score,
@@ -61,7 +63,7 @@ export async function persistResumeToDb(record: ResumeRecord): Promise<string | 
       .insert({
         user_id: user.id,
         file_name: record.fileName,
-        file_url: 'local', // Placeholder as files are parsed locally
+        file_url: record.fileUrl || 'local',
         target_role: record.targetRole,
         ats_score: record.atsScore,
         analysis: {

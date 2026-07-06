@@ -56,6 +56,8 @@ interface NimOptions {
   json?: boolean;
   /** Abort the request after this many ms (caller can then fall back). */
   timeoutMs?: number;
+  /** Override the default model configured in env (useful for specific tasks like web search) */
+  overrideModel?: string;
 }
 
 /**
@@ -67,7 +69,7 @@ export async function nimChat(messages: ChatMessage[], options: NimOptions = {})
   if (!provider) throw new NimNotConfiguredError();
 
   const body: Record<string, unknown> = {
-    model: provider.model,
+    model: options.overrideModel || provider.model,
     messages,
     temperature: options.temperature ?? 0.7,
     max_tokens: options.maxTokens ?? 1024,

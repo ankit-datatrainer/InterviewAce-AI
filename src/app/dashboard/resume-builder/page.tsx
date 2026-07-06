@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { Download, Plus, Trash2 } from 'lucide-react';
+import { Download, Plus, Trash2, Upload, Loader2, Sparkles, FileText, CheckCircle } from 'lucide-react';
 import { useToast } from '@/components/Toast';
 
 export default function ResumeBuilderPage() {
@@ -22,6 +22,77 @@ export default function ResumeBuilderPage() {
     ],
     skills: 'JavaScript, TypeScript, React, Next.js, Node.js, PostgreSQL, Git'
   });
+  const [uploading, setUploading] = useState(false);
+  const [uploadStep, setUploadStep] = useState('');
+  const [isLoaded, setIsLoaded] = useState(false);
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploading(true);
+    setUploadStep('Extracting text from PDF...');
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      const extractRes = await fetch('/api/resume/extract', {
+        method: 'POST',
+        body: formData,
+      });
+      const extractData = await extractRes.json();
+      
+      if (!extractRes.ok || !extractData.text) {
+        toast('Failed to read PDF file.');
+        setUploading(false);
+        return;
+      }
+
+      setUploadStep('Analyzing and structuring with AI...');
+      const parseRes = await fetch('/api/resume/parse', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: extractData.text }),
+      });
+      const parseData = await parseRes.json();
+
+      if (!parseRes.ok || !parseData.data) {
+        toast('Failed to parse resume content.');
+        setUploading(false);
+        return;
+      }
+
+      setUploadStep('Formatting your premium resume...');
+      await new Promise(resolve => setTimeout(resolve, 800)); // smooth visual transition
+
+      const d = parseData.data;
+      const experience = (d.experience || []).map((ex: any, i: number) => ({ ...ex, id: Date.now() + i }));
+      const education = (d.education || []).map((ed: any, i: number) => ({ ...ed, id: Date.now() + i }));
+
+      setData({
+        name: d.name || '',
+        title: d.title || '',
+        email: d.email || '',
+        phone: d.phone || '',
+        location: d.location || '',
+        linkedin: d.linkedin || '',
+        summary: d.summary || '',
+        skills: d.skills || '',
+        experience,
+        education
+      });
+
+      toast('Resume loaded successfully!');
+    } catch (err) {
+      console.error(err);
+      toast('An error occurred during upload.');
+    } finally {
+      setUploading(false);
+      setUploadStep('');
+      e.target.value = '';
+    }
+  };
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -34,8 +105,15 @@ export default function ResumeBuilderPage() {
           console.error('Failed to parse stored resume data', e);
         }
       }
+      setIsLoaded(true);
     }
   }, []);
+
+  useEffect(() => {
+    if (isLoaded && typeof window !== 'undefined') {
+      localStorage.setItem('resumeBuilderData', JSON.stringify(data));
+    }
+  }, [data, isLoaded]);
 
   const handleChange = (field: string, value: string) => {
     setData((prev) => ({ ...prev, [field]: value }));
@@ -80,7 +158,7 @@ export default function ResumeBuilderPage() {
   const generateWithAI = async () => {
     if (enhancing) return;
     setEnhancing(true);
-    toast('Enhancing your summary with NVIDIA NIM AI...');
+    toast('Enhancing your summary with AI...');
     try {
       const res = await fetch('/api/resume/enhance', {
         method: 'POST',
@@ -131,14 +209,75 @@ export default function ResumeBuilderPage() {
         }
       `}} />
 
+      {uploading && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(10, 10, 20, 0.85)',
+          backdropFilter: 'blur(12px)',
+          zIndex: 9999,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: '#fff',
+          animation: 'fadeIn 0.3s ease-out'
+        }}>
+          <div style={{
+            background: 'linear-gradient(145deg, rgba(30,30,40,0.9) 0%, rgba(20,20,30,0.9) 100%)',
+            padding: '40px 60px',
+            borderRadius: '24px',
+            border: '1px solid rgba(255,255,255,0.1)',
+            boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: '24px'
+          }}>
+            <div style={{ position: 'relative' }}>
+              <div style={{ 
+                position: 'absolute', inset: -10, background: 'var(--brand)', 
+                borderRadius: '50%', filter: 'blur(20px)', opacity: 0.2,
+                animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite'
+              }} />
+              <Loader2 size={48} style={{ color: 'var(--brand)', animation: 'spin 1s linear infinite' }} />
+            </div>
+            
+            <div style={{ textAlign: 'center' }}>
+              <h3 style={{ fontSize: '24px', fontWeight: 600, marginBottom: '8px', background: 'linear-gradient(to right, #fff, #a5b4fc)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+                AI is hard at work
+              </h3>
+              <p style={{ color: 'var(--text-muted)', fontSize: '15px', display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'center' }}>
+                {uploadStep.includes('Extracting') && <FileText size={16} />}
+                {uploadStep.includes('Analyzing') && <Sparkles size={16} style={{ color: '#f59e0b' }} />}
+                {uploadStep.includes('Formatting') && <CheckCircle size={16} style={{ color: '#10b981' }} />}
+                {uploadStep || 'Processing...'}
+              </p>
+            </div>
+          </div>
+          
+          <style dangerouslySetInnerHTML={{__html: `
+            @keyframes fadeIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+            @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+            @keyframes pulse { 0%, 100% { opacity: 0.2; } 50% { opacity: 0.4; } }
+          `}} />
+        </div>
+      )}
+
       <div className="app-head">
         <div>
           <h2>AI Resume Builder</h2>
           <p>Create and refine a professional, ATS-friendly resume</p>
         </div>
-        <button className="btn btn-primary btn-sm" onClick={() => window.print()}>
-          <Download size={15} /> Export PDF
-        </button>
+        <div style={{ display: 'flex', gap: '1rem' }}>
+          <label className="btn btn-secondary btn-sm" style={{ cursor: 'pointer' }}>
+            <Upload size={15} /> {uploading ? 'Uploading...' : 'Auto-fill from PDF'}
+            <input type="file" accept="application/pdf" style={{ display: 'none' }} onChange={handleFileUpload} disabled={uploading} />
+          </label>
+          <button className="btn btn-primary btn-sm" onClick={() => window.print()}>
+            <Download size={15} /> Export PDF
+          </button>
+        </div>
       </div>
 
       <div style={{ display: 'flex', gap: '2rem', height: 'calc(100vh - 140px)', alignItems: 'flex-start' }}>
@@ -217,45 +356,51 @@ export default function ResumeBuilderPage() {
             id="resume-preview-container"
             style={{ 
               background: '#fff', 
-              color: '#000', 
+              color: '#333', 
               width: '100%', 
               maxWidth: '210mm', 
               minHeight: '297mm', 
               margin: '0 auto',
-              padding: '40px',
+              padding: '50px 60px',
               boxShadow: '0 10px 25px rgba(0,0,0,0.1)',
-              fontFamily: '"Inter", sans-serif'
+              fontFamily: '"Inter", sans-serif',
+              lineHeight: '1.6'
             }}
           >
             {/* Header */}
-            <div style={{ textAlign: 'center', marginBottom: '20px', borderBottom: '2px solid #000', paddingBottom: '15px' }}>
-              <h1 style={{ fontSize: '28px', textTransform: 'uppercase', letterSpacing: '2px', margin: '0 0 10px 0', color: '#111' }}>{data.name || 'Your Name'}</h1>
-              <div style={{ fontSize: '14px', color: '#444', display: 'flex', justifyContent: 'center', gap: '15px', flexWrap: 'wrap' }}>
-                {data.email && <span>{data.email}</span>}
-                {data.phone && <span>{data.phone}</span>}
-                {data.location && <span>{data.location}</span>}
-                {data.linkedin && <span>{data.linkedin}</span>}
+            <div style={{ textAlign: 'left', marginBottom: '30px', borderBottom: '3px solid #2563EB', paddingBottom: '20px' }}>
+              <h1 style={{ fontSize: '36px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '1px', margin: '0 0 5px 0', color: '#111827' }}>{data.name || 'Your Name'}</h1>
+              <h2 style={{ fontSize: '18px', fontWeight: 500, margin: '0 0 15px 0', color: '#2563EB' }}>{data.title || 'Target Job Title'}</h2>
+              <div style={{ fontSize: '13px', color: '#4B5563', display: 'flex', gap: '15px', flexWrap: 'wrap' }}>
+                {data.email && <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>✉ {data.email}</span>}
+                {data.phone && <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>☎ {data.phone}</span>}
+                {data.location && <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>📍 {data.location}</span>}
+                {data.linkedin && <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>🔗 {data.linkedin.replace('https://','')}</span>}
               </div>
             </div>
 
             {/* Summary */}
             {data.summary && (
-              <div style={{ marginBottom: '20px' }}>
-                <p style={{ fontSize: '14px', lineHeight: '1.6', color: '#333' }}>{data.summary}</p>
+              <div style={{ marginBottom: '25px' }}>
+                <h2 style={{ fontSize: '14px', fontWeight: 700, textTransform: 'uppercase', color: '#111827', borderBottom: '1px solid #E5E7EB', paddingBottom: '5px', marginBottom: '10px', letterSpacing: '1px' }}>Professional Summary</h2>
+                <p style={{ fontSize: '14px', color: '#374151', margin: 0, textAlign: 'justify' }}>{data.summary}</p>
               </div>
             )}
 
             {/* Experience */}
             {data.experience.length > 0 && (
-              <div style={{ marginBottom: '20px' }}>
-                <h2 style={{ fontSize: '16px', textTransform: 'uppercase', color: '#111', borderBottom: '1px solid #ccc', paddingBottom: '5px', marginBottom: '15px' }}>Professional Experience</h2>
+              <div style={{ marginBottom: '25px' }}>
+                <h2 style={{ fontSize: '14px', fontWeight: 700, textTransform: 'uppercase', color: '#111827', borderBottom: '1px solid #E5E7EB', paddingBottom: '5px', marginBottom: '15px', letterSpacing: '1px' }}>Professional Experience</h2>
                 {data.experience.map(exp => (
-                  <div key={exp.id} style={{ marginBottom: '15px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '5px' }}>
-                      <h3 style={{ fontSize: '15px', margin: 0, color: '#111' }}>{exp.role} <span style={{ fontWeight: 'normal', color: '#555' }}>at {exp.company}</span></h3>
-                      <span style={{ fontSize: '13px', color: '#666' }}>{exp.date}</span>
+                  <div key={exp.id} style={{ marginBottom: '20px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '3px' }}>
+                      <h3 style={{ fontSize: '15px', margin: 0, color: '#111827', fontWeight: 700 }}>{exp.role}</h3>
+                      <span style={{ fontSize: '13px', color: '#6B7280', fontWeight: 500 }}>{exp.date}</span>
                     </div>
-                    <p style={{ fontSize: '13px', lineHeight: '1.5', color: '#333', whiteSpace: 'pre-wrap' }}>{exp.desc}</p>
+                    <div style={{ fontSize: '14px', color: '#2563EB', fontWeight: 500, marginBottom: '8px' }}>{exp.company}</div>
+                    <div style={{ fontSize: '13px', color: '#374151', whiteSpace: 'pre-wrap', paddingLeft: '15px', borderLeft: '2px solid #E5E7EB' }}>
+                      {exp.desc}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -263,15 +408,15 @@ export default function ResumeBuilderPage() {
 
             {/* Education */}
             {data.education.length > 0 && (
-              <div style={{ marginBottom: '20px' }}>
-                <h2 style={{ fontSize: '16px', textTransform: 'uppercase', color: '#111', borderBottom: '1px solid #ccc', paddingBottom: '5px', marginBottom: '15px' }}>Education</h2>
+              <div style={{ marginBottom: '25px' }}>
+                <h2 style={{ fontSize: '14px', fontWeight: 700, textTransform: 'uppercase', color: '#111827', borderBottom: '1px solid #E5E7EB', paddingBottom: '5px', marginBottom: '15px', letterSpacing: '1px' }}>Education</h2>
                 {data.education.map(edu => (
-                  <div key={edu.id} style={{ marginBottom: '10px' }}>
+                  <div key={edu.id} style={{ marginBottom: '12px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                      <h3 style={{ fontSize: '15px', margin: 0, color: '#111' }}>{edu.school}</h3>
-                      <span style={{ fontSize: '13px', color: '#666' }}>{edu.date}</span>
+                      <h3 style={{ fontSize: '15px', margin: 0, color: '#111827', fontWeight: 700 }}>{edu.school}</h3>
+                      <span style={{ fontSize: '13px', color: '#6B7280', fontWeight: 500 }}>{edu.date}</span>
                     </div>
-                    <p style={{ fontSize: '14px', color: '#444' }}>{edu.degree}</p>
+                    <p style={{ fontSize: '14px', color: '#4B5563', margin: '3px 0 0 0' }}>{edu.degree}</p>
                   </div>
                 ))}
               </div>
@@ -280,8 +425,10 @@ export default function ResumeBuilderPage() {
             {/* Skills */}
             {data.skills && (
               <div>
-                <h2 style={{ fontSize: '16px', textTransform: 'uppercase', color: '#111', borderBottom: '1px solid #ccc', paddingBottom: '5px', marginBottom: '15px' }}>Skills</h2>
-                <p style={{ fontSize: '14px', lineHeight: '1.6', color: '#333' }}>{data.skills}</p>
+                <h2 style={{ fontSize: '14px', fontWeight: 700, textTransform: 'uppercase', color: '#111827', borderBottom: '1px solid #E5E7EB', paddingBottom: '5px', marginBottom: '10px', letterSpacing: '1px' }}>Skills & Technologies</h2>
+                <p style={{ fontSize: '14px', color: '#374151', margin: 0 }}>
+                  {data.skills}
+                </p>
               </div>
             )}
 

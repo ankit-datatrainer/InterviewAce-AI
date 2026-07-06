@@ -19,6 +19,7 @@
 }
 
 [data-theme="dark"] {
+  color-scheme: dark;
   --bg: #051424;
   --bg-2: #0B0E14;
   --surface: rgba(255,255,255,.05);
@@ -57,6 +58,7 @@
 }
 
 [data-theme="light"] {
+  color-scheme: light;
   --bg: #F5F2F9;
   --bg-2: #FCFAFF;
   --surface: rgba(252, 250, 255, 0.78);

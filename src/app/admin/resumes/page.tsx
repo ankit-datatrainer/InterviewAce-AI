@@ -41,7 +41,15 @@ export default function ResumesPage() {
             <tbody>
               {resumes.map((r) => (
                 <tr key={r.id}>
-                  <td style={{ fontWeight: 600 }}>{r.fileName}</td>
+                  <td style={{ fontWeight: 600 }}>
+                    {r.fileUrl && r.fileUrl !== 'local' ? (
+                      <a href={r.fileUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--brand)', textDecoration: 'underline' }}>
+                        {r.fileName}
+                      </a>
+                    ) : (
+                      <span title="File not uploaded to cloud storage">{r.fileName}</span>
+                    )}
+                  </td>
                   <td>{r.userName}</td>
                   <td>{r.targetRole}</td>
                   <td>
