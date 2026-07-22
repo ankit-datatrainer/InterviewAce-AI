@@ -1,23 +1,82 @@
 'use client';
 
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { MeetingProvider, useMeeting, useParticipant } from '@videosdk.live/react-sdk';
-import { Mic, MicOff, Video, VideoOff, PhoneOff, ScreenShare, Loader2, AlertCircle, Settings, Circle, Square as StopIcon } from 'lucide-react';
+import { Mic, MicOff, Video, VideoOff, PhoneOff, ScreenShare, ScreenShareOff, Loader2, AlertCircle, Settings, Circle, Square as StopIcon, Volume2, Users } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 
 type Role = 'coach' | 'student' | 'monitor';
 
 export interface TileMedia { video: HTMLVideoElement | null; micStream: MediaStream | null; }
 
-// ── One participant's video/audio tile ──────────────────────────
-function ParticipantTile({ participantId, onReady }: { participantId: string; onReady?: (id: string, media: TileMedia) => void }) {
-  const { webcamStream, micStream, webcamOn, micOn, isLocal, displayName } = useParticipant(participantId);
+// Google Meet-inspired palette (kept local so the call UI is consistent
+// regardless of the surrounding app theme).
+const MEET = {
+  bg: '#202124',
+  surface: '#2d2e31',
+  tile: '#3c4043',
+  tileEmpty: '#292a2d',
+  line: 'rgba(255,255,255,0.10)',
+  text: '#e8eaed',
+  textDim: '#9aa0a6',
+  blue: '#8ab4f8',
+  blueSolid: '#1a73e8',
+  red: '#ea4335',
+  green: '#34a853',
+};
+
+// ───────────────────────── Audio ─────────────────────────
+// Dedicated, always-mounted audio sink per remote participant. Decoupling
+// audio from the video tiles is what makes sound reliable — it keeps playing
+// no matter how the video layout changes (grid ↔ screen-share). Retries play()
+// whenever `playSignal` changes so a "click to enable sound" button can recover
+// from the browser's autoplay policy.
+function RemoteAudio({ participantId, playSignal, onBlocked }: { participantId: string; playSignal: number; onBlocked: () => void }) {
+  const { micStream, micOn, isLocal, screenShareAudioStream } = useParticipant(participantId);
+  const micRef = useRef<HTMLAudioElement>(null);
+  const scrRef = useRef<HTMLAudioElement>(null);
+
+  useEffect(() => {
+    const el = micRef.current;
+    if (!el || isLocal) return;
+    if (micOn && micStream?.track) {
+      el.srcObject = new MediaStream([micStream.track]);
+      el.play().catch(() => onBlocked());
+    } else {
+      el.srcObject = null;
+    }
+  }, [micStream, micOn, isLocal, playSignal, onBlocked]);
+
+  useEffect(() => {
+    const el = scrRef.current;
+    if (!el || isLocal) return;
+    if (screenShareAudioStream?.track) {
+      el.srcObject = new MediaStream([screenShareAudioStream.track]);
+      el.play().catch(() => onBlocked());
+    } else {
+      el.srcObject = null;
+    }
+  }, [screenShareAudioStream, isLocal, playSignal, onBlocked]);
+
+  if (isLocal) return null;
+  return (
+    <>
+      <audio ref={micRef} autoPlay playsInline />
+      <audio ref={scrRef} autoPlay playsInline />
+    </>
+  );
+}
+
+// ───────────────────────── Video tile ─────────────────────────
+function ParticipantTile({ participantId, label, accent, onReady, compact = false }: {
+  participantId: string; label: string; accent: string; onReady?: (id: string, media: TileMedia) => void; compact?: boolean;
+}) {
+  const { webcamStream, micStream, webcamOn, micOn, isLocal, displayName, isActiveSpeaker } = useParticipant(participantId);
   const videoRef = useRef<HTMLVideoElement>(null);
-  const audioRef = useRef<HTMLAudioElement>(null);
 
   const videoStream = useMemo(() => {
-    if (webcamOn && webcamStream) {
+    if (webcamOn && webcamStream?.track) {
       const ms = new MediaStream();
       ms.addTrack(webcamStream.track);
       return ms;
@@ -32,87 +91,113 @@ function ParticipantTile({ participantId, onReady }: { participantId: string; on
     }
   }, [videoStream]);
 
+  // Report the video element + mic stream up so the recorder can composite.
   useEffect(() => {
-    if (audioRef.current && micOn && micStream && !isLocal) {
-      const ms = new MediaStream();
-      ms.addTrack(micStream.track);
-      audioRef.current.srcObject = ms;
-      audioRef.current.play().catch(() => {});
-    }
-  }, [micStream, micOn, isLocal]);
-
-  // Report this tile's video element + mic stream up so a parent recorder can
-  // composite both seats onto a single canvas + mixed audio track.
-  useEffect(() => {
-    const ms = micStream ? new MediaStream([micStream.track]) : null;
+    const ms = micStream?.track ? new MediaStream([micStream.track]) : null;
     onReady?.(participantId, { video: videoRef.current, micStream: ms });
   }, [participantId, micStream, onReady]);
 
+  const name = displayName || 'Guest';
+  const initial = name.charAt(0).toUpperCase();
+
   return (
-    <div style={{ position: 'relative', background: '#111', borderRadius: 'var(--r-md)', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 240 }}>
-      {!isLocal && <audio ref={audioRef} autoPlay playsInline />}
+    <div style={{
+      position: 'relative', background: MEET.tile, borderRadius: 16, overflow: 'hidden',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', width: '100%',
+      boxShadow: isActiveSpeaker && micOn ? `0 0 0 3px ${MEET.blue}` : 'none',
+      transition: 'box-shadow .15s ease',
+    }}>
       {webcamOn ? (
-        <video ref={videoRef} autoPlay muted={isLocal} playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+        <video ref={videoRef} autoPlay muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover', transform: isLocal ? 'scaleX(-1)' : 'none' }} />
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', color: 'var(--text-3)' }}>
-          <div style={{ width: 72, height: 72, borderRadius: '50%', background: 'var(--bg-2)', display: 'grid', placeItems: 'center', fontSize: '1.8rem', color: 'var(--text)', marginBottom: '.6rem' }}>
-            {(displayName || 'U').charAt(0).toUpperCase()}
-          </div>
-          Camera off
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '.7rem' }}>
+          <div style={{
+            width: compact ? 52 : 92, height: compact ? 52 : 92, borderRadius: '50%',
+            background: accent, display: 'grid', placeItems: 'center',
+            fontSize: compact ? '1.3rem' : '2.4rem', fontWeight: 600, color: '#fff',
+          }}>{initial}</div>
         </div>
       )}
-      <div style={{ position: 'absolute', bottom: '.8rem', left: '.8rem', background: 'rgba(0,0,0,0.6)', color: '#fff', padding: '.3rem .7rem', borderRadius: 'var(--r-md)', fontSize: '.85rem', display: 'flex', alignItems: 'center', gap: '.4rem' }}>
-        {displayName || 'Guest'} {isLocal && '(You)'}
-        {!micOn && <MicOff size={13} color="#ef4444" />}
+
+      {/* Accent seat badge (top-left) */}
+      {!compact && (
+        <div style={{ position: 'absolute', top: 12, left: 12, background: accent, color: '#fff', padding: '.25rem .7rem', borderRadius: 999, fontSize: '.72rem', fontWeight: 700, letterSpacing: '.03em' }}>
+          {label}
+        </div>
+      )}
+
+      {/* Name chip (bottom-left) */}
+      <div style={{ position: 'absolute', bottom: 10, left: 10, display: 'flex', alignItems: 'center', gap: '.4rem', background: 'rgba(0,0,0,0.55)', color: '#fff', padding: '.28rem .6rem', borderRadius: 8, fontSize: compact ? '.72rem' : '.82rem', fontWeight: 500, backdropFilter: 'blur(4px)' }}>
+        {!micOn && <MicOff size={compact ? 12 : 14} color={MEET.red} />}
+        <span>{name}{isLocal ? ' (You)' : ''}</span>
       </div>
     </div>
   );
 }
 
-// ── A fixed seat (Coach / Student). Shows the participant, or a placeholder. ──
-function SeatTile({ id, seat, onReady }: { id: string | null; seat: string; onReady?: (id: string, media: TileMedia) => void }) {
+// A seat that shows a participant or a "waiting" placeholder.
+function SeatTile({ id, label, accent, onReady, compact }: { id: string | null; label: string; accent: string; onReady?: (id: string, media: TileMedia) => void; compact?: boolean }) {
+  if (id) return <ParticipantTile participantId={id} label={label} accent={accent} onReady={onReady} compact={compact} />;
   return (
-    <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', minHeight: 240 }}>
-      <div style={{ position: 'absolute', top: '.7rem', left: '.7rem', zIndex: 3, background: seat === 'Coach' ? 'rgba(37,99,235,0.9)' : 'rgba(16,185,129,0.9)', color: '#fff', padding: '.25rem .75rem', borderRadius: 'var(--r-full)', fontSize: '.78rem', fontWeight: 700, letterSpacing: '.03em' }}>
-        {seat}
-      </div>
-      {id ? (
-        <ParticipantTile participantId={id} onReady={onReady} />
-      ) : (
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '.6rem', color: 'var(--text-3)', border: '1px dashed var(--line)', borderRadius: 'var(--r-md)', background: '#0d0d0d', minHeight: 240 }}>
-          <Loader2 size={22} style={{ animation: 'spin 1s linear infinite' }} />
-          Waiting for the {seat.toLowerCase()} to join…
-          <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
-        </div>
-      )}
+    <div style={{ height: '100%', width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '.7rem', color: MEET.textDim, background: MEET.tileEmpty, borderRadius: 16, border: `1px solid ${MEET.line}` }}>
+      <Loader2 size={22} style={{ animation: 'vs-spin 1s linear infinite' }} />
+      <span style={{ fontSize: compact ? '.75rem' : '.9rem' }}>Waiting for {label.toLowerCase()}…</span>
     </div>
   );
 }
 
-// ── A labelled circular call-control button ─────────────────────
-function Control({ children, label, onClick, active = true, danger = false, highlight = false }: {
-  children: React.ReactNode; label: string; onClick: () => void; active?: boolean; danger?: boolean; highlight?: boolean;
+// Screen-share main stage.
+function ScreenShareView({ participantId }: { participantId: string }) {
+  const { screenShareStream, screenShareOn, displayName } = useParticipant(participantId);
+  const ref = useRef<HTMLVideoElement>(null);
+  useEffect(() => {
+    if (ref.current && screenShareOn && screenShareStream?.track) {
+      ref.current.srcObject = new MediaStream([screenShareStream.track]);
+      ref.current.play().catch(() => {});
+    }
+  }, [screenShareStream, screenShareOn]);
+  return (
+    <div style={{ position: 'relative', height: '100%', width: '100%', background: '#000', borderRadius: 16, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <video ref={ref} autoPlay playsInline muted style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+      <div style={{ position: 'absolute', top: 12, left: 12, display: 'flex', alignItems: 'center', gap: '.4rem', background: 'rgba(0,0,0,0.6)', color: '#fff', padding: '.3rem .7rem', borderRadius: 999, fontSize: '.78rem', fontWeight: 600 }}>
+        <ScreenShare size={14} /> {displayName || 'Someone'} is presenting
+      </div>
+    </div>
+  );
+}
+
+// ───────────────────────── Control button ─────────────────────────
+function Control({ children, label, onClick, danger = false, highlight = false, disabled = false }: {
+  children: React.ReactNode; label: string; onClick: () => void; danger?: boolean; highlight?: boolean; disabled?: boolean;
 }) {
-  const bg = danger ? '#ef4444' : highlight ? 'var(--blue)' : '#2c2c33';
-  const fg = danger || highlight ? '#fff' : '#e7e7ea';
+  const [hover, setHover] = useState(false);
+  const bg = danger ? MEET.red : highlight ? MEET.blueSolid : hover ? '#4a4d51' : MEET.tile;
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '.45rem' }}>
-      <button onClick={onClick} title={label}
-        style={{ width: 56, height: 56, borderRadius: '50%', background: bg, border: '1px solid rgba(255,255,255,0.12)', color: fg, cursor: 'pointer', display: 'grid', placeItems: 'center', transition: 'all .15s ease' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '.4rem' }}>
+      <button onClick={onClick} title={label} disabled={disabled}
+        onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
+        style={{ width: 52, height: 52, borderRadius: '50%', background: bg, border: 'none', color: '#fff', cursor: disabled ? 'default' : 'pointer', display: 'grid', placeItems: 'center', transition: 'background .15s ease', opacity: disabled ? 0.5 : 1 }}>
         {children}
       </button>
-      <span style={{ fontSize: '.72rem', color: '#c9c9cf', fontWeight: 500 }}>{label}</span>
+      <span style={{ fontSize: '.68rem', color: MEET.textDim, fontWeight: 500 }}>{label}</span>
     </div>
   );
 }
 
-// ── The live meeting view (inside MeetingProvider) ──────────────
+function elapsed(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  const mm = String(m).padStart(2, '0'), ss = String(sec).padStart(2, '0');
+  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+
+// ───────────────────────── Meeting view ─────────────────────────
 function MeetingView({ role, leaveHref, roomId, canRecord }: { role: Role; leaveHref: string; roomId: string; canRecord: boolean }) {
   const router = useRouter();
   const isMonitor = role === 'monitor';
   const [joined, setJoined] = useState(false);
-  const [sharing, setSharing] = useState(false);
-  // Admins monitoring a session join silently: muted, camera off.
+  const [joinedAt, setJoinedAt] = useState<number | null>(null);
+  const [now, setNow] = useState(Date.now());
   const [micEnabled, setMicEnabled] = useState(!isMonitor);
   const [camEnabled, setCamEnabled] = useState(!isMonitor);
   const [joinError, setJoinError] = useState<string | null>(null);
@@ -122,6 +207,11 @@ function MeetingView({ role, leaveHref, roomId, canRecord }: { role: Role; leave
   const [activeCam, setActiveCam] = useState('');
   const [activeMic, setActiveMic] = useState('');
   const joinedRef = useRef(false);
+
+  // Audio autoplay unlock
+  const [audioBlocked, setAudioBlocked] = useState(false);
+  const [playSignal, setPlaySignal] = useState(0);
+  const onAudioBlocked = useCallback(() => setAudioBlocked(true), []);
 
   // ── Session recording (coach / admin only) ──
   const [recording, setRecording] = useState(false);
@@ -133,8 +223,8 @@ function MeetingView({ role, leaveHref, roomId, canRecord }: { role: Role; leave
   const recRecorderRef = useRef<MediaRecorder | null>(null);
   const recChunksRef = useRef<BlobPart[]>([]);
 
-  const { join, leave, toggleMic, toggleWebcam, enableScreenShare, disableScreenShare, changeWebcam, changeMic, getWebcams, getMics, participants, localParticipant } = useMeeting({
-    onMeetingJoined: () => { setJoined(true); setJoinError(null); },
+  const { join, leave, toggleMic, toggleWebcam, enableScreenShare, disableScreenShare, changeWebcam, changeMic, getWebcams, getMics, participants, localParticipant, presenterId } = useMeeting({
+    onMeetingJoined: () => { setJoined(true); setJoinedAt(Date.now()); setJoinError(null); },
     onMeetingLeft: () => router.push(leaveHref),
     onError: (err: any) => {
       console.error('VideoSDK meeting error:', err);
@@ -142,19 +232,13 @@ function MeetingView({ role, leaveHref, roomId, canRecord }: { role: Role; leave
     },
   });
 
-  // Keep a stable reference to join() so the mount effect can run exactly once
-  // (and is immune to React Strict Mode's double setup/cleanup in dev).
   const joinFn = useRef(join);
   joinFn.current = join;
 
   useEffect(() => {
     if (joinedRef.current) return;
     joinedRef.current = true;
-
     (async () => {
-      // Surface the camera/mic permission prompt up front. If the browser blocks
-      // it, join() would otherwise hang forever on getUserMedia with no feedback.
-      // Silent monitors join without devices, so skip the prompt entirely.
       if (!isMonitor) {
         try {
           const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
@@ -170,21 +254,23 @@ function MeetingView({ role, leaveHref, roomId, canRecord }: { role: Role; leave
       }
       try { joinFn.current(); } catch (e: any) { setJoinError(e?.message || 'Failed to join the session.'); }
     })();
-    // Intentionally run once on mount; do NOT add deps that would re-run/cancel it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Safety net: if we never join within 20s, stop spinning and show an error.
+  // Elapsed-time ticker
+  useEffect(() => {
+    if (!joinedAt) return;
+    const iv = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(iv);
+  }, [joinedAt]);
+
   useEffect(() => {
     if (joined) return;
-    const t = setTimeout(() => {
-      setJoinError((prev) => prev ?? 'Connection timed out. Check your network and try again.');
-    }, 20000);
+    const t = setTimeout(() => setJoinError((prev) => prev ?? 'Connection timed out. Check your network and try again.'), 20000);
     return () => clearTimeout(t);
   }, [joined]);
 
-  // Load available cameras/mics once we're in, and auto-select a REAL webcam
-  // (skip virtual/screen-capture cameras like OBS / NVIDIA Broadcast / screen).
+  // Device discovery + prefer a real webcam.
   useEffect(() => {
     if (!joined) return;
     (async () => {
@@ -195,55 +281,50 @@ function MeetingView({ role, leaveHref, roomId, canRecord }: { role: Role; leave
         const micList = m.map((d: any) => ({ deviceId: d.deviceId, label: d.label || 'Microphone' }));
         setCams(camList);
         setMics(micList);
-
-        // Pick a physical webcam over a virtual one.
         const isVirtual = (l: string) => /(obs|virtual|screen|broadcast|capture|ndi|snap|manycam|droidcam)/i.test(l);
         const isRealCam = (l: string) => /(webcam|usb|integrated|facetime|hd cam|uvc|built-?in)/i.test(l);
-        const preferred =
-          camList.find((c) => isRealCam(c.label) && !isVirtual(c.label)) ||
-          camList.find((c) => !isVirtual(c.label)) ||
-          camList[0];
-        if (preferred) {
-          setActiveCam(preferred.deviceId);
-          try { await changeWebcam?.(preferred.deviceId); } catch { /* ignore */ }
-        }
+        const preferred = camList.find((c) => isRealCam(c.label) && !isVirtual(c.label)) || camList.find((c) => !isVirtual(c.label)) || camList[0];
+        if (preferred) { setActiveCam(preferred.deviceId); try { await changeWebcam?.(preferred.deviceId); } catch { /* ignore */ } }
         if (micList[0]) setActiveMic(micList[0].deviceId);
       } catch { /* ignore */ }
     })();
   }, [joined, getWebcams, getMics, changeWebcam]);
 
-  async function pickCam(deviceId: string) {
-    setActiveCam(deviceId);
-    try { await changeWebcam?.(deviceId); } catch { /* ignore */ }
-  }
-  async function pickMic(deviceId: string) {
-    setActiveMic(deviceId);
-    try { await changeMic?.(deviceId); } catch { /* ignore */ }
-  }
+  async function pickCam(deviceId: string) { setActiveCam(deviceId); try { await changeWebcam?.(deviceId); } catch { /* ignore */ } }
+  async function pickMic(deviceId: string) { setActiveMic(deviceId); try { await changeMic?.(deviceId); } catch { /* ignore */ } }
 
-  const remoteIds = [...participants.keys()].filter((id) => id !== localParticipant?.id);
-  const allIds = [localParticipant?.id, ...remoteIds].filter(Boolean) as string[];
-
-  // Fixed seating: Coach is always on the LEFT, Student on the RIGHT,
-  // regardless of who is the local participant on this device.
-  // A monitoring admin is not seated — they watch the two remote participants.
   const localId = localParticipant?.id || null;
+  const remoteIds = [...participants.keys()].filter((id) => id !== localId);
+  const allIds = [localId, ...remoteIds].filter(Boolean) as string[];
+
+  // Fixed seating: Coach LEFT, Student RIGHT, regardless of who is local.
   const remoteId = remoteIds[0] || null;
   const coachId = isMonitor ? (remoteIds[0] || null) : role === 'coach' ? localId : remoteId;
   const studentId = isMonitor ? (remoteIds[1] || null) : role === 'student' ? localId : remoteId;
-  const seatLabel = (id: string | null, fallback: string) =>
-    (id && (participants.get(id) as any)?.displayName) || fallback;
+  const seatLabel = (id: string | null, fallback: string) => (id && (participants.get(id) as any)?.displayName) || fallback;
 
-  // ── Composite both seats onto a canvas + mix both mics into one recording ──
+  const isSharingLocally = !!presenterId && presenterId === localId;
+  const someoneSharing = !!presenterId;
+
+  const toggleScreen = useCallback(async () => {
+    try {
+      if (isSharingLocally) disableScreenShare();
+      else await enableScreenShare();
+    } catch {
+      // User cancelled the browser's screen picker — nothing to do.
+    }
+  }, [isSharingLocally, enableScreenShare, disableScreenShare]);
+
+  const enableSound = () => { setAudioBlocked(false); setPlaySignal((n) => n + 1); };
+
+  // ── Recording: composite both seats + mix both mics ──
   const startRecording = () => {
     if (recRecorderRef.current) return;
     try {
       const canvas = document.createElement('canvas');
-      canvas.width = 1280;
-      canvas.height = 480;
+      canvas.width = 1280; canvas.height = 480;
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
-
       const drawCover = (video: HTMLVideoElement | null | undefined, dx: number, dy: number, dw: number, dh: number) => {
         if (!video || video.readyState < 2) return;
         const vw = video.videoWidth, vh = video.videoHeight;
@@ -252,37 +333,26 @@ function MeetingView({ role, leaveHref, roomId, canRecord }: { role: Role; leave
         const sw = dw / scale, sh = dh / scale;
         ctx.drawImage(video, (vw - sw) / 2, (vh - sh) / 2, sw, sh, dx, dy, dw, dh);
       };
-
       const draw = () => {
-        ctx.fillStyle = '#0b1220';
-        ctx.fillRect(0, 0, 1280, 480);
+        ctx.fillStyle = '#0b1220'; ctx.fillRect(0, 0, 1280, 480);
         drawCover(coachId ? tileRegistry.current.get(coachId)?.video : null, 0, 0, 640, 480);
         drawCover(studentId ? tileRegistry.current.get(studentId)?.video : null, 640, 0, 640, 480);
-        ctx.fillStyle = 'rgba(0,0,0,0.45)';
-        ctx.fillRect(0, 446, 1280, 34);
-        ctx.fillStyle = '#fff';
-        ctx.font = '16px Inter, sans-serif';
-        ctx.fillText('Coach', 14, 469);
-        ctx.fillText('Student', 654, 469);
+        ctx.fillStyle = 'rgba(0,0,0,0.45)'; ctx.fillRect(0, 446, 1280, 34);
+        ctx.fillStyle = '#fff'; ctx.font = '16px Inter, sans-serif';
+        ctx.fillText('Coach', 14, 469); ctx.fillText('Student', 654, 469);
         recRafRef.current = requestAnimationFrame(draw);
       };
       draw();
-
       const canvasStream = canvas.captureStream(30);
-
       const AC = window.AudioContext || (window as any).webkitAudioContext;
       const actx: AudioContext = new AC();
       recAudioCtxRef.current = actx;
       const dest = actx.createMediaStreamDestination();
       const addAudio = (stream: MediaStream | null | undefined) => {
-        try {
-          const tracks = stream?.getAudioTracks?.() ?? [];
-          if (tracks.length) actx.createMediaStreamSource(new MediaStream(tracks)).connect(dest);
-        } catch { /* ignore */ }
+        try { const tracks = stream?.getAudioTracks?.() ?? []; if (tracks.length) actx.createMediaStreamSource(new MediaStream(tracks)).connect(dest); } catch { /* ignore */ }
       };
       addAudio(coachId ? tileRegistry.current.get(coachId)?.micStream : null);
       addAudio(studentId ? tileRegistry.current.get(studentId)?.micStream : null);
-
       const combined = new MediaStream([...canvasStream.getVideoTracks(), ...dest.stream.getAudioTracks()]);
       recChunksRef.current = [];
       const mime = MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus') ? 'video/webm;codecs=vp9,opus' : 'video/webm';
@@ -291,9 +361,7 @@ function MeetingView({ role, leaveHref, roomId, canRecord }: { role: Role; leave
       rec.start(1000);
       recRecorderRef.current = rec;
       setRecording(true);
-    } catch (e) {
-      console.warn('Recording could not start.', e);
-    }
+    } catch (e) { console.warn('Recording could not start.', e); }
   };
 
   const stopRecording = () => {
@@ -303,9 +371,7 @@ function MeetingView({ role, leaveHref, roomId, canRecord }: { role: Role; leave
     setSavingRecording(true);
     rec.onstop = async () => {
       try { recAudioCtxRef.current?.close(); } catch { /* ignore */ }
-      recAudioCtxRef.current = null;
-      recRecorderRef.current = null;
-      setRecording(false);
+      recAudioCtxRef.current = null; recRecorderRef.current = null; setRecording(false);
       const blob = recChunksRef.current.length ? new Blob(recChunksRef.current, { type: 'video/webm' }) : null;
       recChunksRef.current = [];
       if (!blob) { setSavingRecording(false); return; }
@@ -315,21 +381,16 @@ function MeetingView({ role, leaveHref, roomId, canRecord }: { role: Role; leave
         const { error: upErr } = await supabase.storage.from('session-recordings').upload(path, blob, { contentType: 'video/webm' });
         if (upErr) throw upErr;
         await supabase.from('bookings').update({ recording_url: path }).eq('room_id', roomId);
-      } catch (e) {
-        console.warn('Could not save the recording.', e);
-      } finally {
-        setSavingRecording(false);
-      }
+      } catch (e) { console.warn('Could not save the recording.', e); }
+      finally { setSavingRecording(false); }
     };
     rec.stop();
   };
 
-  useEffect(() => {
-    return () => {
-      if (recRafRef.current) cancelAnimationFrame(recRafRef.current);
-      if (recRecorderRef.current && recRecorderRef.current.state !== 'inactive') recRecorderRef.current.stop();
-      try { recAudioCtxRef.current?.close(); } catch { /* ignore */ }
-    };
+  useEffect(() => () => {
+    if (recRafRef.current) cancelAnimationFrame(recRafRef.current);
+    if (recRecorderRef.current && recRecorderRef.current.state !== 'inactive') recRecorderRef.current.stop();
+    try { recAudioCtxRef.current?.close(); } catch { /* ignore */ }
   }, []);
 
   if (!joined) {
@@ -348,98 +409,110 @@ function MeetingView({ role, leaveHref, roomId, canRecord }: { role: Role; leave
     }
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', gap: '1rem' }}>
-        <Loader2 size={32} className="spin" style={{ animation: 'spin 1s linear infinite' }} />
+        <Loader2 size={32} style={{ animation: 'vs-spin 1s linear infinite' }} />
         <h3 style={{ margin: 0 }}>Connecting to your session…</h3>
-        <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+        <style>{`@keyframes vs-spin{to{transform:rotate(360deg)}}`}</style>
       </div>
     );
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '80vh', background: 'var(--bg)', borderRadius: 'var(--r-lg)', overflow: 'hidden', border: '1px solid var(--line)' }}>
-      <div style={{ padding: '1rem 1.5rem', background: 'var(--bg-2)', borderBottom: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h3 style={{ margin: 0 }}>{isMonitor ? 'Session Monitor' : 'Live Coaching Session'}</h3>
-        <span style={{ display: 'flex', alignItems: 'center', gap: '.6rem' }}>
-          {isMonitor && (
-            <span style={{ background: 'rgba(245,158,11,0.12)', color: '#F59E0B', padding: '.2rem .8rem', borderRadius: 'var(--r-full)', fontSize: '.85rem', fontWeight: 600 }}>
-              Admin · observing
-            </span>
-          )}
-          {recording && (
-            <span style={{ display: 'flex', alignItems: 'center', gap: '.4rem', background: 'rgba(239,68,68,0.12)', color: '#ef4444', padding: '.2rem .8rem', borderRadius: 'var(--r-full)', fontSize: '.85rem', fontWeight: 600 }}>
-              <Circle size={9} fill="currentColor" style={{ animation: 'pulseRec 1.2s infinite' }} /> Recording
-            </span>
-          )}
-          <span style={{ background: 'rgba(16,185,129,0.1)', color: '#10b981', padding: '.2rem .8rem', borderRadius: 'var(--r-full)', fontSize: '.85rem', fontWeight: 600 }}>
-            ● Live · {allIds.length} in room
-          </span>
-        </span>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '84vh', background: MEET.bg, borderRadius: 20, overflow: 'hidden', border: `1px solid ${MEET.line}`, fontFamily: 'Inter, system-ui, sans-serif' }}>
+      {/* Hidden audio sinks for every remote participant */}
+      {remoteIds.map((id) => <RemoteAudio key={`a-${id}`} participantId={id} playSignal={playSignal} onBlocked={onAudioBlocked} />)}
+
+      {/* Header */}
+      <div style={{ padding: '.85rem 1.35rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `1px solid ${MEET.line}` }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '.8rem' }}>
+          <h3 style={{ margin: 0, color: MEET.text, fontSize: '1rem', fontWeight: 600 }}>{isMonitor ? 'Session Monitor' : 'Live Coaching Session'}</h3>
+          {joinedAt && <span style={{ color: MEET.textDim, fontSize: '.85rem', fontVariantNumeric: 'tabular-nums' }}>{elapsed(now - joinedAt)}</span>}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '.6rem' }}>
+          {isMonitor && <span style={{ background: 'rgba(245,158,11,0.15)', color: '#F59E0B', padding: '.25rem .75rem', borderRadius: 999, fontSize: '.78rem', fontWeight: 600 }}>Admin · observing</span>}
+          {recording && <span style={{ display: 'flex', alignItems: 'center', gap: '.4rem', background: 'rgba(234,67,53,0.15)', color: MEET.red, padding: '.25rem .75rem', borderRadius: 999, fontSize: '.78rem', fontWeight: 600 }}><Circle size={9} fill="currentColor" style={{ animation: 'vs-pulse 1.2s infinite' }} /> REC</span>}
+          <span style={{ display: 'flex', alignItems: 'center', gap: '.4rem', background: 'rgba(52,168,83,0.15)', color: MEET.green, padding: '.25rem .75rem', borderRadius: 999, fontSize: '.78rem', fontWeight: 600 }}><Users size={13} /> {allIds.length}</span>
+        </div>
       </div>
 
-      <div style={{ flex: 1, padding: '1rem', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', background: '#000', overflow: 'auto' }}>
-        <SeatTile id={coachId} seat={isMonitor ? seatLabel(coachId, 'Participant 1') : 'Coach'} onReady={registerTile} />
-        <SeatTile id={studentId} seat={isMonitor ? seatLabel(studentId, 'Waiting for participants…') : 'Student'} onReady={registerTile} />
+      {/* Audio unlock banner */}
+      {audioBlocked && (
+        <button onClick={enableSound} style={{ margin: '.6rem 1.35rem 0', padding: '.6rem 1rem', background: MEET.blueSolid, color: '#fff', border: 'none', borderRadius: 10, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '.5rem', fontWeight: 600, fontSize: '.85rem', alignSelf: 'flex-start' }}>
+          <Volume2 size={16} /> Click to enable sound
+        </button>
+      )}
+
+      {/* Stage */}
+      <div style={{ flex: 1, padding: '1rem', minHeight: 0, display: 'flex', flexDirection: 'column', gap: '.8rem' }}>
+        {someoneSharing && presenterId ? (
+          <>
+            <div style={{ flex: 1, minHeight: 0 }}>
+              <ScreenShareView participantId={presenterId} />
+            </div>
+            {/* Thumbnail strip of the two seats */}
+            <div style={{ display: 'flex', gap: '.8rem', height: 130, flexShrink: 0 }}>
+              <div style={{ flex: 1, maxWidth: 230 }}><SeatTile id={coachId} label={isMonitor ? seatLabel(coachId, 'Participant 1') : 'Coach'} accent={MEET.blueSolid} onReady={registerTile} compact /></div>
+              <div style={{ flex: 1, maxWidth: 230 }}><SeatTile id={studentId} label={isMonitor ? seatLabel(studentId, 'Participant 2') : 'Student'} accent={MEET.green} onReady={registerTile} compact /></div>
+            </div>
+          </>
+        ) : (
+          <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.8rem' }}>
+            <SeatTile id={coachId} label={isMonitor ? seatLabel(coachId, 'Participant 1') : 'Coach'} accent={MEET.blueSolid} onReady={registerTile} />
+            <SeatTile id={studentId} label={isMonitor ? seatLabel(studentId, 'Waiting for participants…') : 'Student'} accent={MEET.green} onReady={registerTile} />
+          </div>
+        )}
       </div>
 
-      <div style={{ padding: '1.1rem 1.25rem', background: '#1a1a1f', borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'center', alignItems: 'flex-start', gap: '1.5rem' }}>
+      {/* Control bar */}
+      <div style={{ padding: '1rem 1.25rem 1.15rem', display: 'flex', justifyContent: 'center', alignItems: 'flex-start', gap: '1.1rem', flexWrap: 'wrap' }}>
         {(isMonitor || canRecord) && (
-          <Control label={savingRecording ? 'Saving…' : recording ? 'Stop recording' : 'Record'} active highlight={recording} danger={recording}
+          <Control label={savingRecording ? 'Saving…' : recording ? 'Stop rec' : 'Record'} highlight={recording} danger={recording} disabled={savingRecording}
             onClick={() => { if (savingRecording) return; recording ? stopRecording() : startRecording(); }}>
-            {savingRecording ? <Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} /> : recording ? <StopIcon size={20} /> : <Circle size={20} />}
+            {savingRecording ? <Loader2 size={20} style={{ animation: 'vs-spin 1s linear infinite' }} /> : recording ? <StopIcon size={20} /> : <Circle size={20} />}
           </Control>
         )}
         {!isMonitor && (<>
-        <Control label={micEnabled ? 'Mute' : 'Unmute'} active={micEnabled} danger={!micEnabled}
-          onClick={() => { toggleMic(); setMicEnabled((v) => !v); }}>
-          {micEnabled ? <Mic size={22} /> : <MicOff size={22} />}
-        </Control>
-        <Control label={camEnabled ? 'Stop video' : 'Start video'} active={camEnabled} danger={!camEnabled}
-          onClick={() => { toggleWebcam(); setCamEnabled((v) => !v); }}>
-          {camEnabled ? <Video size={22} /> : <VideoOff size={22} />}
-        </Control>
-        <Control label={sharing ? 'Stop share' : 'Share screen'} active={sharing} highlight={sharing}
-          onClick={() => { sharing ? disableScreenShare() : enableScreenShare(); setSharing((v) => !v); }}>
-          <ScreenShare size={22} />
-        </Control>
-        <div style={{ position: 'relative' }}>
-          <Control label="Devices" active highlight={showDevices} onClick={() => setShowDevices((v) => !v)}>
-            <Settings size={22} />
+          <Control label={micEnabled ? 'Mute' : 'Unmute'} danger={!micEnabled} onClick={() => { toggleMic(); setMicEnabled((v) => !v); }}>
+            {micEnabled ? <Mic size={22} /> : <MicOff size={22} />}
           </Control>
-          {showDevices && (
-            <div style={{ position: 'absolute', bottom: 62, left: '50%', transform: 'translateX(-50%)', width: 280, background: 'var(--bg-2)', border: '1px solid var(--line)', borderRadius: 'var(--r-md)', boxShadow: '0 16px 40px rgba(0,0,0,0.4)', padding: '1rem', zIndex: 50, textAlign: 'left' }}>
-              <label style={{ display: 'block', fontSize: '.78rem', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: '.4rem' }}>Camera</label>
-              <select value={activeCam} onChange={(e) => pickCam(e.target.value)}
-                style={{ width: '100%', padding: '.5rem', borderRadius: 'var(--r-sm)', background: 'var(--bg)', color: 'var(--text)', border: '1px solid var(--line)', marginBottom: '.9rem', fontSize: '.85rem' }}>
-                {cams.length === 0 && <option value="">Default camera</option>}
-                {cams.map((c) => <option key={c.deviceId} value={c.deviceId}>{c.label}</option>)}
-              </select>
-              <label style={{ display: 'block', fontSize: '.78rem', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: '.4rem' }}>Microphone</label>
-              <select value={activeMic} onChange={(e) => pickMic(e.target.value)}
-                style={{ width: '100%', padding: '.5rem', borderRadius: 'var(--r-sm)', background: 'var(--bg)', color: 'var(--text)', border: '1px solid var(--line)', fontSize: '.85rem' }}>
-                {mics.length === 0 && <option value="">Default microphone</option>}
-                {mics.map((m) => <option key={m.deviceId} value={m.deviceId}>{m.label}</option>)}
-              </select>
-              <p style={{ fontSize: '.74rem', color: 'var(--text-3)', margin: '.7rem 0 0' }}>Seeing your screen instead of your face? Switch to your real webcam here.</p>
-            </div>
-          )}
-        </div>
+          <Control label={camEnabled ? 'Stop video' : 'Start video'} danger={!camEnabled} onClick={() => { toggleWebcam(); setCamEnabled((v) => !v); }}>
+            {camEnabled ? <Video size={22} /> : <VideoOff size={22} />}
+          </Control>
+          <Control label={isSharingLocally ? 'Stop share' : 'Present'} highlight={isSharingLocally} onClick={toggleScreen}>
+            {isSharingLocally ? <ScreenShareOff size={22} /> : <ScreenShare size={22} />}
+          </Control>
+          <div style={{ position: 'relative' }}>
+            <Control label="Devices" highlight={showDevices} onClick={() => setShowDevices((v) => !v)}>
+              <Settings size={22} />
+            </Control>
+            {showDevices && (
+              <div style={{ position: 'absolute', bottom: 68, left: '50%', transform: 'translateX(-50%)', width: 290, background: MEET.surface, border: `1px solid ${MEET.line}`, borderRadius: 14, boxShadow: '0 16px 40px rgba(0,0,0,0.5)', padding: '1rem', zIndex: 50, textAlign: 'left' }}>
+                <label style={{ display: 'block', fontSize: '.72rem', fontWeight: 700, color: MEET.textDim, textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: '.4rem' }}>Camera</label>
+                <select value={activeCam} onChange={(e) => pickCam(e.target.value)} style={{ width: '100%', padding: '.55rem', borderRadius: 8, background: MEET.bg, color: MEET.text, border: `1px solid ${MEET.line}`, marginBottom: '.9rem', fontSize: '.85rem' }}>
+                  {cams.length === 0 && <option value="">Default camera</option>}
+                  {cams.map((c) => <option key={c.deviceId} value={c.deviceId}>{c.label}</option>)}
+                </select>
+                <label style={{ display: 'block', fontSize: '.72rem', fontWeight: 700, color: MEET.textDim, textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: '.4rem' }}>Microphone</label>
+                <select value={activeMic} onChange={(e) => pickMic(e.target.value)} style={{ width: '100%', padding: '.55rem', borderRadius: 8, background: MEET.bg, color: MEET.text, border: `1px solid ${MEET.line}`, fontSize: '.85rem' }}>
+                  {mics.length === 0 && <option value="">Default microphone</option>}
+                  {mics.map((m) => <option key={m.deviceId} value={m.deviceId}>{m.label}</option>)}
+                </select>
+                <p style={{ fontSize: '.74rem', color: MEET.textDim, margin: '.7rem 0 0' }}>Seeing your screen instead of your face? Switch to your real webcam here.</p>
+              </div>
+            )}
+          </div>
         </>)}
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '.45rem' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '.4rem' }}>
           <button
-            onClick={() => {
-              // End the meeting, then always land on the dashboard — even if the
-              // SDK's onMeetingLeft callback never fires for any reason.
-              try { leave(); } catch { /* ignore */ }
-              setTimeout(() => router.push(leaveHref), 1200);
-            }}
+            onClick={() => { try { leave(); } catch { /* ignore */ } setTimeout(() => router.push(leaveHref), 1200); }}
             title="End meeting"
-            style={{ width: 56, height: 56, borderRadius: '50%', background: '#ef4444', border: 'none', color: '#fff', cursor: 'pointer', display: 'grid', placeItems: 'center', boxShadow: '0 6px 16px rgba(239,68,68,0.4)' }}>
+            style={{ width: 68, height: 52, borderRadius: 26, background: MEET.red, border: 'none', color: '#fff', cursor: 'pointer', display: 'grid', placeItems: 'center', boxShadow: '0 6px 16px rgba(234,67,53,0.4)' }}>
             <PhoneOff size={22} />
           </button>
-          <span style={{ fontSize: '.72rem', color: '#fca5a5', fontWeight: 600 }}>{isMonitor ? 'Leave' : 'End'}</span>
+          <span style={{ fontSize: '.68rem', color: MEET.textDim, fontWeight: 500 }}>{isMonitor ? 'Leave' : 'End'}</span>
         </div>
       </div>
-      <style>{`@keyframes pulseRec { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } } @keyframes spin { to { transform: rotate(360deg); } }`}</style>
+
+      <style>{`@keyframes vs-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } } @keyframes vs-spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 }
@@ -451,7 +524,6 @@ export default function VideoSession({ paramRoomId, role, leaveHref, canonicalBa
   const [token, setToken] = useState('');
   const [roomId, setRoomId] = useState('');
   const [name, setName] = useState(role === 'coach' ? 'Coach' : role === 'monitor' ? 'Admin (monitoring)' : 'Student');
-  // Whether THIS coach is allowed to record — admin can disable per coach.
   const [canRecord, setCanRecord] = useState(false);
 
   useEffect(() => {
@@ -471,33 +543,23 @@ export default function VideoSession({ paramRoomId, role, leaveHref, canonicalBa
     let active = true;
     (async () => {
       try {
-        // Display name from the signed-in user.
         const supabase = createClient();
         const { data: { user } } = await supabase.auth.getUser();
         const dn = role === 'monitor'
           ? 'Admin (monitoring)'
           : user?.user_metadata?.full_name || user?.email?.split('@')[0] || (role === 'coach' ? 'Coach' : 'Student');
-
         const res = await fetch('/api/videosdk/room', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ roomId: paramRoomId, role }),
         });
         if (res.status === 503) { if (active) setState('unconfigured'); return; }
         const data = await res.json();
         if (!res.ok || !data.roomId || !data.token) { if (active) setState('error'); return; }
         if (!active) return;
-        setName(dn);
-        setToken(data.token);
-        setRoomId(data.roomId);
-        // If the server minted a new room (the URL id wasn't valid), make the URL canonical/shareable.
-        if (data.created && data.roomId !== paramRoomId) {
-          router.replace(`${canonicalBase}/${data.roomId}`);
-        }
+        setName(dn); setToken(data.token); setRoomId(data.roomId);
+        if (data.created && data.roomId !== paramRoomId) router.replace(`${canonicalBase}/${data.roomId}`);
         setState('ready');
-      } catch {
-        if (active) setState('error');
-      }
+      } catch { if (active) setState('error'); }
     })();
     return () => { active = false; };
   }, [paramRoomId, role, canonicalBase, router]);
@@ -505,9 +567,9 @@ export default function VideoSession({ paramRoomId, role, leaveHref, canonicalBa
   if (state === 'loading') {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', gap: '1rem' }}>
-        <Loader2 size={28} style={{ animation: 'spin 1s linear infinite' }} />
+        <Loader2 size={28} style={{ animation: 'vs-spin 1s linear infinite' }} />
         <p style={{ color: 'var(--text-2)' }}>Preparing your room…</p>
-        <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+        <style>{`@keyframes vs-spin{to{transform:rotate(360deg)}}`}</style>
       </div>
     );
   }
@@ -518,9 +580,7 @@ export default function VideoSession({ paramRoomId, role, leaveHref, canonicalBa
         <AlertCircle size={40} style={{ color: 'var(--amber, #F59E0B)', marginBottom: '1rem' }} />
         <h3 style={{ marginBottom: '.5rem' }}>{state === 'unconfigured' ? 'Video sessions not configured' : 'Could not start the session'}</h3>
         <p style={{ color: 'var(--text-2)' }}>
-          {state === 'unconfigured'
-            ? 'VideoSDK credentials are missing on the server.'
-            : 'Something went wrong creating the room. Please try again.'}
+          {state === 'unconfigured' ? 'VideoSDK credentials are missing on the server.' : 'Something went wrong creating the room. Please try again.'}
         </p>
         <button className="btn btn-ghost" style={{ marginTop: '1rem' }} onClick={() => router.push(leaveHref)}>Go back</button>
       </div>
