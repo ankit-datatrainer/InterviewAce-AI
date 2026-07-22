@@ -325,7 +325,7 @@ export default function AdminCoachEditorPage() {
           <h2>Manage {coach.name}</h2>
           <p>Full profile control — everything the coach can edit, plus admin-only marketplace settings.</p>
         </div>
-        <div style={{ display: 'flex', gap: '.6rem' }}>
+        <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
           <button className="btn btn-ghost btn-sm" onClick={() => router.push('/admin/coaches')}><ArrowLeft size={15} /> Back</button>
           <button className="btn btn-primary btn-sm" onClick={save} disabled={saving}><Save size={15} /> {saving ? 'Saving…' : 'Save changes'}</button>
         </div>
@@ -345,7 +345,7 @@ export default function AdminCoachEditorPage() {
               <div className="field"><label>Years of experience</label><input type="number" className="input" value={exp} onChange={(e) => setExp(Number(e.target.value))} /></div>
               <div className="field">
                 <label>Profile photo</label>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '.75rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '.75rem', flexWrap: 'wrap' }}>
                   <div style={{ width: 52, height: 52, borderRadius: '50%', overflow: 'hidden', flexShrink: 0, background: 'var(--bg-2)', display: 'grid', placeItems: 'center', border: '1px solid var(--line)', fontWeight: 700 }}>
                     {imageUrl
                       // eslint-disable-next-line @next/next/no-img-element
@@ -389,8 +389,8 @@ export default function AdminCoachEditorPage() {
           <div className="widget">
             <h4 style={{ display: 'flex', alignItems: 'center', gap: '.5rem' }}><CalendarDays size={16} /> Calendar control</h4>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: '1px solid var(--line)', borderRadius: 8, padding: '.7rem .9rem', marginBottom: '1rem' }}>
-              <div>
+            <div className="cd-toggle-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.6rem', border: '1px solid var(--line)', borderRadius: 8, padding: '.7rem .9rem', marginBottom: '1rem' }}>
+              <div style={{ minWidth: 0 }}>
                 <p style={{ margin: 0, fontWeight: 600, fontSize: '.9rem' }}>{acceptingBookings ? 'Accepting new bookings' : 'Bookings closed'}</p>
                 <p style={{ margin: 0, color: 'var(--text-3)', fontSize: '.8rem' }}>Pauses new bookings without hiding the coach&apos;s profile.</p>
               </div>
@@ -427,8 +427,8 @@ export default function AdminCoachEditorPage() {
                 ))}
               </div>
             )}
-            <div style={{ display: 'flex', gap: '.5rem', marginBottom: '1rem' }}>
-              <input type="date" className="input" style={{ flex: 1 }} value={newBlockDate} onChange={(e) => setNewBlockDate(e.target.value)} />
+            <div className="cd-block-row" style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
+              <input type="date" className="input" style={{ flex: 1, minWidth: 160 }} value={newBlockDate} onChange={(e) => setNewBlockDate(e.target.value)} />
               <button className="btn btn-ghost btn-sm" onClick={handleAddBlockedDate} disabled={calendarBusy || !newBlockDate}>Block date</button>
             </div>
 
@@ -438,8 +438,8 @@ export default function AdminCoachEditorPage() {
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem', maxHeight: 220, overflowY: 'auto' }}>
                 {coachBookings.map((b) => (
-                  <div key={b.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: '1px solid var(--line)', borderRadius: 8, padding: '.5rem .7rem', fontSize: '.84rem' }}>
-                    <span>{b.studentName} · {b.sessionDate} · {b.timeSlot}</span>
+                  <div key={b.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.4rem', border: '1px solid var(--line)', borderRadius: 8, padding: '.5rem .7rem', fontSize: '.84rem' }}>
+                    <span style={{ minWidth: 0, wordBreak: 'break-word' }}>{b.studentName} · {b.sessionDate} · {b.timeSlot}</span>
                     <span style={{ display: 'flex', alignItems: 'center', gap: '.5rem' }}>
                       <span className={`tag ${b.status === 'completed' ? 'green' : b.status === 'cancelled' ? 'red' : 'blue'}`}>{b.status}</span>
                       {b.status === 'confirmed' && (
@@ -571,6 +571,15 @@ export default function AdminCoachEditorPage() {
           </div>
         </div>
       </div>
+
+      {/* Page-local mobile rules (360-430px portrait) */}
+      <style>{`
+        @media (max-width: 680px) {
+          .cd-toggle-row .btn { width: 100%; justify-content: center; }
+          .cd-block-row .btn { width: 100%; justify-content: center; }
+          .cd-block-row .input { min-width: 0 !important; flex: 1 1 100% !important; }
+        }
+      `}</style>
     </>
   );
 }

@@ -164,7 +164,7 @@ export default function AdminBookingsPage() {
 
       <div className="widget">
         {/* Filters + search */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
+        <div className="bk-filter-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
           <div className="tab-bar" style={{ marginBottom: 0 }}>
             {FILTERS.map((f) => (
               <button key={f} className={`tab-btn${filter === f ? ' on' : ''}`} onClick={() => setFilter(f)} style={{ textTransform: 'capitalize' }}>
@@ -172,7 +172,7 @@ export default function AdminBookingsPage() {
               </button>
             ))}
           </div>
-          <div style={{ position: 'relative', minWidth: 240 }}>
+          <div className="bk-search" style={{ position: 'relative', minWidth: 240 }}>
             <Search size={15} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)' }} />
             <input
               className="input"
@@ -256,7 +256,7 @@ export default function AdminBookingsPage() {
       {/* Cancel confirmation */}
       {confirmFor && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }} onClick={() => setConfirmFor(null)}>
-          <div className="widget" style={{ maxWidth: 440, width: '100%' }} onClick={(e) => e.stopPropagation()}>
+          <div className="widget bk-modal" style={{ maxWidth: 440, width: '100%', maxHeight: '90vh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
             <h4 style={{ marginTop: 0 }}>Cancel this session?</h4>
             <p style={{ color: 'var(--text-2)', fontSize: '.9rem' }}>
               {confirmFor.studentName}&apos;s session with {confirmFor.coachName} on {formatDate(confirmFor.sessionDate)} at {confirmFor.timeSlot} will be cancelled. The student and coach will see it as cancelled.
@@ -274,14 +274,14 @@ export default function AdminBookingsPage() {
       {/* Edit session */}
       {editFor && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }} onClick={() => setEditFor(null)}>
-          <div className="widget" style={{ maxWidth: 480, width: '100%' }} onClick={(e) => e.stopPropagation()}>
+          <div className="widget bk-modal" style={{ maxWidth: 480, width: '100%', maxHeight: '90vh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.3rem' }}>
               <h4 style={{ margin: 0 }}>Edit session</h4>
               <button className="btn btn-ghost btn-sm" onClick={() => setEditFor(null)}><X size={16} /></button>
             </div>
             <p style={{ color: 'var(--text-3)', fontSize: '.82rem', marginTop: 0 }}>{editFor.studentName} · {editFor.coachName}</p>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.75rem' }}>
+            <div className="bk-edit-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.75rem' }}>
               <div className="field" style={{ marginBottom: 0 }}>
                 <label>Date</label>
                 <input type="date" className="input" value={eDate} onChange={(e) => setEDate(e.target.value)} />
@@ -326,7 +326,7 @@ export default function AdminBookingsPage() {
       {/* Delete session */}
       {deleteFor && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }} onClick={() => setDeleteFor(null)}>
-          <div className="widget" style={{ maxWidth: 440, width: '100%' }} onClick={(e) => e.stopPropagation()}>
+          <div className="widget bk-modal" style={{ maxWidth: 440, width: '100%', maxHeight: '90vh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
             <h4 style={{ marginTop: 0 }}>Delete this session?</h4>
             <p style={{ color: 'var(--text-2)', fontSize: '.9rem' }}>
               {deleteFor.studentName}&apos;s session with {deleteFor.coachName} on {formatDate(deleteFor.sessionDate)} at {deleteFor.timeSlot} will be <strong>permanently removed</strong> and cleared from every view. This cannot be undone.
@@ -340,6 +340,18 @@ export default function AdminBookingsPage() {
           </div>
         </div>
       )}
+
+      {/* Page-local mobile rules (360-430px portrait) */}
+      <style>{`
+        @media (max-width: 680px) {
+          .bk-filter-row { flex-direction: column; align-items: stretch !important; gap: .75rem !important; }
+          .bk-filter-row .tab-bar { width: 100%; }
+          .bk-search { min-width: 0 !important; width: 100%; }
+          .bk-search .input { width: 100%; }
+          .bk-edit-grid { grid-template-columns: 1fr !important; }
+          .bk-modal { padding: 1.1rem; }
+        }
+      `}</style>
     </>
   );
 }

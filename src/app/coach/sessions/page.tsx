@@ -131,8 +131,8 @@ function SessionsInner({ coach }: { coach: CoachProfile }) {
         ) : (
           <div style={{ display: 'grid', gap: '1rem' }}>
             {filtered.map((s) => (
-              <div key={s.id} style={{ border: '1px solid var(--line)', borderRadius: 'var(--r-md)', padding: '1.25rem', background: 'var(--bg-2)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
-                <div>
+              <div key={s.id} className="cs-card" style={{ border: '1px solid var(--line)', borderRadius: 'var(--r-md)', padding: '1.25rem', background: 'var(--bg-2)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+                <div style={{ minWidth: 0 }}>
                   <h4 style={{ marginBottom: '.4rem' }}>{s.studentName} <span className={`tag ${s.status === 'completed' ? 'green' : s.status === 'cancelled' ? 'red' : 'blue'}`} style={{ marginLeft: 6 }}>{s.status}</span></h4>
                   <div style={{ display: 'flex', gap: '1.5rem', color: 'var(--text-2)', fontSize: '0.9rem', flexWrap: 'wrap' }}>
                     <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}><CalendarDays size={14} /> {s.sessionDate}</span>
@@ -141,7 +141,7 @@ function SessionsInner({ coach }: { coach: CoachProfile }) {
                   {s.goal && <p style={{ marginTop: '0.5rem', fontSize: '0.9rem', color: 'var(--text-2)' }}><strong>Goal:</strong> {s.goal}</p>}
                   {s.notes && <p style={{ marginTop: '0.4rem', fontSize: '0.85rem', color: 'var(--text-3)' }}><strong>Notes:</strong> {s.notes}</p>}
                 </div>
-                <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
+                <div className="cs-actions" style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
                   <button className="btn btn-ghost btn-sm" onClick={() => { setNoteFor(s); setNoteText(s.notes || ''); }}><FileText size={15} /> Notes</button>
                   <button className="btn btn-ghost btn-sm" onClick={() => { setFollowFor(s); setFollowText(s.followUpNote || ''); }} title="Recommend another session">
                     <Repeat size={15} /> {s.followUpRecommended ? 'Recommended' : 'Follow-up'}
@@ -164,7 +164,7 @@ function SessionsInner({ coach }: { coach: CoachProfile }) {
 
       {noteFor && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }} onClick={() => setNoteFor(null)}>
-          <div className="widget" style={{ maxWidth: 480, width: '100%' }} onClick={(e) => e.stopPropagation()}>
+          <div className="widget cs-modal" style={{ maxWidth: 480, width: '100%', maxHeight: '90vh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
               <h4 style={{ margin: 0 }}>Session notes · {noteFor.studentName}</h4>
               <button className="btn btn-ghost btn-sm" onClick={() => setNoteFor(null)}><X size={16} /></button>
@@ -180,7 +180,7 @@ function SessionsInner({ coach }: { coach: CoachProfile }) {
 
       {followFor && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }} onClick={() => setFollowFor(null)}>
-          <div className="widget" style={{ maxWidth: 480, width: '100%' }} onClick={(e) => e.stopPropagation()}>
+          <div className="widget cs-modal" style={{ maxWidth: 480, width: '100%', maxHeight: '90vh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
               <h4 style={{ margin: 0 }}>Recommend follow-up · {followFor.studentName}</h4>
               <button className="btn btn-ghost btn-sm" onClick={() => setFollowFor(null)}><X size={16} /></button>
@@ -194,6 +194,16 @@ function SessionsInner({ coach }: { coach: CoachProfile }) {
           </div>
         </div>
       )}
+
+      {/* Page-local mobile rules (360-430px portrait) */}
+      <style>{`
+        @media (max-width: 680px) {
+          .cs-card { padding: 1rem !important; }
+          .cs-actions { width: 100%; }
+          .cs-actions .btn { flex: 1 1 auto; justify-content: center; }
+          .cs-modal { padding: 1.1rem; }
+        }
+      `}</style>
     </>
   );
 }

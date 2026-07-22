@@ -66,8 +66,20 @@ export default function FiveDayScheduler({ coachId, days = 5 }: { coachId: strin
 
   return (
     <div>
+      {/* Component-local mobile rules: the 5-across day strip and the inline
+          add-session form are unusable at 360px, so wrap/stack them there. */}
+      <style>{`
+        @media (max-width: 680px) {
+          .fds-days { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
+          .fds-form .field { flex: 1 1 100%; min-width: 0 !important; }
+          .fds-form .btn { width: 100%; justify-content: center; }
+        }
+        @media (max-width: 400px) {
+          .fds-days { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+        }
+      `}</style>
       {/* Day cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${days}, minmax(0, 1fr))`, gap: '.6rem', marginBottom: '1.25rem' }}>
+      <div className="fds-days" style={{ display: 'grid', gridTemplateColumns: `repeat(${days}, minmax(0, 1fr))`, gap: '.6rem', marginBottom: '1.25rem' }}>
         {dates.map((d) => {
           const dateStr = iso(d);
           const count = slotsFor(dateStr).length;
@@ -105,7 +117,7 @@ export default function FiveDayScheduler({ coachId, days = 5 }: { coachId: strin
           {new Date(`${selected}T00:00:00`).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
         </h4>
 
-        <form onSubmit={handleAdd} style={{ display: 'flex', gap: '.75rem', alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: '1rem' }}>
+        <form className="fds-form" onSubmit={handleAdd} style={{ display: 'flex', gap: '.75rem', alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: '1rem' }}>
           <div className="field" style={{ marginBottom: 0, minWidth: 120 }}>
             <label>Start</label>
             <input type="time" className="input" value={start} onChange={(e) => setStart(e.target.value)} required />

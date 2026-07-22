@@ -70,6 +70,7 @@ function BookingCard({ b, settings, studentName, studentEmail, onReport }: { b: 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '.55rem' }}>
     <div
+      className="booking-card"
       onClick={goToRoom}
       role={canJoin ? 'button' : undefined}
       tabIndex={canJoin ? 0 : undefined}
@@ -120,7 +121,7 @@ function BookingCard({ b, settings, studentName, studentEmail, onReport }: { b: 
       </div>
 
       {/* Action */}
-      <div style={{ flexShrink: 0, textAlign: 'right' }}>
+      <div className="booking-card-action" style={{ flexShrink: 0, textAlign: 'right' }}>
         {isUpcoming && b.roomId && (
           canJoin ? (
             <button className="btn btn-primary btn-sm" onClick={(e) => { e.stopPropagation(); goToRoom(); }}>
@@ -218,6 +219,20 @@ export default function MyBookingsPage() {
 
   return (
     <>
+      <style dangerouslySetInnerHTML={{__html: `
+        @media (max-width: 680px) {
+          .booking-card { flex-wrap: wrap; }
+          .booking-card-action {
+            flex-basis: 100%;
+            text-align: left !important;
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: .6rem;
+          }
+          .booking-card-action .btn { margin-top: 0 !important; }
+        }
+      `}} />
       <div className="app-head">
         <div>
           <h2>My Bookings</h2>

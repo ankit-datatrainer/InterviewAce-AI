@@ -83,9 +83,9 @@ export default function CoachingPage() {
                   initials(coach.name)
                 )}
               </div>
-              <div>
-                <h3 style={{ margin: '0 0 .25rem 0', fontSize: '1.2rem' }}>{coach.name}</h3>
-                <p style={{ margin: 0, color: 'var(--text-2)', fontSize: '.95rem' }}>{coach.title}</p>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <h3 style={{ margin: '0 0 .25rem 0', fontSize: '1.2rem', overflowWrap: 'break-word' }}>{coach.name}</h3>
+                <p style={{ margin: 0, color: 'var(--text-2)', fontSize: '.95rem', overflowWrap: 'break-word' }}>{coach.title}</p>
                 {coach.experience && (
                   <div style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem', marginTop: '.4rem', padding: '.2rem .5rem', background: 'var(--primary-glow)', color: 'var(--primary)', borderRadius: '4px', fontSize: '.8rem', fontWeight: 'bold' }}>
                     <Star size={12} fill="currentColor" /> {coach.experience}
@@ -118,7 +118,7 @@ export default function CoachingPage() {
               ))}
             </div>
 
-            <div style={{ marginTop: 'auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--line)', paddingTop: '1rem' }}>
+            <div style={{ marginTop: 'auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.5rem', borderTop: '1px solid var(--line)', paddingTop: '1rem' }}>
               <span style={{ fontWeight: 'bold', fontSize: '1.1rem' }}>{coach.price}</span>
               <button className="btn btn-primary btn-sm" onClick={() => handleBook(coach)}>
                 Book Session

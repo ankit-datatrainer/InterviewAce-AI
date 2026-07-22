@@ -60,7 +60,7 @@ function AvailabilityInner({ coach }: { coach: CoachProfile }) {
 
       <div className="widget" style={{ marginBottom: '1.5rem' }}>
         <h4>Add recurring weekly slot</h4>
-        <form onSubmit={handleAdd} style={{ display: 'flex', gap: '1rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+        <form className="av-form" onSubmit={handleAdd} style={{ display: 'flex', gap: '1rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
           <div className="field" style={{ marginBottom: 0, minWidth: 160 }}>
             <label>Day</label>
             <select className="input" value={weekday} onChange={(e) => setWeekday(Number(e.target.value))}>
@@ -100,6 +100,15 @@ function AvailabilityInner({ coach }: { coach: CoachProfile }) {
           </div>
         ))}
       </div>
+
+      {/* Page-local mobile rules (360-430px portrait) */}
+      <style>{`
+        @media (max-width: 680px) {
+          .av-form { gap: .75rem !important; }
+          .av-form .field { flex: 1 1 100%; min-width: 0 !important; }
+          .av-form > .btn { width: 100%; justify-content: center; }
+        }
+      `}</style>
     </>
   );
 }

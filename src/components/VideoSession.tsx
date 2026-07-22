@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { MeetingProvider, useMeeting, useParticipant } from '@videosdk.live/react-sdk';
-import { Mic, MicOff, Video, VideoOff, PhoneOff, ScreenShare, ScreenShareOff, Loader2, AlertCircle, Settings, Circle, Square as StopIcon, Volume2, Users } from 'lucide-react';
+import { MeetingProvider, useMeeting, useParticipant, usePubSub } from '@videosdk.live/react-sdk';
+import { Mic, MicOff, Video, VideoOff, PhoneOff, ScreenShare, ScreenShareOff, Loader2, AlertCircle, Settings, Circle, Square as StopIcon, Volume2, Users, MessageSquare, Maximize, Minimize, Hand, Send, X } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 
 type Role = 'coach' | 'student' | 'monitor';
@@ -69,8 +69,8 @@ function RemoteAudio({ participantId, playSignal, onBlocked }: { participantId: 
 }
 
 // ───────────────────────── Video tile ─────────────────────────
-function ParticipantTile({ participantId, label, accent, onReady, compact = false }: {
-  participantId: string; label: string; accent: string; onReady?: (id: string, media: TileMedia) => void; compact?: boolean;
+function ParticipantTile({ participantId, label, accent, onReady, compact = false, raised = false }: {
+  participantId: string; label: string; accent: string; onReady?: (id: string, media: TileMedia) => void; compact?: boolean; raised?: boolean;
 }) {
   const { webcamStream, micStream, webcamOn, micOn, isLocal, displayName, isActiveSpeaker } = useParticipant(participantId);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -126,6 +126,13 @@ function ParticipantTile({ participantId, label, accent, onReady, compact = fals
         </div>
       )}
 
+      {/* Raised-hand badge (top-right) */}
+      {raised && (
+        <div style={{ position: 'absolute', top: compact ? 8 : 12, right: compact ? 8 : 12, background: 'rgba(0,0,0,0.55)', borderRadius: 999, padding: compact ? '.12rem .35rem' : '.2rem .45rem', fontSize: compact ? '.85rem' : '1.05rem', lineHeight: 1.3 }} title="Hand raised">
+          ✋
+        </div>
+      )}
+
       {/* Name chip (bottom-left) */}
       <div style={{ position: 'absolute', bottom: 10, left: 10, display: 'flex', alignItems: 'center', gap: '.4rem', background: 'rgba(0,0,0,0.55)', color: '#fff', padding: '.28rem .6rem', borderRadius: 8, fontSize: compact ? '.72rem' : '.82rem', fontWeight: 500, backdropFilter: 'blur(4px)' }}>
         {!micOn && <MicOff size={compact ? 12 : 14} color={MEET.red} />}
@@ -136,8 +143,8 @@ function ParticipantTile({ participantId, label, accent, onReady, compact = fals
 }
 
 // A seat that shows a participant or a "waiting" placeholder.
-function SeatTile({ id, label, accent, onReady, compact }: { id: string | null; label: string; accent: string; onReady?: (id: string, media: TileMedia) => void; compact?: boolean }) {
-  if (id) return <ParticipantTile participantId={id} label={label} accent={accent} onReady={onReady} compact={compact} />;
+function SeatTile({ id, label, accent, onReady, compact, raised }: { id: string | null; label: string; accent: string; onReady?: (id: string, media: TileMedia) => void; compact?: boolean; raised?: boolean }) {
+  if (id) return <ParticipantTile participantId={id} label={label} accent={accent} onReady={onReady} compact={compact} raised={raised} />;
   return (
     <div style={{ height: '100%', width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '.7rem', color: MEET.textDim, background: MEET.tileEmpty, borderRadius: 16, border: `1px solid ${MEET.line}` }}>
       <Loader2 size={22} style={{ animation: 'vs-spin 1s linear infinite' }} />
@@ -167,21 +174,49 @@ function ScreenShareView({ participantId }: { participantId: string }) {
 }
 
 // ───────────────────────── Control button ─────────────────────────
-function Control({ children, label, onClick, danger = false, highlight = false, disabled = false }: {
-  children: React.ReactNode; label: string; onClick: () => void; danger?: boolean; highlight?: boolean; disabled?: boolean;
+function Control({ children, label, onClick, danger = false, highlight = false, disabled = false, badge = 0 }: {
+  children: React.ReactNode; label: string; onClick: () => void; danger?: boolean; highlight?: boolean; disabled?: boolean; badge?: number;
 }) {
   const [hover, setHover] = useState(false);
   const bg = danger ? MEET.red : highlight ? MEET.blueSolid : hover ? '#4a4d51' : MEET.tile;
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '.4rem' }}>
-      <button onClick={onClick} title={label} disabled={disabled}
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '.4rem', position: 'relative' }}>
+      <button onClick={onClick} title={label} disabled={disabled} className="vs-ctrl-btn"
         onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
         style={{ width: 52, height: 52, borderRadius: '50%', background: bg, border: 'none', color: '#fff', cursor: disabled ? 'default' : 'pointer', display: 'grid', placeItems: 'center', transition: 'background .15s ease', opacity: disabled ? 0.5 : 1 }}>
         {children}
       </button>
-      <span style={{ fontSize: '.68rem', color: MEET.textDim, fontWeight: 500 }}>{label}</span>
+      {badge > 0 && (
+        <span style={{ position: 'absolute', top: -4, right: -4, minWidth: 18, height: 18, borderRadius: 999, background: MEET.red, color: '#fff', fontSize: '.66rem', fontWeight: 700, display: 'grid', placeItems: 'center', padding: '0 4px', pointerEvents: 'none' }}>
+          {badge > 9 ? '9+' : badge}
+        </span>
+      )}
+      <span className="vs-ctrl-label" style={{ fontSize: '.68rem', color: MEET.textDim, fontWeight: 500 }}>{label}</span>
     </div>
   );
+}
+
+// A row inside the "People" panel.
+function PersonRow({ participantId, raised }: { participantId: string; raised: boolean }) {
+  const { displayName, micOn, webcamOn, isLocal } = useParticipant(participantId);
+  const name = displayName || 'Guest';
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '.6rem', padding: '.55rem .35rem', borderBottom: `1px solid ${MEET.line}` }}>
+      <div style={{ width: 32, height: 32, borderRadius: '50%', background: MEET.tile, display: 'grid', placeItems: 'center', color: '#fff', fontWeight: 600, fontSize: '.85rem', flexShrink: 0 }}>{name.charAt(0).toUpperCase()}</div>
+      <span style={{ flex: 1, minWidth: 0, color: MEET.text, fontSize: '.85rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {name}{isLocal ? ' (You)' : ''}{raised ? ' ✋' : ''}
+      </span>
+      {micOn ? <Mic size={15} color={MEET.textDim} /> : <MicOff size={15} color={MEET.red} />}
+      {webcamOn ? <Video size={15} color={MEET.textDim} /> : <VideoOff size={15} color={MEET.red} />}
+    </div>
+  );
+}
+
+// Chat timestamps arrive as strings (epoch ms or ISO) — render as HH:MM.
+function fmtTime(ts: string): string {
+  const n = Number(ts);
+  const d = new Date(ts !== '' && Number.isFinite(n) ? n : ts);
+  return isNaN(d.getTime()) ? '' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
 function elapsed(ms: number): string {
@@ -213,6 +248,22 @@ function MeetingView({ role, leaveHref, roomId, canRecord }: { role: Role; leave
   const [playSignal, setPlaySignal] = useState(0);
   const onAudioBlocked = useCallback(() => setAudioBlocked(true), []);
 
+  // ── Side panel (Chat / People) ──
+  const [panel, setPanel] = useState<'chat' | 'people' | null>(null);
+  const [chatInput, setChatInput] = useState('');
+  const [unread, setUnread] = useState(0);
+  const seenCountRef = useRef(0);
+  const chatListRef = useRef<HTMLDivElement>(null);
+  const shellRef = useRef<HTMLDivElement>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  // ── Hand raise ──
+  const [handRaised, setHandRaised] = useState(false);
+  const [raisedIds, setRaisedIds] = useState<Set<string>>(new Set());
+  const [handBanner, setHandBanner] = useState<string | null>(null);
+  const bannerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const localIdRef = useRef<string | null>(null);
+
   // ── Session recording (coach / admin only) ──
   const [recording, setRecording] = useState(false);
   const [savingRecording, setSavingRecording] = useState(false);
@@ -234,6 +285,68 @@ function MeetingView({ role, leaveHref, roomId, canRecord }: { role: Role; leave
 
   const joinFn = useRef(join);
   joinFn.current = join;
+
+  // In-call chat (persisted so late joiners get history).
+  const { publish: publishChat, messages: chatMessages } = usePubSub('CHAT');
+
+  // Hand raise — latest event only, no persistence.
+  const { publish: publishHand } = usePubSub('RAISE_HAND', {
+    onMessageReceived: (m) => {
+      setRaisedIds((prev) => {
+        const next = new Set(prev);
+        if (m.message === 'raised') next.add(m.senderId); else next.delete(m.senderId);
+        return next;
+      });
+      if (m.message === 'raised' && m.senderId !== localIdRef.current) {
+        setHandBanner(`${m.senderName || 'Someone'} raised their hand`);
+        if (bannerTimerRef.current) clearTimeout(bannerTimerRef.current);
+        bannerTimerRef.current = setTimeout(() => setHandBanner(null), 4000);
+      }
+    },
+  });
+
+  const toggleHand = useCallback(() => {
+    setHandRaised((prev) => {
+      publishHand(prev ? 'lowered' : 'raised', { persist: false }).catch(() => {});
+      return !prev;
+    });
+  }, [publishHand]);
+
+  // Unread badge: count messages that arrive while the chat panel is closed.
+  useEffect(() => {
+    if (panel === 'chat') {
+      seenCountRef.current = chatMessages.length;
+      setUnread(0);
+    } else {
+      setUnread(Math.max(0, chatMessages.length - seenCountRef.current));
+    }
+  }, [chatMessages.length, panel]);
+
+  // Keep the chat scrolled to the newest message.
+  useEffect(() => {
+    if (panel === 'chat' && chatListRef.current) chatListRef.current.scrollTop = chatListRef.current.scrollHeight;
+  }, [chatMessages.length, panel]);
+
+  const sendChat = useCallback(() => {
+    const text = chatInput.trim();
+    if (!text) return;
+    publishChat(text, { persist: true }).catch(() => {});
+    setChatInput('');
+  }, [chatInput, publishChat]);
+
+  // Fullscreen state tracking.
+  useEffect(() => {
+    const onFsChange = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', onFsChange);
+    return () => document.removeEventListener('fullscreenchange', onFsChange);
+  }, []);
+
+  const toggleFullscreen = useCallback(() => {
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    else shellRef.current?.requestFullscreen().catch(() => {});
+  }, []);
+
+  useEffect(() => () => { if (bannerTimerRef.current) clearTimeout(bannerTimerRef.current); }, []);
 
   useEffect(() => {
     if (joinedRef.current) return;
@@ -294,6 +407,7 @@ function MeetingView({ role, leaveHref, roomId, canRecord }: { role: Role; leave
   async function pickMic(deviceId: string) { setActiveMic(deviceId); try { await changeMic?.(deviceId); } catch { /* ignore */ } }
 
   const localId = localParticipant?.id || null;
+  localIdRef.current = localId;
   const remoteIds = [...participants.keys()].filter((id) => id !== localId);
   const allIds = [localId, ...remoteIds].filter(Boolean) as string[];
 
@@ -417,20 +531,23 @@ function MeetingView({ role, leaveHref, roomId, canRecord }: { role: Role; leave
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '84vh', background: MEET.bg, borderRadius: 20, overflow: 'hidden', border: `1px solid ${MEET.line}`, fontFamily: 'Inter, system-ui, sans-serif' }}>
+    <div ref={shellRef} className="vs-shell" style={{ display: 'flex', flexDirection: 'column', height: '84vh', background: MEET.bg, borderRadius: 20, overflow: 'hidden', border: `1px solid ${MEET.line}`, fontFamily: 'Inter, system-ui, sans-serif' }}>
       {/* Hidden audio sinks for every remote participant */}
       {remoteIds.map((id) => <RemoteAudio key={`a-${id}`} participantId={id} playSignal={playSignal} onBlocked={onAudioBlocked} />)}
 
       {/* Header */}
-      <div style={{ padding: '.85rem 1.35rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `1px solid ${MEET.line}` }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '.8rem' }}>
-          <h3 style={{ margin: 0, color: MEET.text, fontSize: '1rem', fontWeight: 600 }}>{isMonitor ? 'Session Monitor' : 'Live Coaching Session'}</h3>
+      <div className="vs-header" style={{ padding: '.85rem 1.35rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `1px solid ${MEET.line}`, flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '.8rem', minWidth: 0 }}>
+          <h3 className="vs-title" style={{ margin: 0, color: MEET.text, fontSize: '1rem', fontWeight: 600, whiteSpace: 'nowrap' }}>{isMonitor ? 'Session Monitor' : 'Live Coaching Session'}</h3>
           {joinedAt && <span style={{ color: MEET.textDim, fontSize: '.85rem', fontVariantNumeric: 'tabular-nums' }}>{elapsed(now - joinedAt)}</span>}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '.6rem' }}>
           {isMonitor && <span style={{ background: 'rgba(245,158,11,0.15)', color: '#F59E0B', padding: '.25rem .75rem', borderRadius: 999, fontSize: '.78rem', fontWeight: 600 }}>Admin · observing</span>}
           {recording && <span style={{ display: 'flex', alignItems: 'center', gap: '.4rem', background: 'rgba(234,67,53,0.15)', color: MEET.red, padding: '.25rem .75rem', borderRadius: 999, fontSize: '.78rem', fontWeight: 600 }}><Circle size={9} fill="currentColor" style={{ animation: 'vs-pulse 1.2s infinite' }} /> REC</span>}
-          <span style={{ display: 'flex', alignItems: 'center', gap: '.4rem', background: 'rgba(52,168,83,0.15)', color: MEET.green, padding: '.25rem .75rem', borderRadius: 999, fontSize: '.78rem', fontWeight: 600 }}><Users size={13} /> {allIds.length}</span>
+          <button onClick={() => setPanel((p) => (p === 'people' ? null : 'people'))} title="Show participants"
+            style={{ display: 'flex', alignItems: 'center', gap: '.4rem', background: 'rgba(52,168,83,0.15)', color: MEET.green, padding: '.25rem .75rem', borderRadius: 999, fontSize: '.78rem', fontWeight: 600, border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}>
+            <Users size={13} /> {allIds.length}
+          </button>
         </div>
       </div>
 
@@ -441,29 +558,89 @@ function MeetingView({ role, leaveHref, roomId, canRecord }: { role: Role; leave
         </button>
       )}
 
-      {/* Stage */}
-      <div style={{ flex: 1, padding: '1rem', minHeight: 0, display: 'flex', flexDirection: 'column', gap: '.8rem' }}>
-        {someoneSharing && presenterId ? (
-          <>
-            <div style={{ flex: 1, minHeight: 0 }}>
-              <ScreenShareView participantId={presenterId} />
+      {/* Hand-raise banner */}
+      {handBanner && (
+        <div style={{ margin: '.6rem 1.35rem 0', padding: '.5rem .9rem', background: 'rgba(138,180,248,0.15)', color: MEET.blue, borderRadius: 10, display: 'flex', alignItems: 'center', gap: '.5rem', fontWeight: 600, fontSize: '.85rem', alignSelf: 'flex-start' }}>
+          ✋ {handBanner}
+        </div>
+      )}
+
+      {/* Body: stage + optional side panel */}
+      <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
+        {/* Stage */}
+        <div className="vs-stage" style={{ flex: 1, minWidth: 0, padding: '1rem', minHeight: 0, display: 'flex', flexDirection: 'column', gap: '.8rem' }}>
+          {someoneSharing && presenterId ? (
+            <>
+              <div style={{ flex: 1, minHeight: 0 }}>
+                <ScreenShareView participantId={presenterId} />
+              </div>
+              {/* Thumbnail strip of the two seats */}
+              <div className="vs-thumbs" style={{ display: 'flex', gap: '.8rem', height: 130, flexShrink: 0 }}>
+                <div style={{ flex: 1, maxWidth: 230 }}><SeatTile id={coachId} label={isMonitor ? seatLabel(coachId, 'Participant 1') : 'Coach'} accent={MEET.blueSolid} onReady={registerTile} compact raised={!!coachId && raisedIds.has(coachId)} /></div>
+                <div style={{ flex: 1, maxWidth: 230 }}><SeatTile id={studentId} label={isMonitor ? seatLabel(studentId, 'Participant 2') : 'Student'} accent={MEET.green} onReady={registerTile} compact raised={!!studentId && raisedIds.has(studentId)} /></div>
+              </div>
+            </>
+          ) : (
+            <div className="vs-grid" style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.8rem' }}>
+              <SeatTile id={coachId} label={isMonitor ? seatLabel(coachId, 'Participant 1') : 'Coach'} accent={MEET.blueSolid} onReady={registerTile} raised={!!coachId && raisedIds.has(coachId)} />
+              <SeatTile id={studentId} label={isMonitor ? seatLabel(studentId, 'Waiting for participants…') : 'Student'} accent={MEET.green} onReady={registerTile} raised={!!studentId && raisedIds.has(studentId)} />
             </div>
-            {/* Thumbnail strip of the two seats */}
-            <div style={{ display: 'flex', gap: '.8rem', height: 130, flexShrink: 0 }}>
-              <div style={{ flex: 1, maxWidth: 230 }}><SeatTile id={coachId} label={isMonitor ? seatLabel(coachId, 'Participant 1') : 'Coach'} accent={MEET.blueSolid} onReady={registerTile} compact /></div>
-              <div style={{ flex: 1, maxWidth: 230 }}><SeatTile id={studentId} label={isMonitor ? seatLabel(studentId, 'Participant 2') : 'Student'} accent={MEET.green} onReady={registerTile} compact /></div>
+          )}
+        </div>
+
+        {/* Side panel: Chat / People */}
+        {panel && (
+          <div className="vs-panel" style={{ width: 320, flexShrink: 0, borderLeft: `1px solid ${MEET.line}`, background: MEET.surface, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', padding: '.7rem .8rem', borderBottom: `1px solid ${MEET.line}`, flexShrink: 0 }}>
+              <button onClick={() => setPanel('chat')} style={{ flex: 1, padding: '.45rem 0', borderRadius: 8, border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: '.82rem', fontFamily: 'inherit', background: panel === 'chat' ? MEET.tile : 'transparent', color: panel === 'chat' ? MEET.text : MEET.textDim }}>Chat</button>
+              <button onClick={() => setPanel('people')} style={{ flex: 1, padding: '.45rem 0', borderRadius: 8, border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: '.82rem', fontFamily: 'inherit', background: panel === 'people' ? MEET.tile : 'transparent', color: panel === 'people' ? MEET.text : MEET.textDim }}>People ({allIds.length})</button>
+              <button onClick={() => setPanel(null)} title="Close panel" style={{ background: 'transparent', border: 'none', color: MEET.textDim, cursor: 'pointer', display: 'grid', placeItems: 'center', padding: '.3rem' }}><X size={17} /></button>
             </div>
-          </>
-        ) : (
-          <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.8rem' }}>
-            <SeatTile id={coachId} label={isMonitor ? seatLabel(coachId, 'Participant 1') : 'Coach'} accent={MEET.blueSolid} onReady={registerTile} />
-            <SeatTile id={studentId} label={isMonitor ? seatLabel(studentId, 'Waiting for participants…') : 'Student'} accent={MEET.green} onReady={registerTile} />
+            {panel === 'chat' ? (
+              <>
+                <div ref={chatListRef} style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '.8rem' }}>
+                  {chatMessages.length === 0 && <p style={{ color: MEET.textDim, fontSize: '.8rem', textAlign: 'center', marginTop: '1.5rem' }}>No messages yet.</p>}
+                  {chatMessages.map((m) => (
+                    <div key={m.id} style={{ marginBottom: '.75rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: '.45rem' }}>
+                        <span style={{ color: m.senderId === localId ? MEET.blue : MEET.text, fontSize: '.78rem', fontWeight: 700 }}>{m.senderId === localId ? 'You' : (m.senderName || 'Guest')}</span>
+                        <span style={{ color: MEET.textDim, fontSize: '.68rem' }}>{fmtTime(m.timestamp)}</span>
+                      </div>
+                      <div style={{ color: MEET.text, fontSize: '.85rem', whiteSpace: 'pre-wrap', wordBreak: 'break-word', marginTop: 2 }}>{m.message}</div>
+                    </div>
+                  ))}
+                </div>
+                <div className="vs-panel-foot" style={{ padding: '.7rem .8rem', borderTop: `1px solid ${MEET.line}`, flexShrink: 0 }}>
+                  {isMonitor ? (
+                    <p style={{ margin: 0, color: MEET.textDim, fontSize: '.78rem', textAlign: 'center' }}>Observing — chat is read-only</p>
+                  ) : (
+                    <div style={{ display: 'flex', gap: '.5rem' }}>
+                      <input
+                        value={chatInput}
+                        onChange={(e) => setChatInput(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); } }}
+                        placeholder="Send a message"
+                        style={{ flex: 1, minWidth: 0, padding: '.55rem .8rem', borderRadius: 999, background: MEET.bg, color: MEET.text, border: `1px solid ${MEET.line}`, fontSize: '.85rem', outline: 'none', fontFamily: 'inherit' }}
+                      />
+                      <button onClick={sendChat} disabled={!chatInput.trim()} title="Send"
+                        style={{ width: 38, height: 38, borderRadius: '50%', border: 'none', background: chatInput.trim() ? MEET.blueSolid : MEET.tile, color: '#fff', cursor: chatInput.trim() ? 'pointer' : 'default', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+                        <Send size={16} />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </>
+            ) : (
+              <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '.4rem .8rem' }}>
+                {allIds.map((id) => <PersonRow key={id} participantId={id} raised={raisedIds.has(id)} />)}
+              </div>
+            )}
           </div>
         )}
       </div>
 
       {/* Control bar */}
-      <div style={{ padding: '1rem 1.25rem 1.15rem', display: 'flex', justifyContent: 'center', alignItems: 'flex-start', gap: '1.1rem', flexWrap: 'wrap' }}>
+      <div className="vs-controls" style={{ padding: '1rem 1.25rem 1.15rem', display: 'flex', justifyContent: 'center', alignItems: 'flex-start', gap: '1.1rem', flexWrap: 'wrap', flexShrink: 0 }}>
         {(isMonitor || canRecord) && (
           <Control label={savingRecording ? 'Saving…' : recording ? 'Stop rec' : 'Record'} highlight={recording} danger={recording} disabled={savingRecording}
             onClick={() => { if (savingRecording) return; recording ? stopRecording() : startRecording(); }}>
@@ -485,7 +662,7 @@ function MeetingView({ role, leaveHref, roomId, canRecord }: { role: Role; leave
               <Settings size={22} />
             </Control>
             {showDevices && (
-              <div style={{ position: 'absolute', bottom: 68, left: '50%', transform: 'translateX(-50%)', width: 290, background: MEET.surface, border: `1px solid ${MEET.line}`, borderRadius: 14, boxShadow: '0 16px 40px rgba(0,0,0,0.5)', padding: '1rem', zIndex: 50, textAlign: 'left' }}>
+              <div className="vs-devices-pop" style={{ position: 'absolute', bottom: 68, left: '50%', transform: 'translateX(-50%)', width: 290, background: MEET.surface, border: `1px solid ${MEET.line}`, borderRadius: 14, boxShadow: '0 16px 40px rgba(0,0,0,0.5)', padding: '1rem', zIndex: 50, textAlign: 'left' }}>
                 <label style={{ display: 'block', fontSize: '.72rem', fontWeight: 700, color: MEET.textDim, textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: '.4rem' }}>Camera</label>
                 <select value={activeCam} onChange={(e) => pickCam(e.target.value)} style={{ width: '100%', padding: '.55rem', borderRadius: 8, background: MEET.bg, color: MEET.text, border: `1px solid ${MEET.line}`, marginBottom: '.9rem', fontSize: '.85rem' }}>
                   {cams.length === 0 && <option value="">Default camera</option>}
@@ -500,19 +677,52 @@ function MeetingView({ role, leaveHref, roomId, canRecord }: { role: Role; leave
               </div>
             )}
           </div>
+          <Control label={handRaised ? 'Lower hand' : 'Raise hand'} highlight={handRaised} onClick={toggleHand}>
+            <Hand size={22} />
+          </Control>
         </>)}
+        <Control label="Chat" highlight={panel === 'chat'} badge={unread} onClick={() => setPanel((p) => (p === 'chat' ? null : 'chat'))}>
+          <MessageSquare size={22} />
+        </Control>
+        <Control label={isFullscreen ? 'Exit full' : 'Fullscreen'} highlight={isFullscreen} onClick={toggleFullscreen}>
+          {isFullscreen ? <Minimize size={22} /> : <Maximize size={22} />}
+        </Control>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '.4rem' }}>
           <button
             onClick={() => { try { leave(); } catch { /* ignore */ } setTimeout(() => router.push(leaveHref), 1200); }}
             title="End meeting"
+            className="vs-end-btn"
             style={{ width: 68, height: 52, borderRadius: 26, background: MEET.red, border: 'none', color: '#fff', cursor: 'pointer', display: 'grid', placeItems: 'center', boxShadow: '0 6px 16px rgba(234,67,53,0.4)' }}>
             <PhoneOff size={22} />
           </button>
-          <span style={{ fontSize: '.68rem', color: MEET.textDim, fontWeight: 500 }}>{isMonitor ? 'Leave' : 'End'}</span>
+          <span className="vs-ctrl-label" style={{ fontSize: '.68rem', color: MEET.textDim, fontWeight: 500 }}>{isMonitor ? 'Leave' : 'End'}</span>
         </div>
       </div>
 
-      <style>{`@keyframes vs-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } } @keyframes vs-spin { to { transform: rotate(360deg); } }`}</style>
+      <style>{`
+        @keyframes vs-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+        @keyframes vs-spin { to { transform: rotate(360deg); } }
+        @media (max-width: 680px) {
+          .vs-shell { height: calc(100dvh - 120px) !important; border-radius: 14px !important; }
+          .vs-header { padding: .55rem .8rem !important; }
+          .vs-title { font-size: .85rem !important; }
+          .vs-stage { padding: .6rem !important; }
+          .vs-grid { display: flex !important; flex-direction: column !important; overflow-y: auto !important; }
+          .vs-grid > * { min-height: 34vh; flex: 1 0 34vh; }
+          .vs-thumbs { height: 90px !important; overflow-x: auto !important; }
+          .vs-thumbs > * { min-width: 130px; max-width: none !important; }
+          .vs-controls { gap: .5rem !important; padding: .55rem .5rem calc(.55rem + env(safe-area-inset-bottom)) !important; }
+          .vs-ctrl-btn { width: 44px !important; height: 44px !important; }
+          .vs-ctrl-label { display: none !important; }
+          .vs-end-btn { width: 56px !important; height: 44px !important; }
+          .vs-devices-pop { position: fixed !important; left: 0 !important; right: 0 !important; bottom: 0 !important; top: auto !important; transform: none !important; width: auto !important; border-radius: 14px 14px 0 0 !important; z-index: 120; padding-bottom: calc(1rem + env(safe-area-inset-bottom)) !important; box-shadow: 0 -12px 40px rgba(0,0,0,0.55) !important; }
+          .vs-panel { position: fixed !important; top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important; width: auto !important; border-left: none !important; border-radius: 0 !important; z-index: 110; }
+          .vs-panel-foot { padding-bottom: calc(.7rem + env(safe-area-inset-bottom)) !important; }
+        }
+        @media (max-width: 420px) {
+          .vs-title { display: none !important; }
+        }
+      `}</style>
     </div>
   );
 }

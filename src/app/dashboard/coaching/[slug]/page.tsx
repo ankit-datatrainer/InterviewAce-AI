@@ -186,6 +186,16 @@ export default function InstructorPage() {
           .profile-layout { flex-direction: column; }
           .profile-left, .profile-right { width: 100%; min-width: auto; position: static; }
         }
+        @media (max-width: 680px) {
+          .coach-hero { flex-direction: column; align-items: flex-start; gap: 1.25rem !important; }
+          .coach-hero-name { font-size: 1.65rem !important; }
+          .coach-card { padding: 1.75rem 1.25rem !important; }
+          .panel-head { padding-left: 1.25rem !important; padding-right: 1.25rem !important; }
+          .panel-body { padding-left: 1.25rem !important; padding-right: 1.25rem !important; }
+          .success-card { padding: 2.5rem 1.25rem !important; }
+          .success-title { font-size: 1.5rem !important; }
+          .success-info { padding: 1.25rem !important; }
+        }
       `}} />
       
       <div className="app-head" style={{ marginBottom: '2rem' }}>
@@ -211,20 +221,20 @@ export default function InstructorPage() {
             </div>
           </div>
         )}
-        <div className="widget" style={{ textAlign: 'center', padding: '4rem 2rem', maxWidth: 600, margin: '0 auto', background: 'linear-gradient(145deg, var(--bg), var(--bg-2))', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
+        <div className="widget success-card" style={{ textAlign: 'center', padding: '4rem 2rem', maxWidth: 600, margin: '0 auto', background: 'linear-gradient(145deg, var(--bg), var(--bg-2))', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
           <CheckCircle size={80} color="#10b981" style={{ margin: '0 auto 1.5rem auto', filter: 'drop-shadow(0 0 20px rgba(16, 185, 129, 0.4))' }} />
-          <h2 style={{ fontSize: '2rem', marginBottom: '1rem' }}>Booking Confirmed!</h2>
+          <h2 className="success-title" style={{ fontSize: '2rem', marginBottom: '1rem' }}>Booking Confirmed!</h2>
           <p style={{ color: 'var(--text-2)', fontSize: '1.1rem', marginBottom: '1.5rem' }}>
             Your 1-on-1 session with <strong style={{ color: 'var(--text)' }}>{coach.name}</strong> is confirmed
             {booked ? <> for <strong style={{ color: 'var(--text)' }}>{booked.label} · {booked.time}</strong></> : null}.
           </p>
           {/* Live countdown until the session begins */}
           {countdown && (
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '.6rem', background: 'rgba(37,99,235,0.1)', border: '1px solid rgba(37,99,235,0.3)', color: 'var(--blue)', padding: '.7rem 1.4rem', borderRadius: 'var(--r-full)', fontWeight: 700, fontSize: '1.05rem', marginBottom: '2rem' }}>
+            <div style={{ display: 'inline-flex', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'center', maxWidth: '100%', gap: '.6rem', background: 'rgba(37,99,235,0.1)', border: '1px solid rgba(37,99,235,0.3)', color: 'var(--blue)', padding: '.7rem 1.4rem', borderRadius: 'var(--r-full)', fontWeight: 700, fontSize: '1.05rem', marginBottom: '2rem' }}>
               <Clock size={18} /> {countdown.includes('starting') ? countdown : `Starts in ${countdown}`}
             </div>
           )}
-          <div style={{ background: 'rgba(255,255,255,0.03)', padding: '2rem', borderRadius: 'var(--r-lg)', textAlign: 'left', marginBottom: '2.5rem', border: '1px solid var(--line)' }}>
+          <div className="success-info" style={{ background: 'rgba(255,255,255,0.03)', padding: '2rem', borderRadius: 'var(--r-lg)', textAlign: 'left', marginBottom: '2.5rem', border: '1px solid var(--line)' }}>
             <p style={{ margin: '0 0 1rem 0', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>📧 A confirmation email with your meeting link is on its way.</p>
             <p style={{ margin: '0 0 1rem 0', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>📅 It&apos;s saved to your dashboard under upcoming sessions.</p>
             <p style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '0.75rem' }}>🎥 A live video room is ready — {coach.name} will join from their portal.</p>
@@ -246,12 +256,12 @@ export default function InstructorPage() {
           
           {/* Left: Instructor Profile */}
           <div className="profile-left">
-            <div className="widget" style={{ marginBottom: '2rem', padding: '3rem 2.5rem', position: 'relative', overflow: 'hidden' }}>
+            <div className="widget coach-card" style={{ marginBottom: '2rem', padding: '3rem 2.5rem', position: 'relative', overflow: 'hidden' }}>
               {/* Decorative Background Gradient */}
               <div style={{ position: 'absolute', top: '-50%', right: '-20%', width: '400px', height: '400px', background: 'radial-gradient(circle, rgba(59,130,246,0.15) 0%, rgba(0,0,0,0) 70%)', filter: 'blur(40px)', zIndex: 0 }} />
               
               <div style={{ position: 'relative', zIndex: 1 }}>
-                <div style={{ display: 'flex', gap: '2rem', alignItems: 'center', marginBottom: '2.5rem' }}>
+                <div className="coach-hero" style={{ display: 'flex', gap: '2rem', alignItems: 'center', marginBottom: '2.5rem' }}>
                   <div style={{ position: 'relative' }}>
                     <div style={{ width: 140, height: 140, borderRadius: '50%', border: '4px solid var(--bg)', boxShadow: '0 10px 25px rgba(0,0,0,0.5)', overflow: 'hidden', background: 'var(--bg-2)', display: 'grid', placeItems: 'center', fontWeight: 700, fontSize: '2rem', color: 'var(--text-2)' }}>
                       {coach.image ? (
@@ -266,7 +276,7 @@ export default function InstructorPage() {
                     </div>
                   </div>
                   <div>
-                    <h1 style={{ margin: '0 0 0.5rem 0', fontSize: '2.5rem', letterSpacing: '-0.02em' }}>{coach.name}</h1>
+                    <h1 className="coach-hero-name" style={{ margin: '0 0 0.5rem 0', fontSize: '2.5rem', letterSpacing: '-0.02em' }}>{coach.name}</h1>
                     <p style={{ margin: 0, color: 'var(--blue)', fontSize: '1.2rem', fontWeight: 500 }}>{coach.title}</p>
                     
                     <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '1rem', marginTop: '1rem' }}>
@@ -304,8 +314,8 @@ export default function InstructorPage() {
           {/* Right: Availability + booking */}
           <div className="widget profile-right" style={{ padding: 0, background: 'var(--bg)', border: '1px solid rgba(255,255,255,0.06)', boxShadow: '0 24px 60px rgba(0,0,0,0.28)', borderRadius: 'var(--r-lg)', overflow: 'hidden' }}>
             {/* Premium header band */}
-            <div style={{ position: 'relative', padding: '1.75rem 2rem 1.5rem', background: 'linear-gradient(135deg, rgba(37,99,235,0.18), rgba(16,185,129,0.10))', borderBottom: '1px solid var(--line)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+            <div className="panel-head" style={{ position: 'relative', padding: '1.75rem 2rem 1.5rem', background: 'linear-gradient(135deg, rgba(37,99,235,0.18), rgba(16,185,129,0.10))', borderBottom: '1px solid var(--line)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: '.75rem' }}>
                 <div>
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.4rem', fontSize: '.72rem', fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--blue)', background: 'rgba(37,99,235,0.12)', padding: '.3rem .7rem', borderRadius: 'var(--r-full)', marginBottom: '.75rem' }}>
                     <Video size={13} /> 1-on-1 Live Session
@@ -320,7 +330,7 @@ export default function InstructorPage() {
               </div>
             </div>
 
-            <div style={{ padding: '1.5rem 2rem 2rem' }}>
+            <div className="panel-body" style={{ padding: '1.5rem 2rem 2rem' }}>
               {/* What's included */}
               <div style={{ display: 'grid', gap: '.6rem', marginBottom: '1.5rem' }}>
                 {['60 minutes of focused 1-on-1 coaching', 'HD video call — no downloads needed', 'Personalised, actionable feedback'].map((t) => (

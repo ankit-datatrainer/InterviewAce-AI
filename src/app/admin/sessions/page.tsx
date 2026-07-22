@@ -66,7 +66,7 @@ export default function AdminSessionsPage() {
         ) : (
           <div style={{ display: 'grid', gap: '1rem' }}>
             {sessions.map((s) => (
-              <div key={s.id} style={{ border: '1px solid var(--line)', borderRadius: 'var(--r-md)', padding: '1.25rem', background: 'var(--bg-2)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+              <div key={s.id} className="ls-card" style={{ border: '1px solid var(--line)', borderRadius: 'var(--r-md)', padding: '1.25rem', background: 'var(--bg-2)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
                 <div>
                   <h4 style={{ display: 'flex', alignItems: 'center', gap: '.5rem', marginBottom: '.4rem' }}>
                     <Users size={16} style={{ color: 'var(--blue)' }} /> {s.coachName} × {s.studentName}
@@ -79,7 +79,7 @@ export default function AdminSessionsPage() {
                       : <span className="tag amber">Room not started</span>}
                   </div>
                 </div>
-                <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
+                <div className="ls-actions" style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
                   <button
                     className="btn btn-ghost btn-sm"
                     disabled={!s.roomId}
@@ -110,7 +110,7 @@ export default function AdminSessionsPage() {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
             {recordings.map((r) => (
-              <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: '1px solid var(--line)', borderRadius: 8, padding: '.6rem .9rem', fontSize: '.88rem' }}>
+              <div key={r.id} className="ls-rec-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.5rem', border: '1px solid var(--line)', borderRadius: 8, padding: '.6rem .9rem', fontSize: '.88rem' }}>
                 <span>{r.coachName} × {r.studentName} · {r.sessionDate} · {r.timeSlot}</span>
                 <button className="btn btn-ghost btn-sm" onClick={() => downloadRecording(r.recordingUrl)}><Download size={14} /> Download</button>
               </div>
@@ -118,6 +118,16 @@ export default function AdminSessionsPage() {
           </div>
         )}
       </div>
+
+      {/* Page-local mobile rules (360-430px portrait) */}
+      <style>{`
+        @media (max-width: 680px) {
+          .ls-card { padding: 1rem !important; }
+          .ls-actions { width: 100%; }
+          .ls-actions .btn { flex: 1 1 auto; justify-content: center; }
+          .ls-rec-row span { min-width: 0; word-break: break-word; }
+        }
+      `}</style>
     </>
   );
 }

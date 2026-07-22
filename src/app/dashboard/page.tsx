@@ -126,6 +126,11 @@ export default function DashboardPage() {
 
   return (
     <>
+      <style dangerouslySetInnerHTML={{__html: `
+        @media (max-width: 480px) {
+          .home-session-row { flex-wrap: wrap; row-gap: .5rem; }
+        }
+      `}} />
       {/* App head */}
       <div className="app-head">
         <div>
@@ -262,8 +267,8 @@ export default function DashboardPage() {
             </div>
           ) : (
             upcomingBookings.map((booking) => (
-              <div className="list-row" key={booking.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center' }}>
+              <div className="list-row home-session-row" key={booking.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', minWidth: 0 }}>
                   <GraduationCap size={18} style={{ color: 'var(--blue)', flexShrink: 0 }} />
                   <div>
                     <b style={{ fontSize: '.88rem' }}>{booking.goal} with {booking.coachName}</b>
