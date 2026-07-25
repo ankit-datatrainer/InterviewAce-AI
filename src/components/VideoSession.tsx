@@ -32,31 +32,49 @@ const MEET = {
 // no matter how the video layout changes (grid ↔ screen-share). Retries play()
 // whenever `playSignal` changes so a "click to enable sound" button can recover
 // from the browser's autoplay policy.
+// Attaches a track to an <audio> element and keeps trying to play it. A single
+// play() call is not enough in practice: the track often isn't ready yet, and
+// Chrome/Safari can reject autoplay until the user gestures. So we force the
+// element audible, retry on 'canplay', and report blockage so the UI can offer
+// a one-click unlock.
+function attachAudio(
+  el: HTMLAudioElement | null,
+  track: MediaStreamTrack | null | undefined,
+  onBlocked: () => void,
+): (() => void) | undefined {
+  if (!el) return;
+  if (!track) { el.srcObject = null; return; }
+
+  // Defensive: nothing else in the app should ever leave these muted.
+  el.muted = false;
+  el.volume = 1;
+  el.srcObject = new MediaStream([track]);
+
+  const tryPlay = () => { el.play().catch(() => onBlocked()); };
+  tryPlay();
+  el.addEventListener('canplay', tryPlay);
+  el.addEventListener('loadedmetadata', tryPlay);
+  return () => {
+    el.removeEventListener('canplay', tryPlay);
+    el.removeEventListener('loadedmetadata', tryPlay);
+  };
+}
+
 function RemoteAudio({ participantId, playSignal, onBlocked }: { participantId: string; playSignal: number; onBlocked: () => void }) {
   const { micStream, micOn, isLocal, screenShareAudioStream } = useParticipant(participantId);
   const micRef = useRef<HTMLAudioElement>(null);
   const scrRef = useRef<HTMLAudioElement>(null);
 
+  // Remote microphone.
   useEffect(() => {
-    const el = micRef.current;
-    if (!el || isLocal) return;
-    if (micOn && micStream?.track) {
-      el.srcObject = new MediaStream([micStream.track]);
-      el.play().catch(() => onBlocked());
-    } else {
-      el.srcObject = null;
-    }
+    if (isLocal) return;
+    return attachAudio(micRef.current, micOn ? micStream?.track : null, onBlocked);
   }, [micStream, micOn, isLocal, playSignal, onBlocked]);
 
+  // Audio shared along with a screen ("share tab audio").
   useEffect(() => {
-    const el = scrRef.current;
-    if (!el || isLocal) return;
-    if (screenShareAudioStream?.track) {
-      el.srcObject = new MediaStream([screenShareAudioStream.track]);
-      el.play().catch(() => onBlocked());
-    } else {
-      el.srcObject = null;
-    }
+    if (isLocal) return;
+    return attachAudio(scrRef.current, screenShareAudioStream?.track, onBlocked);
   }, [screenShareAudioStream, isLocal, playSignal, onBlocked]);
 
   if (isLocal) return null;
@@ -246,7 +264,22 @@ function MeetingView({ role, leaveHref, roomId, canRecord }: { role: Role; leave
   // Audio autoplay unlock
   const [audioBlocked, setAudioBlocked] = useState(false);
   const [playSignal, setPlaySignal] = useState(0);
+  // Our own handle on the screen-capture stream (see toggleScreen).
+  const shareStreamRef = useRef<MediaStream | null>(null);
   const onAudioBlocked = useCallback(() => setAudioBlocked(true), []);
+
+  // Autoplay policies unblock after any real user gesture. Retry playback on the
+  // first interaction anywhere in the call so sound usually starts on its own and
+  // the "enable sound" banner stays a fallback rather than a required step.
+  useEffect(() => {
+    const retry = () => setPlaySignal((n) => n + 1);
+    window.addEventListener('pointerdown', retry, { once: true });
+    window.addEventListener('keydown', retry, { once: true });
+    return () => {
+      window.removeEventListener('pointerdown', retry);
+      window.removeEventListener('keydown', retry);
+    };
+  }, []);
 
   // ── Side panel (Chat / People) ──
   const [panel, setPanel] = useState<'chat' | 'people' | null>(null);
@@ -420,14 +453,43 @@ function MeetingView({ role, leaveHref, roomId, canRecord }: { role: Role; leave
   const isSharingLocally = !!presenterId && presenterId === localId;
   const someoneSharing = !!presenterId;
 
+  // We capture the display stream ourselves instead of letting the SDK do it,
+  // for three reasons: (1) the SDK's internal capture does NOT request audio, so
+  // "share tab audio" never reached the other side; (2) enableScreenShare()
+  // returns void, so a cancelled picker could never be caught by awaiting it;
+  // (3) owning the track lets us react to the browser's own "Stop sharing" bar.
+  const stopLocalShare = useCallback(() => {
+    const s = shareStreamRef.current;
+    if (s) { s.getTracks().forEach((t) => { t.onended = null; t.stop(); }); shareStreamRef.current = null; }
+    try { disableScreenShare(); } catch { /* already stopped */ }
+  }, [disableScreenShare]);
+
   const toggleScreen = useCallback(async () => {
+    if (isSharingLocally || shareStreamRef.current) { stopLocalShare(); return; }
+    let stream: MediaStream;
     try {
-      if (isSharingLocally) disableScreenShare();
-      else await enableScreenShare();
+      stream = await navigator.mediaDevices.getDisplayMedia({
+        video: { frameRate: 30 },
+        audio: true, // lets the presenter tick "Share tab audio" in the picker
+      });
     } catch {
-      // User cancelled the browser's screen picker — nothing to do.
+      return; // user dismissed the picker — not an error worth surfacing
     }
-  }, [isSharingLocally, enableScreenShare, disableScreenShare]);
+    shareStreamRef.current = stream;
+    // The browser renders its own "Stop sharing" control; keep our state in sync.
+    stream.getVideoTracks().forEach((t) => { t.onended = () => stopLocalShare(); });
+    try {
+      enableScreenShare(stream);
+    } catch (e) {
+      console.warn('Screen share could not start.', e);
+      stopLocalShare();
+    }
+  }, [isSharingLocally, enableScreenShare, stopLocalShare]);
+
+  // Never leave the screen-capture track running after the call ends.
+  useEffect(() => () => {
+    shareStreamRef.current?.getTracks().forEach((t) => t.stop());
+  }, []);
 
   const enableSound = () => { setAudioBlocked(false); setPlaySignal((n) => n + 1); };
 
