@@ -87,7 +87,9 @@ export default function InterviewPage() {
   const [inRoom, setInRoom] = useState(false);
   const [selectedType, setSelectedType] = useState('hr');
   const [selectedDiff, setSelectedDiff] = useState('mid');
-  const [selectedRole, setSelectedRole] = useState('Product Manager');
+  // Empty by default: the user types whatever role they're targeting. The
+  // suggestion list is only a shortcut, never a restriction.
+  const [selectedRole, setSelectedRole] = useState('');
   const [linkedinUrl, setLinkedinUrl] = useState('');
   const [extractingLinkedIn, setExtractingLinkedIn] = useState(false);
   const [customJD, setCustomJD] = useState('');
@@ -764,7 +766,11 @@ export default function InterviewPage() {
 
   // ─── Start Interview ───
   const startInterview = async () => {
-    if (!selectedType || !selectedDiff || !selectedRole) {
+    if (!selectedRole.trim()) {
+      toast('Enter the role you are interviewing for.');
+      return;
+    }
+    if (!selectedType || !selectedDiff) {
       toast('Please complete all selections before starting.');
       return;
     }
@@ -1209,13 +1215,17 @@ export default function InterviewPage() {
 
             <h4>3 &middot; Target role</h4>
             <div className="field" style={{ marginBottom: '0.8rem' }}>
-              {/* Type-to-search with suggestions: pick a listed role or type your own. */}
+              {/* Free text. The suggestion list is a shortcut only — any role in
+                  the world can be typed and used verbatim. */}
               <RoleCombobox
                 value={selectedRole}
                 onChange={setSelectedRole}
                 options={roleOptions}
-                placeholder="Type your target role (e.g. Data Analyst, UX Designer)..."
+                placeholder="Type any role you're interviewing for…"
               />
+              <small style={{ display: 'block', marginTop: '0.4rem', color: 'var(--text-2)' }}>
+                Type any job title — if it isn&apos;t in the list, we&apos;ll use exactly what you enter.
+              </small>
             </div>
 
             <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.4rem' }}>
@@ -1275,11 +1285,12 @@ export default function InterviewPage() {
               )}
             </div>
 
-            <button 
-              className="btn btn-primary" 
+            <button
+              className="btn btn-primary"
               onClick={startInterview}
-              disabled={!resumeFile && !hasSavedResume}
-              style={{ opacity: (!resumeFile && !hasSavedResume) ? 0.5 : 1, cursor: (!resumeFile && !hasSavedResume) ? 'not-allowed' : 'pointer' }}
+              disabled={(!resumeFile && !hasSavedResume) || !selectedRole.trim()}
+              title={!selectedRole.trim() ? 'Enter the role you are interviewing for' : undefined}
+              style={{ opacity: ((!resumeFile && !hasSavedResume) || !selectedRole.trim()) ? 0.5 : 1, cursor: ((!resumeFile && !hasSavedResume) || !selectedRole.trim()) ? 'not-allowed' : 'pointer' }}
             >
               <Mic size={18} />
               Enter interview room

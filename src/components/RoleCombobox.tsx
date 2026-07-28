@@ -236,6 +236,11 @@ export default function RoleCombobox({
             maxHeight: 280, overflowY: 'auto', padding: 6,
           }}
         >
+          {/* Makes it explicit that the list is a shortcut, not a fixed menu —
+              any role at all can simply be typed. */}
+          <div style={{ padding: '6px 12px 8px', fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '.06em', color: 'var(--text-3, #6b7280)', fontWeight: 700 }}>
+            {value.trim() ? 'Matching suggestions' : 'Popular roles'} · type any role
+          </div>
           {filtered.map((role, i) => {
             const selected = role.toLowerCase() === value.trim().toLowerCase();
             const active = i === highlight;
