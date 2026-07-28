@@ -1,7 +1,9 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { Download, Plus, Trash2, Upload, Loader2, Sparkles, FileText, CheckCircle } from 'lucide-react';
+import { Download, Plus, Trash2, Upload, Loader2, Sparkles, FileText, CheckCircle, Palette, Check } from 'lucide-react';
 import { useToast } from '@/components/Toast';
+import ResumeTemplate, { TEMPLATES, ACCENTS, getTemplate } from '@/lib/resume-templates';
+import TemplateGallery from '@/components/TemplateGallery';
 
 export default function ResumeBuilderPage() {
   const { toast } = useToast();
@@ -25,6 +27,18 @@ export default function ResumeBuilderPage() {
   const [uploading, setUploading] = useState(false);
   const [uploadStep, setUploadStep] = useState('');
   const [isLoaded, setIsLoaded] = useState(false);
+
+  // Chosen design. Stored separately from `data` so switching templates never
+  // touches the user's content.
+  const [templateId, setTemplateId] = useState('classic');
+  const [accent, setAccent] = useState(getTemplate('classic').defaultAccent);
+  const [galleryOpen, setGalleryOpen] = useState(false);
+
+  const pickTemplate = (id: string, color: string) => {
+    setTemplateId(id);
+    setAccent(color);
+    toast(`${getTemplate(id).name} template applied.`);
+  };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -105,6 +119,12 @@ export default function ResumeBuilderPage() {
           console.error('Failed to parse stored resume data', e);
         }
       }
+      // Design choice is stored separately so it survives content edits.
+      try {
+        const style = JSON.parse(localStorage.getItem('resumeBuilderStyle') || '{}');
+        if (style.templateId) setTemplateId(style.templateId);
+        if (style.accent) setAccent(style.accent);
+      } catch { /* fall back to defaults */ }
       setIsLoaded(true);
     }
   }, []);
@@ -114,6 +134,12 @@ export default function ResumeBuilderPage() {
       localStorage.setItem('resumeBuilderData', JSON.stringify(data));
     }
   }, [data, isLoaded]);
+
+  useEffect(() => {
+    if (isLoaded && typeof window !== 'undefined') {
+      localStorage.setItem('resumeBuilderStyle', JSON.stringify({ templateId, accent }));
+    }
+  }, [templateId, accent, isLoaded]);
 
   const handleChange = (field: string, value: string) => {
     setData((prev) => ({ ...prev, [field]: value }));
@@ -188,22 +214,38 @@ export default function ResumeBuilderPage() {
   return (
     <>
       <style dangerouslySetInnerHTML={{__html: `
+        /* The builder is a side-by-side editor on desktop; on a phone it has to
+           become a single scrolling column or neither pane is usable. */
+        .rb-layout { display: flex; gap: 2rem; height: calc(100vh - 140px); align-items: flex-start; }
+        @media (max-width: 900px) {
+          .rb-layout { flex-direction: column; height: auto; gap: 1.25rem; }
+          .rb-layout > div { flex: 1 1 100% !important; width: 100%; height: auto !important; max-height: none !important; }
+          .rb-preview { padding: .75rem !important; }
+          .rb-preview #resume-preview-container { transform: scale(0.92); transform-origin: top center; }
+        }
+
+        @page { size: A4; margin: 0; }
+
         @media print {
-          body * {
-            visibility: hidden;
-          }
-          #resume-preview-container, #resume-preview-container * {
-            visibility: visible;
-          }
+          body * { visibility: hidden; }
+          #resume-preview-container, #resume-preview-container * { visibility: visible; }
           #resume-preview-container {
             position: absolute;
             left: 0;
             top: 0;
             width: 100%;
+            max-width: none !important;
             padding: 0;
             margin: 0;
             box-shadow: none !important;
             background: #fff;
+            transform: none !important;
+          }
+          /* Browsers drop background colours when printing — without this the
+             coloured templates would export as plain white pages. */
+          #resume-preview-container, #resume-preview-container * {
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
           }
           .app-sidebar, .app-header { display: none !important; }
         }
@@ -269,7 +311,10 @@ export default function ResumeBuilderPage() {
           <h2>AI Resume Builder</h2>
           <p>Create and refine a professional, ATS-friendly resume</p>
         </div>
-        <div style={{ display: 'flex', gap: '1rem' }}>
+        <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
+          <button className="btn btn-secondary btn-sm" onClick={() => setGalleryOpen(true)}>
+            <Palette size={15} /> Templates
+          </button>
           <label className="btn btn-secondary btn-sm" style={{ cursor: 'pointer' }}>
             <Upload size={15} /> {uploading ? 'Uploading...' : 'Auto-fill from PDF'}
             <input type="file" accept="application/pdf" style={{ display: 'none' }} onChange={handleFileUpload} disabled={uploading} />
@@ -280,7 +325,7 @@ export default function ResumeBuilderPage() {
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: '2rem', height: 'calc(100vh - 140px)', alignItems: 'flex-start' }}>
+      <div className="rb-layout">
         {/* LEFT: FORM */}
         <div style={{ flex: '1 1 45%', height: '100%', overflowY: 'auto', paddingRight: '1rem' }} className="widget hide-scrollbar">
           
@@ -347,93 +392,63 @@ export default function ResumeBuilderPage() {
         </div>
 
         {/* RIGHT: PREVIEW */}
-        <div 
-          style={{ flex: '1 1 55%', height: '100%', overflowY: 'auto', background: '#e5e7eb', borderRadius: 'var(--r-md)', padding: '2rem' }}
-          className="hide-scrollbar"
+        <div
+          style={{ flex: '1 1 55%', height: '100%', overflowY: 'auto', background: '#e5e7eb', borderRadius: 'var(--r-md)', padding: '1.25rem' }}
+          className="hide-scrollbar rb-preview"
         >
-          {/* A4 Paper Size Aspect Ratio wrapper */}
-          <div 
+          {/* Quick switcher. Lives outside #resume-preview-container so the
+              existing print rules automatically keep it out of the exported PDF. */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap', marginBottom: '1rem', background: '#fff', borderRadius: 10, padding: '.6rem .7rem', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+            <span style={{ fontSize: '.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: '#6b7280' }}>Design</span>
+            {TEMPLATES.map((t) => (
+              <button
+                key={t.id}
+                onClick={() => setTemplateId(t.id)}
+                title={t.blurb}
+                style={{
+                  fontSize: '.76rem', fontWeight: 600, padding: '.3rem .65rem', borderRadius: 999, cursor: 'pointer',
+                  border: templateId === t.id ? `2px solid ${accent}` : '1px solid #d1d5db',
+                  background: templateId === t.id ? accent : '#fff',
+                  color: templateId === t.id ? '#fff' : '#374151',
+                }}
+              >
+                {t.name}
+              </button>
+            ))}
+            <span style={{ width: 1, height: 20, background: '#e5e7eb', margin: '0 .2rem' }} />
+            {ACCENTS.slice(0, 8).map((c) => (
+              <button
+                key={c}
+                onClick={() => setAccent(c)}
+                title={`Accent ${c}`}
+                aria-label={`Accent ${c}`}
+                style={{ width: 20, height: 20, borderRadius: '50%', background: c, cursor: 'pointer', padding: 0, display: 'grid', placeItems: 'center', border: accent === c ? '2px solid #111827' : '1px solid #d1d5db' }}
+              >
+                {accent === c && <Check size={11} color="#fff" strokeWidth={3} />}
+              </button>
+            ))}
+            <button className="btn btn-ghost btn-sm" onClick={() => setGalleryOpen(true)} style={{ marginLeft: 'auto', color: '#374151', fontSize: '.76rem' }}>
+              <Palette size={13} /> All templates
+            </button>
+          </div>
+
+          {/* The A4 page itself — this element is what gets printed. */}
+          <div
             id="resume-preview-container"
-            style={{ 
-              background: '#fff', 
-              color: '#333', 
-              width: '100%', 
-              maxWidth: '210mm', 
-              minHeight: '297mm', 
-              margin: '0 auto',
-              padding: '50px 60px',
-              boxShadow: '0 10px 25px rgba(0,0,0,0.1)',
-              fontFamily: '"Inter", sans-serif',
-              lineHeight: '1.6'
-            }}
+            style={{ maxWidth: '210mm', margin: '0 auto', boxShadow: '0 10px 25px rgba(0,0,0,0.1)', background: '#fff' }}
           >
-            {/* Header */}
-            <div style={{ textAlign: 'left', marginBottom: '30px', borderBottom: '3px solid #2563EB', paddingBottom: '20px' }}>
-              <h1 style={{ fontSize: '36px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '1px', margin: '0 0 5px 0', color: '#111827' }}>{data.name || 'Your Name'}</h1>
-              <h2 style={{ fontSize: '18px', fontWeight: 500, margin: '0 0 15px 0', color: '#2563EB' }}>{data.title || 'Target Job Title'}</h2>
-              <div style={{ fontSize: '13px', color: '#4B5563', display: 'flex', gap: '15px', flexWrap: 'wrap' }}>
-                {data.email && <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>✉ {data.email}</span>}
-                {data.phone && <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>☎ {data.phone}</span>}
-                {data.location && <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>📍 {data.location}</span>}
-                {data.linkedin && <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>🔗 {data.linkedin.replace('https://','')}</span>}
-              </div>
-            </div>
-
-            {/* Summary */}
-            {data.summary && (
-              <div style={{ marginBottom: '25px' }}>
-                <h2 style={{ fontSize: '14px', fontWeight: 700, textTransform: 'uppercase', color: '#111827', borderBottom: '1px solid #E5E7EB', paddingBottom: '5px', marginBottom: '10px', letterSpacing: '1px' }}>Professional Summary</h2>
-                <p style={{ fontSize: '14px', color: '#374151', margin: 0, textAlign: 'justify' }}>{data.summary}</p>
-              </div>
-            )}
-
-            {/* Experience */}
-            {data.experience.length > 0 && (
-              <div style={{ marginBottom: '25px' }}>
-                <h2 style={{ fontSize: '14px', fontWeight: 700, textTransform: 'uppercase', color: '#111827', borderBottom: '1px solid #E5E7EB', paddingBottom: '5px', marginBottom: '15px', letterSpacing: '1px' }}>Professional Experience</h2>
-                {data.experience.map(exp => (
-                  <div key={exp.id} style={{ marginBottom: '20px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '3px' }}>
-                      <h3 style={{ fontSize: '15px', margin: 0, color: '#111827', fontWeight: 700 }}>{exp.role}</h3>
-                      <span style={{ fontSize: '13px', color: '#6B7280', fontWeight: 500 }}>{exp.date}</span>
-                    </div>
-                    <div style={{ fontSize: '14px', color: '#2563EB', fontWeight: 500, marginBottom: '8px' }}>{exp.company}</div>
-                    <div style={{ fontSize: '13px', color: '#374151', whiteSpace: 'pre-wrap', paddingLeft: '15px', borderLeft: '2px solid #E5E7EB' }}>
-                      {exp.desc}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Education */}
-            {data.education.length > 0 && (
-              <div style={{ marginBottom: '25px' }}>
-                <h2 style={{ fontSize: '14px', fontWeight: 700, textTransform: 'uppercase', color: '#111827', borderBottom: '1px solid #E5E7EB', paddingBottom: '5px', marginBottom: '15px', letterSpacing: '1px' }}>Education</h2>
-                {data.education.map(edu => (
-                  <div key={edu.id} style={{ marginBottom: '12px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                      <h3 style={{ fontSize: '15px', margin: 0, color: '#111827', fontWeight: 700 }}>{edu.school}</h3>
-                      <span style={{ fontSize: '13px', color: '#6B7280', fontWeight: 500 }}>{edu.date}</span>
-                    </div>
-                    <p style={{ fontSize: '14px', color: '#4B5563', margin: '3px 0 0 0' }}>{edu.degree}</p>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Skills */}
-            {data.skills && (
-              <div>
-                <h2 style={{ fontSize: '14px', fontWeight: 700, textTransform: 'uppercase', color: '#111827', borderBottom: '1px solid #E5E7EB', paddingBottom: '5px', marginBottom: '10px', letterSpacing: '1px' }}>Skills & Technologies</h2>
-                <p style={{ fontSize: '14px', color: '#374151', margin: 0 }}>
-                  {data.skills}
-                </p>
-              </div>
-            )}
-
+            <ResumeTemplate templateId={templateId} data={data} accent={accent} />
           </div>
         </div>
+
+        <TemplateGallery
+          open={galleryOpen}
+          onClose={() => setGalleryOpen(false)}
+          data={data}
+          templateId={templateId}
+          accent={accent}
+          onPick={pickTemplate}
+        />
       </div>
     </>
   );
