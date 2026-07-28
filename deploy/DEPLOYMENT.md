@@ -87,6 +87,29 @@ with `Ctrl+X`.
 
 > Keep this file secret. It contains live payment and API keys.
 
+### Optional — a different face per AI interviewer
+
+The interview setup lets a candidate choose between five interviewers (Alex,
+Maya, Ravi, Sofia, Noah). Their **personalities and question styles always
+differ** — that is driven by the app, not by configuration.
+
+If you also want each one to use a *different avatar model*, add the matching
+IDs from your LiveAvatar account. Anything you leave out simply reuses
+`LIVEAVATAR_AVATAR_ID`, so this is entirely optional:
+
+```
+LIVEAVATAR_AVATAR_ID_MAYA=...
+LIVEAVATAR_AVATAR_ID_RAVI=...
+LIVEAVATAR_AVATAR_ID_SOFIA=...
+LIVEAVATAR_AVATAR_ID_NOAH=...
+
+# Optional per-interviewer voices (fall back to LIVEAVATAR_VOICE_ID)
+LIVEAVATAR_VOICE_ID_MAYA=...
+LIVEAVATAR_VOICE_ID_RAVI=...
+LIVEAVATAR_VOICE_ID_SOFIA=...
+LIVEAVATAR_VOICE_ID_NOAH=...
+```
+
 ---
 
 ## Part 5 — Build and start the app

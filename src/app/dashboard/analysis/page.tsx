@@ -30,6 +30,23 @@ function colorForValue(v: number): string {
   return 'red';
 }
 
+const VERDICT_STYLES: Record<string, { label: string; bg: string; fg: string; border: string }> = {
+  strong: { label: 'Strong', bg: 'rgba(34,197,94,.12)', fg: '#22C55E', border: 'rgba(34,197,94,.35)' },
+  adequate: { label: 'Adequate', bg: 'rgba(245,158,11,.12)', fg: '#F59E0B', border: 'rgba(245,158,11,.35)' },
+  weak: { label: 'Weak', bg: 'rgba(239,68,68,.12)', fg: '#EF4444', border: 'rgba(239,68,68,.35)' },
+};
+
+function verdictStyle(v: string | undefined) {
+  return VERDICT_STYLES[v || ''] ?? VERDICT_STYLES.adequate;
+}
+
+const STAR_LABELS: { key: 'situation' | 'task' | 'action' | 'result'; label: string }[] = [
+  { key: 'situation', label: 'Situation' },
+  { key: 'task', label: 'Task' },
+  { key: 'action', label: 'Action' },
+  { key: 'result', label: 'Result' },
+];
+
 export default function AnalysisPage() {
   return (
     <Suspense fallback={null}>
@@ -151,6 +168,18 @@ function AnalysisContent() {
     }
   }
 
+  // New evidence-based sections. Older records simply don't have these, so we
+  // guard everywhere and omit the sections entirely when absent.
+  const perQuestion = Array.isArray(interview.perQuestion) ? interview.perQuestion : [];
+  const highlights = interview.highlights;
+  const hasHighlights = !!highlights && (
+    !!highlights.quotedStrength
+    || !!highlights.quotedWeakness
+    || (highlights.fillerWords?.count ?? 0) > 0
+    || (highlights.vagueClaims?.length ?? 0) > 0
+    || (highlights.missingKeywords?.length ?? 0) > 0
+  );
+
   const feedbackBlocks = [
     { title: 'What worked', text: interview.feedback.strengths },
     { title: 'What to fix', text: interview.feedback.improvements },
@@ -179,6 +208,82 @@ function AnalysisContent() {
 
   return (
     <>
+      <style dangerouslySetInnerHTML={{ __html: `
+        .qb-card {
+          border: 1px solid var(--border, rgba(148,163,184,.22));
+          border-radius: 14px;
+          padding: 1rem 1.1rem;
+          margin-bottom: .9rem;
+          background: var(--surface-2, rgba(148,163,184,.05));
+        }
+        .qb-head {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: .8rem;
+          margin-bottom: .55rem;
+        }
+        .qb-q { font-size: .95rem; font-weight: 650; line-height: 1.4; margin: 0; }
+        .qb-num { font-size: .72rem; letter-spacing: .06em; text-transform: uppercase; color: var(--text-3); display: block; margin-bottom: .2rem; }
+        .qb-badge {
+          flex: 0 0 auto;
+          font-size: .7rem;
+          font-weight: 700;
+          letter-spacing: .05em;
+          text-transform: uppercase;
+          padding: .22rem .6rem;
+          border-radius: 999px;
+          border: 1px solid transparent;
+          white-space: nowrap;
+        }
+        .qb-summary { font-size: .85rem; color: var(--text-2); margin: 0 0 .7rem; font-style: italic; }
+        .qb-cols { display: grid; grid-template-columns: 1fr 1fr; gap: .8rem; margin-bottom: .8rem; }
+        .qb-col b { display: block; font-size: .72rem; letter-spacing: .06em; text-transform: uppercase; margin-bottom: .25rem; }
+        .qb-col p { margin: 0; font-size: .86rem; color: var(--text-2); line-height: 1.5; }
+        .qb-better {
+          border-left: 3px solid var(--accent, #6366F1);
+          background: rgba(99,102,241,.08);
+          border-radius: 0 10px 10px 0;
+          padding: .7rem .9rem;
+        }
+        .qb-better b { display: block; font-size: .72rem; letter-spacing: .06em; text-transform: uppercase; margin-bottom: .3rem; color: var(--accent, #6366F1); }
+        .qb-better p { margin: 0; font-size: .88rem; line-height: 1.55; }
+        .qb-stars { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .75rem; }
+        .qb-chip {
+          font-size: .72rem;
+          padding: .18rem .55rem;
+          border-radius: 999px;
+          border: 1px solid rgba(148,163,184,.3);
+          color: var(--text-3);
+        }
+        .qb-chip.on { border-color: rgba(34,197,94,.4); background: rgba(34,197,94,.12); color: #22C55E; }
+        .hl-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .8rem; }
+        .hl-box {
+          border: 1px solid var(--border, rgba(148,163,184,.22));
+          border-radius: 12px;
+          padding: .85rem 1rem;
+        }
+        .hl-box b { display: block; font-size: .72rem; letter-spacing: .06em; text-transform: uppercase; margin-bottom: .35rem; }
+        .hl-box p { margin: 0; font-size: .86rem; line-height: 1.55; color: var(--text-2); }
+        .hl-list { margin: .3rem 0 0; padding-left: 1.05rem; font-size: .85rem; color: var(--text-2); line-height: 1.55; }
+        .hl-tags { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .35rem; }
+        .hl-tag {
+          font-size: .74rem;
+          padding: .18rem .55rem;
+          border-radius: 999px;
+          background: rgba(148,163,184,.14);
+          border: 1px solid rgba(148,163,184,.25);
+        }
+        @media (max-width: 680px) {
+          .qb-card { padding: .85rem .9rem; }
+          .qb-head { flex-wrap: wrap; }
+          .qb-cols { grid-template-columns: 1fr; gap: .6rem; }
+          .hl-grid { grid-template-columns: 1fr; }
+          .qb-q { font-size: .9rem; }
+          .qb-better p, .qb-col p, .hl-box p { font-size: .84rem; }
+        }
+      ` }} />
+
       {/* Header */}
       <div className="app-head">
         <div>
@@ -239,6 +344,39 @@ function AnalysisContent() {
             lines.push(`Strengths: ${interview.feedback.strengths}`);
             lines.push(`Improvements: ${interview.feedback.improvements}`);
             lines.push(`Next Step: ${interview.feedback.nextStep}`);
+            if (hasHighlights && highlights) {
+              lines.push('');
+              lines.push('--- Highlights ---');
+              if (highlights.quotedStrength) lines.push(`Quoted strength: ${highlights.quotedStrength}`);
+              if (highlights.quotedWeakness) lines.push(`Quoted weakness: ${highlights.quotedWeakness}`);
+              if (highlights.fillerWords) {
+                lines.push(`Filler words: ${highlights.fillerWords.count}${highlights.fillerWords.examples?.length ? ` (${highlights.fillerWords.examples.join(', ')})` : ''}`);
+              }
+              if (highlights.vagueClaims?.length) {
+                lines.push('Vague claims:');
+                highlights.vagueClaims.forEach((c) => lines.push(`  - ${c}`));
+              }
+              if (highlights.missingKeywords?.length) {
+                lines.push(`Missing keywords: ${highlights.missingKeywords.join(', ')}`);
+              }
+            }
+            if (perQuestion.length > 0) {
+              lines.push('');
+              lines.push('--- Question-by-question breakdown ---');
+              perQuestion.forEach((pq, i) => {
+                lines.push('');
+                lines.push(`Q${i + 1}: ${pq.question}`);
+                lines.push(`Verdict: ${verdictStyle(pq.verdict).label}`);
+                if (pq.answerSummary) lines.push(`Your answer: ${pq.answerSummary}`);
+                if (pq.whatWorked) lines.push(`What worked: ${pq.whatWorked}`);
+                if (pq.whatWasMissing) lines.push(`What was missing: ${pq.whatWasMissing}`);
+                if (pq.starCoverage) {
+                  const covered = STAR_LABELS.filter((s) => pq.starCoverage?.[s.key]).map((s) => s.label);
+                  lines.push(`STAR coverage: ${covered.length > 0 ? covered.join(', ') : 'none'}`);
+                }
+                if (pq.betterAnswer) lines.push(`Stronger answer: ${pq.betterAnswer}`);
+              });
+            }
             lines.push('');
             lines.push('--- Transcript ---');
             interview.transcript.forEach((msg) => {
@@ -360,6 +498,130 @@ function AnalysisContent() {
           )}
         </div>
       </div>
+
+      {/* Evidence highlights — only for records evaluated with the newer analysis */}
+      {hasHighlights && highlights && (
+        <div className="widget" style={{ marginTop: '1rem' }}>
+          <h4>Evidence from your answers</h4>
+          <div className="hl-grid" style={{ marginTop: '.6rem' }}>
+            {highlights.quotedStrength && (
+              <div className="hl-box" style={{ borderColor: 'rgba(34,197,94,.35)' }}>
+                <b style={{ color: '#22C55E' }}>What you said well</b>
+                <p>{highlights.quotedStrength}</p>
+              </div>
+            )}
+            {highlights.quotedWeakness && (
+              <div className="hl-box" style={{ borderColor: 'rgba(239,68,68,.35)' }}>
+                <b style={{ color: '#EF4444' }}>What fell short</b>
+                <p>{highlights.quotedWeakness}</p>
+              </div>
+            )}
+            {highlights.fillerWords && (
+              <div className="hl-box">
+                <b>Filler words</b>
+                <p>
+                  {highlights.fillerWords.count} detected
+                  {highlights.fillerWords.count === 0 ? ' — clean delivery.' : ' across your answers.'}
+                </p>
+                {(highlights.fillerWords.examples?.length ?? 0) > 0 && (
+                  <div className="hl-tags">
+                    {highlights.fillerWords.examples.map((ex, i) => (
+                      <span className="hl-tag" key={`${ex}-${i}`}>{ex}</span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+            {(highlights.missingKeywords?.length ?? 0) > 0 && (
+              <div className="hl-box">
+                <b>Never mentioned</b>
+                <p>Terms a strong {interview.role} candidate would be expected to bring up:</p>
+                <div className="hl-tags">
+                  {highlights.missingKeywords.map((k, i) => (
+                    <span className="hl-tag" key={`${k}-${i}`}>{k}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+          {(highlights.vagueClaims?.length ?? 0) > 0 && (
+            <div className="hl-box" style={{ marginTop: '.8rem' }}>
+              <b>Claims without evidence</b>
+              <ul className="hl-list">
+                {highlights.vagueClaims.map((c, i) => (
+                  <li key={`${i}-${c.slice(0, 12)}`}>{c}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Question-by-question breakdown */}
+      {perQuestion.length > 0 && (
+        <div className="widget" style={{ marginTop: '1rem' }}>
+          <h4>Question-by-question breakdown</h4>
+          <p style={{ color: 'var(--text-3)', fontSize: '.85rem', margin: '.2rem 0 1rem' }}>
+            Each answer you gave, what landed, what was missing, and a stronger version of your own words.
+          </p>
+          {perQuestion.map((pq, i) => {
+            const vs = verdictStyle(pq.verdict);
+            return (
+              <div className="qb-card" key={`${i}-${pq.question.slice(0, 16)}`}>
+                <div className="qb-head">
+                  <div>
+                    <span className="qb-num">Question {i + 1}</span>
+                    <p className="qb-q">{pq.question}</p>
+                  </div>
+                  <span
+                    className="qb-badge"
+                    style={{ background: vs.bg, color: vs.fg, borderColor: vs.border }}
+                  >
+                    {vs.label}
+                  </span>
+                </div>
+
+                {pq.answerSummary && <p className="qb-summary">{pq.answerSummary}</p>}
+
+                <div className="qb-cols">
+                  {pq.whatWorked && (
+                    <div className="qb-col">
+                      <b style={{ color: '#22C55E' }}>What worked</b>
+                      <p>{pq.whatWorked}</p>
+                    </div>
+                  )}
+                  {pq.whatWasMissing && (
+                    <div className="qb-col">
+                      <b style={{ color: '#F59E0B' }}>What was missing</b>
+                      <p>{pq.whatWasMissing}</p>
+                    </div>
+                  )}
+                </div>
+
+                {pq.betterAnswer && (
+                  <div className="qb-better">
+                    <b>Stronger answer</b>
+                    <p>{pq.betterAnswer}</p>
+                  </div>
+                )}
+
+                {pq.starCoverage && (
+                  <div className="qb-stars">
+                    {STAR_LABELS.map((s) => (
+                      <span
+                        className={`qb-chip${pq.starCoverage?.[s.key] ? ' on' : ''}`}
+                        key={s.key}
+                      >
+                        {pq.starCoverage?.[s.key] ? '✓' : '✗'} {s.label}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </>
   );
 }

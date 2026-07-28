@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/components/Toast';
 import RoleCombobox, { COMMON_ROLES } from '@/components/RoleCombobox';
+import { INTERVIEWERS, DEFAULT_INTERVIEWER_ID, getInterviewer } from '@/lib/interview-avatars';
 import {
   MessageSquare,
   Monitor,
@@ -91,6 +92,7 @@ export default function InterviewPage() {
   // suggestion list is only a shortcut, never a restriction.
   const [selectedRole, setSelectedRole] = useState('');
   const [customJD, setCustomJD] = useState('');
+  const [interviewerId, setInterviewerId] = useState(DEFAULT_INTERVIEWER_ID);
   const [resumeFile, setResumeFile] = useState<File | null>(null);
   const [resumeText, setResumeText] = useState('');
   const [hasSavedResume, setHasSavedResume] = useState(false);
@@ -185,6 +187,7 @@ export default function InterviewPage() {
   const selectedRoleRef = useRef(selectedRole);
   const selectedDiffRef = useRef(selectedDiff);
   const customJDRef = useRef(customJD);
+  const interviewerRef = useRef(interviewerId);
   const resumeTextRef = useRef(resumeText);
   const speakQuestionRef = useRef<((t: string) => Promise<void>) | null>(null);
   // LiveAvatar keep-alive heartbeat + session-duration guard timers.
@@ -207,6 +210,7 @@ export default function InterviewPage() {
   useEffect(() => { selectedRoleRef.current = selectedRole; }, [selectedRole]);
   useEffect(() => { selectedDiffRef.current = selectedDiff; }, [selectedDiff]);
   useEffect(() => { customJDRef.current = customJD; }, [customJD]);
+  useEffect(() => { interviewerRef.current = interviewerId; }, [interviewerId]);
   useEffect(() => { resumeTextRef.current = resumeText; }, [resumeText]);
 
   // Timer
@@ -306,6 +310,7 @@ export default function InterviewPage() {
           difficulty: diffLabel,
           customJD: customJDRef.current,
           resumeText: resumeTextRef.current,
+          interviewer: interviewerRef.current,
         }),
       });
       if (!res.ok) {
@@ -498,7 +503,7 @@ export default function InterviewPage() {
         ctx.fillRect(0, 446, 1280, 34);
         ctx.fillStyle = '#fff';
         ctx.font = '16px Inter, sans-serif';
-        ctx.fillText('Alex · AI Interviewer', 14, 469);
+        ctx.fillText(`${getInterviewer(interviewerRef.current).name} · AI Interviewer`, 14, 469);
         ctx.fillText('You · Candidate', 654, 469);
         recordRafRef.current = requestAnimationFrame(draw);
       };
@@ -606,6 +611,8 @@ export default function InterviewPage() {
       improvements: 'We could not fully analyse this attempt. Give longer, more detailed answers with concrete examples.',
       nextStep: 'Retake the interview and aim for structured 60-90 second answers per question.',
     };
+    let perQuestion: InterviewRecord['perQuestion'];
+    let highlights: InterviewRecord['highlights'];
 
     // Try the AI evaluation, but NEVER let a failure block the report. If the
     // evaluate API errors or times out (e.g. a missing key in production), we
@@ -623,6 +630,11 @@ export default function InterviewPage() {
           score = typeof data.score === 'number' ? data.score : score;
           metrics = data.metrics || metrics;
           feedback = data.feedback || feedback;
+          // The AI's per-question breakdown and quoted evidence. Keep them only
+          // when present — saveInterview() backfills a deterministic version
+          // otherwise, so the report is never left without a breakdown.
+          if (Array.isArray(data.perQuestion) && data.perQuestion.length > 0) perQuestion = data.perQuestion;
+          if (data.highlights) highlights = data.highlights;
         }
       } else {
         console.warn('Evaluate API returned', res.status);
@@ -644,6 +656,8 @@ export default function InterviewPage() {
       transcript: currentTranscript,
       metrics,
       feedback,
+      perQuestion,
+      highlights,
     };
 
     try { saveInterview(record); } catch (e) { console.warn('saveInterview failed', e); }
@@ -1163,7 +1177,37 @@ export default function InterviewPage() {
               })}
             </div>
 
-            <h4>3 &middot; Target role</h4>
+            <h4>3 &middot; Your interviewer</h4>
+            <div className="iv-picker" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '.6rem', marginBottom: '1.4rem' }}>
+              {INTERVIEWERS.map((p) => {
+                const sel = interviewerId === p.id;
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => setInterviewerId(p.id)}
+                    title={p.blurb}
+                    style={{
+                      textAlign: 'left', padding: '.8rem .85rem', borderRadius: 12, cursor: 'pointer',
+                      background: sel ? `${p.accent}1a` : 'var(--card)',
+                      border: sel ? `2px solid ${p.accent}` : '1px solid var(--line)',
+                      transition: 'all .15s ease',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '.55rem', marginBottom: '.35rem' }}>
+                      <span style={{ width: 30, height: 30, borderRadius: '50%', background: p.accent, color: '#fff', display: 'grid', placeItems: 'center', fontWeight: 700, fontSize: '.85rem', flexShrink: 0 }}>
+                        {p.name.charAt(0)}
+                      </span>
+                      <span style={{ fontWeight: 700, fontSize: '.92rem' }}>{p.name}</span>
+                    </div>
+                    <div style={{ fontSize: '.76rem', fontWeight: 600, color: p.accent, marginBottom: '.15rem' }}>{p.title}</div>
+                    <div style={{ fontSize: '.74rem', color: 'var(--text-2)', lineHeight: 1.4 }}>{p.blurb}</div>
+                  </button>
+                );
+              })}
+            </div>
+
+            <h4>4 &middot; Target role</h4>
             <div className="field" style={{ marginBottom: '0.8rem' }}>
               {/* Free text. The suggestion list is a shortcut only — any role in
                   the world can be typed and used verbatim. */}
@@ -1191,7 +1235,7 @@ export default function InterviewPage() {
             )}
 
             <h4>
-              4 &middot; Upload Resume
+              5 &middot; Upload Resume
               <span style={{ marginLeft: '.5rem', fontSize: '.72rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--text-3)', border: '1px solid var(--line)', borderRadius: 999, padding: '.12rem .5rem' }}>
                 Optional
               </span>
@@ -1370,7 +1414,7 @@ export default function InterviewPage() {
               )}
               </div>
               <small>
-                Alex &middot; AI Interviewer &middot;{' '}
+                {getInterviewer(interviewerId).name} &middot; AI Interviewer &middot;{' '}
                 {avatarError ? 'Unavailable' : heygenReady ? (ariaSpeaking ? 'Speaking' : 'Live') : 'Connecting'}
               </small>
               <div className="wave" style={{ opacity: ariaSpeaking ? 1 : 0.3, transition: 'opacity 0.3s' }}>
@@ -1450,7 +1494,7 @@ export default function InterviewPage() {
               const isAI = msg.who === 'ai';
               return (
                 <div key={i} className={`bubble ${isAI ? 'ai' : 'me'}`}>
-                  <span className="who">{isAI ? 'Alex' : 'You'}</span>
+                  <span className="who">{isAI ? getInterviewer(interviewerId).name : 'You'}</span>
                   {isLast && isAI ? <TypewriterText text={msg.text} /> : msg.text}
                 </div>
               );
@@ -1463,7 +1507,7 @@ export default function InterviewPage() {
               </div>
             ) : (
               <div className="bubble ai">
-                <span className="who">Alex</span>
+                <span className="who">{getInterviewer(interviewerId).name}</span>
                 {micActive ? (
                   <>Listening...<span className="caret" /></>
                 ) : (

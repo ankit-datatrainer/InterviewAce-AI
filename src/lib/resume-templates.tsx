@@ -532,6 +532,611 @@ function Executive({ data, accent }: { data: ResumeData; accent: string }) {
   );
 }
 
+// ═══════════════════════ 9. Compact — balanced two-column ══════════════════
+function TwoColumn({ data, accent }: { data: ResumeData; accent: string }) {
+  const MH = ({ children }: { children: React.ReactNode }) => (
+    <h2 style={{ fontSize: 12.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1.3, color: '#111827', margin: '0 0 10px', paddingBottom: 4, borderBottom: `2px solid ${accent}`, ...PRINT_EXACT }}>{children}</h2>
+  );
+  const RH = ({ children }: { children: React.ReactNode }) => (
+    <h2 style={{ fontSize: 11.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1.2, color: accent, margin: '0 0 8px', paddingBottom: 3, borderBottom: `1px solid ${hexA(accent, 0.35)}`, ...PRINT_EXACT }}>{children}</h2>
+  );
+  return (
+    <div style={page({ padding: '44px 50px' })}>
+      <div style={{ marginBottom: 20, paddingBottom: 14, borderBottom: '1px solid #e5e7eb' }}>
+        <h1 style={{ fontSize: 30, fontWeight: 800, margin: '0 0 3px', color: '#111827', letterSpacing: -0.3 }}>{data.name || 'Your Name'}</h1>
+        <p style={{ fontSize: 14, fontWeight: 600, color: accent, margin: 0, ...PRINT_EXACT }}>{data.title}</p>
+      </div>
+      <div style={{ display: 'flex', gap: 28, alignItems: 'flex-start' }}>
+        <div style={{ flex: '1 1 0', minWidth: 0 }}>
+          {data.summary && (
+            <div style={{ marginBottom: 20 }}>
+              <MH>Summary</MH>
+              <p style={{ fontSize: 12.5, color: '#374151', margin: 0, textAlign: 'justify' }}>{data.summary}</p>
+            </div>
+          )}
+          {data.experience.length > 0 && (
+            <div>
+              <MH>Experience</MH>
+              {data.experience.map((e) => (
+                <div key={e.id} style={{ marginBottom: 15 }}>
+                  <h3 style={{ fontSize: 13.8, margin: 0, fontWeight: 700, color: '#111827' }}>{e.role}</h3>
+                  <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 5 }}>
+                    {e.company}{e.company && e.date ? ' · ' : ''}{e.date}
+                  </div>
+                  <ul style={{ margin: 0, paddingLeft: 15, fontSize: 12.2, color: '#374151' }}>
+                    {bullets(e.desc).map((b, i) => <li key={i} style={{ marginBottom: 3 }}>{b}</li>)}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <aside style={{ width: 218, flexShrink: 0 }}>
+          <div style={{ marginBottom: 20 }}>
+            <RH>Contact</RH>
+            {contactItems(data).map((c) => (
+              <p key={c} style={{ fontSize: 11.5, margin: '0 0 4px', color: '#4b5563', wordBreak: 'break-word' }}>{c}</p>
+            ))}
+          </div>
+          {data.skills && (
+            <div style={{ marginBottom: 20 }}>
+              <RH>Skills</RH>
+              {skillList(data.skills).map((s) => (
+                <p key={s} style={{ fontSize: 11.5, margin: '0 0 4px', color: '#374151' }}>
+                  <span style={{ color: accent, fontWeight: 800, marginRight: 6, ...PRINT_EXACT }}>—</span>{s}
+                </p>
+              ))}
+            </div>
+          )}
+          {data.education.length > 0 && (
+            <div>
+              <RH>Education</RH>
+              {data.education.map((e) => (
+                <div key={e.id} style={{ marginBottom: 10 }}>
+                  <p style={{ fontSize: 12.2, fontWeight: 700, margin: 0, color: '#111827' }}>{e.school}</p>
+                  <p style={{ fontSize: 11.5, margin: '1px 0 0', color: '#4b5563' }}>{e.degree}</p>
+                  <p style={{ fontSize: 11, margin: '1px 0 0', color: '#9ca3af' }}>{e.date}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════ 10. Banner — monogram hero band ═══════════════════
+function Banner({ data, accent }: { data: ResumeData; accent: string }) {
+  const H = ({ children }: { children: React.ReactNode }) => (
+    <h2 style={{ fontSize: 12, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1.8, color: accent, margin: '0 0 10px', ...PRINT_EXACT }}>{children}</h2>
+  );
+  return (
+    <div style={page({ padding: 0 })}>
+      <div style={{ background: accent, color: '#fff', padding: '34px 55px', display: 'flex', alignItems: 'center', gap: 24, ...PRINT_EXACT }}>
+        <div style={{ width: 92, height: 92, borderRadius: '50%', background: 'rgba(255,255,255,0.18)', border: '3px solid rgba(255,255,255,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 38, fontWeight: 800, flexShrink: 0, letterSpacing: 1, ...PRINT_EXACT }}>
+          {(data.name || 'Your Name').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w.charAt(0).toUpperCase()).join('') || 'Y'}
+        </div>
+        <div style={{ minWidth: 0 }}>
+          <h1 style={{ fontSize: 32, fontWeight: 800, margin: '0 0 4px', lineHeight: 1.1 }}>{data.name || 'Your Name'}</h1>
+          <p style={{ fontSize: 15, margin: 0, color: 'rgba(255,255,255,0.9)', textTransform: 'uppercase', letterSpacing: 2 }}>{data.title}</p>
+        </div>
+      </div>
+      <div style={{ background: shade(accent, -55), color: 'rgba(255,255,255,0.92)', padding: '10px 55px', display: 'flex', gap: 18, flexWrap: 'wrap', fontSize: 11.5, ...PRINT_EXACT }}>
+        {contactItems(data).map((c) => <span key={c}>{c}</span>)}
+      </div>
+      <div style={{ padding: '30px 55px 50px' }}>
+        {data.summary && (
+          <div style={{ marginBottom: 24 }}>
+            <H>Profile</H>
+            <p style={{ fontSize: 13, color: '#374151', margin: 0, textAlign: 'justify' }}>{data.summary}</p>
+          </div>
+        )}
+        {data.experience.length > 0 && (
+          <div style={{ marginBottom: 24 }}>
+            <H>Experience</H>
+            {data.experience.map((e) => (
+              <div key={e.id} style={{ marginBottom: 16 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap' }}>
+                  <h3 style={{ fontSize: 14.5, margin: 0, fontWeight: 700, color: '#111827' }}>{e.role}</h3>
+                  <span style={{ fontSize: 12, color: '#6b7280' }}>{e.date}</span>
+                </div>
+                <div style={{ fontSize: 12.8, color: '#4b5563', fontWeight: 600, marginBottom: 5 }}>{e.company}</div>
+                <ul style={{ margin: 0, paddingLeft: 17, fontSize: 12.5, color: '#374151' }}>
+                  {bullets(e.desc).map((b, i) => <li key={i} style={{ marginBottom: 3 }}>{b}</li>)}
+                </ul>
+              </div>
+            ))}
+          </div>
+        )}
+        {data.education.length > 0 && (
+          <div style={{ marginBottom: 24 }}>
+            <H>Education</H>
+            {data.education.map((e) => (
+              <div key={e.id} style={{ marginBottom: 9, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                <div>
+                  <h3 style={{ fontSize: 13.5, margin: 0, fontWeight: 700, color: '#111827' }}>{e.school}</h3>
+                  <p style={{ fontSize: 12.5, color: '#4b5563', margin: '2px 0 0' }}>{e.degree}</p>
+                </div>
+                <span style={{ fontSize: 12, color: '#6b7280' }}>{e.date}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        {data.skills && (
+          <div>
+            <H>Skills</H>
+            <p style={{ fontSize: 12.8, color: '#374151', margin: 0 }}>{skillList(data.skills).join('  ·  ')}</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════ 11. Cards — soft shadowed blocks ══════════════════
+function Cards({ data, accent }: { data: ResumeData; accent: string }) {
+  const H = ({ children }: { children: React.ReactNode }) => (
+    <h2 style={{ fontSize: 12.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1.4, color: '#111827', margin: '0 0 12px', display: 'flex', alignItems: 'center', gap: 8 }}>
+      <span style={{ width: 8, height: 8, borderRadius: '50%', background: accent, ...PRINT_EXACT }} />{children}
+    </h2>
+  );
+  const card: React.CSSProperties = {
+    background: '#fff',
+    borderRadius: 12,
+    border: '1px solid #eef1f5',
+    borderLeft: `4px solid ${accent}`,
+    boxShadow: '0 2px 10px rgba(15, 23, 42, 0.07)',
+    padding: '13px 17px',
+    ...PRINT_EXACT,
+  };
+  return (
+    <div style={page({ padding: '40px 48px', background: '#f6f8fb' })}>
+      <div style={{ ...card, borderLeftWidth: 6, padding: '22px 24px', marginBottom: 20 }}>
+        <h1 style={{ fontSize: 30, fontWeight: 800, margin: '0 0 3px', color: '#111827', letterSpacing: -0.3 }}>{data.name || 'Your Name'}</h1>
+        <p style={{ fontSize: 14, fontWeight: 600, color: accent, margin: '0 0 9px', ...PRINT_EXACT }}>{data.title}</p>
+        <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 11.8, color: '#6b7280' }}>
+          {contactItems(data).map((c) => <span key={c}>{c}</span>)}
+        </div>
+      </div>
+      {data.summary && (
+        <div style={{ marginBottom: 20 }}>
+          <H>Profile</H>
+          <div style={card}>
+            <p style={{ fontSize: 12.5, color: '#374151', margin: 0, textAlign: 'justify' }}>{data.summary}</p>
+          </div>
+        </div>
+      )}
+      {data.experience.length > 0 && (
+        <div style={{ marginBottom: 20 }}>
+          <H>Experience</H>
+          {data.experience.map((e) => (
+            <div key={e.id} style={{ ...card, marginBottom: 11 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap' }}>
+                <h3 style={{ fontSize: 14, margin: 0, fontWeight: 700, color: '#111827' }}>{e.role}</h3>
+                <span style={{ fontSize: 11.2, fontWeight: 600, color: shade(accent, -30), background: hexA(accent, 0.12), padding: '2px 9px', borderRadius: 20, ...PRINT_EXACT }}>{e.date}</span>
+              </div>
+              <div style={{ fontSize: 12.5, color: '#6b7280', fontWeight: 600, marginBottom: 5 }}>{e.company}</div>
+              <ul style={{ margin: 0, paddingLeft: 16, fontSize: 12.2, color: '#374151' }}>
+                {bullets(e.desc).map((b, i) => <li key={i} style={{ marginBottom: 3 }}>{b}</li>)}
+              </ul>
+            </div>
+          ))}
+        </div>
+      )}
+      <div style={{ display: 'flex', gap: 18, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+        {data.education.length > 0 && (
+          <div style={{ flex: '1 1 45%', minWidth: 220 }}>
+            <H>Education</H>
+            {data.education.map((e) => (
+              <div key={e.id} style={{ ...card, marginBottom: 10 }}>
+                <h3 style={{ fontSize: 13, margin: 0, fontWeight: 700, color: '#111827' }}>{e.school}</h3>
+                <p style={{ fontSize: 12, color: '#4b5563', margin: '2px 0 0' }}>{e.degree}</p>
+                <p style={{ fontSize: 11.2, color: '#9ca3af', margin: '1px 0 0' }}>{e.date}</p>
+              </div>
+            ))}
+          </div>
+        )}
+        {data.skills && (
+          <div style={{ flex: '1 1 45%', minWidth: 220 }}>
+            <H>Skills</H>
+            <div style={card}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {skillList(data.skills).map((s) => (
+                  <span key={s} style={{ fontSize: 11.2, background: hexA(accent, 0.1), color: shade(accent, -30), padding: '4px 10px', borderRadius: 8, fontWeight: 600, ...PRINT_EXACT }}>{s}</span>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════ 12. Academic — serif CV, education first ══════════
+function Academic({ data, accent }: { data: ResumeData; accent: string }) {
+  const H = ({ children }: { children: React.ReactNode }) => (
+    <h2 style={{ fontSize: 12.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1.6, color: '#111827', margin: '0 0 9px', paddingBottom: 3, borderBottom: `1px solid ${accent}`, ...PRINT_EXACT }}>{children}</h2>
+  );
+  return (
+    <div style={page({ padding: '52px 64px', fontFamily: '"Times New Roman", Times, Georgia, serif', lineHeight: 1.5 })}>
+      <div style={{ marginBottom: 20 }}>
+        <h1 style={{ fontSize: 28, fontWeight: 700, margin: '0 0 2px', color: '#111827', letterSpacing: 0.3 }}>{data.name || 'Your Name'}</h1>
+        {data.title && <p style={{ fontSize: 13.5, fontStyle: 'italic', color: '#374151', margin: '0 0 6px' }}>{data.title}</p>}
+        <div style={{ fontSize: 11.5, color: '#4b5563' }}>{contactItems(data).join('  |  ')}</div>
+      </div>
+      {data.education.length > 0 && (
+        <div style={{ marginBottom: 18 }}>
+          <H>Education</H>
+          {data.education.map((e) => (
+            <div key={e.id} style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 14 }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 13.5, fontWeight: 700, color: '#111827' }}>{e.school}</div>
+                <div style={{ fontSize: 12.5, color: '#374151', fontStyle: 'italic' }}>{e.degree}</div>
+              </div>
+              <span style={{ fontSize: 12, color: '#4b5563', whiteSpace: 'nowrap' }}>{e.date}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {data.summary && (
+        <div style={{ marginBottom: 18 }}>
+          <H>Research Statement</H>
+          <p style={{ fontSize: 12.5, color: '#1f2937', margin: 0, textAlign: 'justify' }}>{data.summary}</p>
+        </div>
+      )}
+      {data.experience.length > 0 && (
+        <div style={{ marginBottom: 18 }}>
+          <H>Appointments &amp; Experience</H>
+          {data.experience.map((e) => (
+            <div key={e.id} style={{ marginBottom: 11 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 14 }}>
+                <span style={{ fontSize: 13, color: '#111827' }}>
+                  <strong style={{ fontWeight: 700 }}>{e.role}</strong>
+                  {e.role && e.company ? ', ' : ''}
+                  <span style={{ fontStyle: 'italic' }}>{e.company}</span>
+                </span>
+                <span style={{ fontSize: 12, color: '#4b5563', whiteSpace: 'nowrap' }}>{e.date}</span>
+              </div>
+              <ul style={{ margin: '3px 0 0', paddingLeft: 18, fontSize: 12, color: '#1f2937' }}>
+                {bullets(e.desc).map((b, i) => <li key={i} style={{ marginBottom: 1.5 }}>{b}</li>)}
+              </ul>
+            </div>
+          ))}
+        </div>
+      )}
+      {data.skills && (
+        <div>
+          <H>Areas of Expertise</H>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '2px 22px' }}>
+            {skillList(data.skills).map((s) => (
+              <span key={s} style={{ fontSize: 12, color: '#1f2937' }}>
+                <span style={{ color: accent, marginRight: 6, ...PRINT_EXACT }}>·</span>{s}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════ 13. Tech — monospace, grid skills ═════════════════
+const MONO = 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace';
+
+function TechGrid({ data, accent }: { data: ResumeData; accent: string }) {
+  const H = ({ children }: { children: React.ReactNode }) => (
+    <h2 style={{ fontFamily: MONO, fontSize: 12.5, fontWeight: 700, color: accent, margin: '0 0 11px', letterSpacing: 0.4, ...PRINT_EXACT }}>
+      <span style={{ color: '#9ca3af' }}>{'// '}</span>{children}
+    </h2>
+  );
+  return (
+    <div style={page({ padding: '42px 52px' })}>
+      <div style={{ border: `1px solid ${hexA(accent, 0.4)}`, borderRadius: 6, padding: '18px 20px', marginBottom: 22, background: hexA(accent, 0.04), ...PRINT_EXACT }}>
+        <div style={{ fontFamily: MONO, fontSize: 11, color: accent, marginBottom: 4, ...PRINT_EXACT }}>{'~ $ whoami'}</div>
+        <h1 style={{ fontSize: 29, fontWeight: 800, margin: '0 0 3px', color: '#111827', letterSpacing: -0.4 }}>{data.name || 'Your Name'}</h1>
+        <p style={{ fontFamily: MONO, fontSize: 13, color: '#374151', margin: '0 0 10px' }}>{data.title}</p>
+        <div style={{ fontFamily: MONO, fontSize: 11, color: '#6b7280', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {contactItems(data).map((c, i) => (
+            <span key={c}>{i > 0 && <span style={{ color: accent, marginRight: 8, ...PRINT_EXACT }}>|</span>}{c}</span>
+          ))}
+        </div>
+      </div>
+      {data.summary && (
+        <div style={{ marginBottom: 22 }}>
+          <H>readme</H>
+          <p style={{ fontSize: 12.5, color: '#374151', margin: 0, textAlign: 'justify' }}>{data.summary}</p>
+        </div>
+      )}
+      {data.skills && (
+        <div style={{ marginBottom: 22 }}>
+          <H>stack</H>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 0, border: '1px solid #e5e7eb', ...PRINT_EXACT }}>
+            {skillList(data.skills).map((s) => (
+              <div key={s} style={{ fontFamily: MONO, fontSize: 11, color: '#374151', padding: '7px 9px', borderRight: '1px solid #e5e7eb', borderBottom: '1px solid #e5e7eb', wordBreak: 'break-word', ...PRINT_EXACT }}>{s}</div>
+            ))}
+          </div>
+        </div>
+      )}
+      {data.experience.length > 0 && (
+        <div style={{ marginBottom: 22 }}>
+          <H>experience</H>
+          {data.experience.map((e) => (
+            <div key={e.id} style={{ marginBottom: 15, paddingLeft: 13, borderLeft: `2px solid ${hexA(accent, 0.35)}`, ...PRINT_EXACT }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap' }}>
+                <h3 style={{ fontSize: 14, margin: 0, fontWeight: 700, color: '#111827' }}>{e.role}</h3>
+                <span style={{ fontFamily: MONO, fontSize: 11, color: '#6b7280' }}>{e.date}</span>
+              </div>
+              <div style={{ fontFamily: MONO, fontSize: 12, color: accent, marginBottom: 5, ...PRINT_EXACT }}>{e.company}</div>
+              <ul style={{ margin: 0, paddingLeft: 15, fontSize: 12.2, color: '#374151', listStyleType: 'square' }}>
+                {bullets(e.desc).map((b, i) => <li key={i} style={{ marginBottom: 3 }}>{b}</li>)}
+              </ul>
+            </div>
+          ))}
+        </div>
+      )}
+      {data.education.length > 0 && (
+        <div>
+          <H>education</H>
+          {data.education.map((e) => (
+            <div key={e.id} style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 14 }}>
+              <span style={{ fontSize: 12.8, color: '#111827' }}><strong style={{ fontWeight: 700 }}>{e.school}</strong> <span style={{ color: '#6b7280' }}>{e.degree}</span></span>
+              <span style={{ fontFamily: MONO, fontSize: 11, color: '#9ca3af', whiteSpace: 'nowrap' }}>{e.date}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════ 14. Infographic — bars + stat chips ═══════════════
+/** Stable pseudo-proficiency (70-95%) derived from the skill name. */
+function skillLevel(skill: string): number {
+  let h = 0;
+  for (let i = 0; i < skill.length; i++) h = (h * 31 + skill.charCodeAt(i)) >>> 0;
+  return 70 + (h % 26);
+}
+
+function Infographic({ data, accent }: { data: ResumeData; accent: string }) {
+  const H = ({ children }: { children: React.ReactNode }) => (
+    <h2 style={{ fontSize: 12, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1.5, color: '#111827', margin: '0 0 12px' }}>
+      {children}
+      <span style={{ display: 'block', width: 36, height: 3, background: accent, borderRadius: 2, marginTop: 5, ...PRINT_EXACT }} />
+    </h2>
+  );
+  const skills = skillList(data.skills);
+  const stats: { label: string; value: string }[] = [
+    { label: 'Roles', value: String(data.experience.length) },
+    { label: 'Skills', value: String(skills.length) },
+    { label: 'Degrees', value: String(data.education.length) },
+  ].filter((s) => s.value !== '0');
+  return (
+    <div style={page({ padding: '40px 50px' })}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 20, marginBottom: 22 }}>
+        <div style={{ minWidth: 0 }}>
+          <h1 style={{ fontSize: 30, fontWeight: 800, margin: '0 0 2px', color: '#111827', letterSpacing: -0.4 }}>{data.name || 'Your Name'}</h1>
+          <p style={{ fontSize: 14, fontWeight: 600, color: accent, margin: '0 0 8px', ...PRINT_EXACT }}>{data.title}</p>
+          <div style={{ fontSize: 11.5, color: '#6b7280', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+            {contactItems(data).map((c) => <span key={c}>{c}</span>)}
+          </div>
+        </div>
+        {stats.length > 0 && (
+          <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+            {stats.map((s) => (
+              <div key={s.label} style={{ background: hexA(accent, 0.1), border: `1px solid ${hexA(accent, 0.3)}`, borderRadius: 10, padding: '8px 12px', textAlign: 'center', minWidth: 56, ...PRINT_EXACT }}>
+                <div style={{ fontSize: 19, fontWeight: 800, color: shade(accent, -35), lineHeight: 1.1, ...PRINT_EXACT }}>{s.value}</div>
+                <div style={{ fontSize: 9.5, textTransform: 'uppercase', letterSpacing: 0.8, color: '#6b7280', marginTop: 2 }}>{s.label}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      {data.summary && (
+        <div style={{ marginBottom: 22 }}>
+          <H>About</H>
+          <p style={{ fontSize: 12.5, color: '#374151', margin: 0, textAlign: 'justify' }}>{data.summary}</p>
+        </div>
+      )}
+      {skills.length > 0 && (
+        <div style={{ marginBottom: 22 }}>
+          <H>Skill Strength</H>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '9px 26px' }}>
+            {skills.map((s) => {
+              const lvl = skillLevel(s);
+              return (
+                <div key={s}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, color: '#374151', marginBottom: 3 }}>
+                    <span style={{ fontWeight: 600 }}>{s}</span>
+                    <span style={{ color: '#9ca3af' }}>{lvl}%</span>
+                  </div>
+                  <div style={{ height: 7, borderRadius: 4, background: '#eef1f5', overflow: 'hidden', ...PRINT_EXACT }}>
+                    <div style={{ width: `${lvl}%`, height: '100%', borderRadius: 4, background: `linear-gradient(90deg, ${shade(accent, 30)}, ${accent})`, ...PRINT_EXACT }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+      {data.experience.length > 0 && (
+        <div style={{ marginBottom: 22 }}>
+          <H>Experience</H>
+          {data.experience.map((e) => (
+            <div key={e.id} style={{ marginBottom: 14, display: 'flex', gap: 12 }}>
+              <div style={{ width: 4, borderRadius: 3, background: hexA(accent, 0.35), flexShrink: 0, ...PRINT_EXACT }} />
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap' }}>
+                  <h3 style={{ fontSize: 14, margin: 0, fontWeight: 700, color: '#111827' }}>{e.role}</h3>
+                  <span style={{ fontSize: 11.5, color: '#6b7280' }}>{e.date}</span>
+                </div>
+                <div style={{ fontSize: 12.5, color: accent, fontWeight: 600, marginBottom: 4, ...PRINT_EXACT }}>{e.company}</div>
+                <ul style={{ margin: 0, paddingLeft: 15, fontSize: 12.2, color: '#374151' }}>
+                  {bullets(e.desc).map((b, i) => <li key={i} style={{ marginBottom: 3 }}>{b}</li>)}
+                </ul>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {data.education.length > 0 && (
+        <div>
+          <H>Education</H>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px 20px' }}>
+            {data.education.map((e) => (
+              <div key={e.id} style={{ background: '#f8fafc', borderRadius: 8, padding: '9px 12px', ...PRINT_EXACT }}>
+                <p style={{ fontSize: 12.5, fontWeight: 700, margin: 0, color: '#111827' }}>{e.school}</p>
+                <p style={{ fontSize: 11.5, margin: '1px 0 0', color: '#4b5563' }}>{e.degree}</p>
+                <p style={{ fontSize: 11, margin: '1px 0 0', color: '#9ca3af' }}>{e.date}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════ 15. Swiss — strict grid, big type ═════════════════
+function Swiss({ data, accent }: { data: ResumeData; accent: string }) {
+  const Row = ({ label, children }: { label: string; children: React.ReactNode }) => (
+    <div style={{ display: 'flex', gap: 30, paddingTop: 14, marginBottom: 20, borderTop: '1px solid #111827' }}>
+      <div style={{ width: 120, flexShrink: 0 }}>
+        <h2 style={{ fontSize: 11.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1.6, color: '#111827', margin: 0 }}>{label}</h2>
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>{children}</div>
+    </div>
+  );
+  return (
+    <div style={page({ padding: '58px 60px' })}>
+      <div style={{ height: 8, background: accent, marginBottom: 30, ...PRINT_EXACT }} />
+      <h1 style={{ fontSize: 52, fontWeight: 700, margin: '0 0 6px', color: '#111827', letterSpacing: -1.8, lineHeight: 1 }}>{data.name || 'Your Name'}</h1>
+      <p style={{ fontSize: 17, fontWeight: 400, color: '#4b5563', margin: '0 0 34px' }}>{data.title}</p>
+      <Row label="Contact">
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '3px 24px', fontSize: 12, color: '#374151' }}>
+          {contactItems(data).map((c) => <span key={c} style={{ wordBreak: 'break-word' }}>{c}</span>)}
+        </div>
+      </Row>
+      {data.summary && (
+        <Row label="Profile">
+          <p style={{ fontSize: 13, color: '#374151', margin: 0, lineHeight: 1.75 }}>{data.summary}</p>
+        </Row>
+      )}
+      {data.experience.length > 0 && (
+        <Row label="Experience">
+          {data.experience.map((e) => (
+            <div key={e.id} style={{ marginBottom: 18 }}>
+              <div style={{ fontSize: 11.5, color: '#9ca3af', marginBottom: 2, letterSpacing: 0.6 }}>{e.date}</div>
+              <h3 style={{ fontSize: 15.5, margin: 0, fontWeight: 700, color: '#111827', letterSpacing: -0.2 }}>{e.role}</h3>
+              <div style={{ fontSize: 12.8, color: '#4b5563', marginBottom: 6 }}>{e.company}</div>
+              <ul style={{ margin: 0, paddingLeft: 15, fontSize: 12.5, color: '#374151', lineHeight: 1.65 }}>
+                {bullets(e.desc).map((b, i) => <li key={i} style={{ marginBottom: 3 }}>{b}</li>)}
+              </ul>
+            </div>
+          ))}
+        </Row>
+      )}
+      {data.education.length > 0 && (
+        <Row label="Education">
+          {data.education.map((e) => (
+            <div key={e.id} style={{ marginBottom: 11 }}>
+              <div style={{ fontSize: 11.5, color: '#9ca3af', marginBottom: 1, letterSpacing: 0.6 }}>{e.date}</div>
+              <h3 style={{ fontSize: 13.8, margin: 0, fontWeight: 700, color: '#111827' }}>{e.school}</h3>
+              <p style={{ fontSize: 12.5, color: '#4b5563', margin: '1px 0 0' }}>{e.degree}</p>
+            </div>
+          ))}
+        </Row>
+      )}
+      {data.skills && (
+        <Row label="Skills">
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '4px 18px', fontSize: 12.2, color: '#374151' }}>
+            {skillList(data.skills).map((s) => <span key={s}>{s}</span>)}
+          </div>
+        </Row>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════ 16. Corporate — two-tone formal bar ═══════════════
+const CORP_NAVY = '#1e2a44';
+
+function Corporate({ data, accent }: { data: ResumeData; accent: string }) {
+  const H = ({ children }: { children: React.ReactNode }) => (
+    <h2 style={{ fontSize: 12, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1.5, color: CORP_NAVY, margin: '0 0 9px', paddingBottom: 4, borderBottom: `1px solid #cbd5e1`, ...PRINT_EXACT }}>
+      {children}
+      <span style={{ display: 'block', width: 52, height: 3, background: accent, marginTop: 4, marginBottom: -6, ...PRINT_EXACT }} />
+    </h2>
+  );
+  return (
+    <div style={page({ padding: 0, lineHeight: 1.55 })}>
+      <div style={{ display: 'flex', ...PRINT_EXACT }}>
+        <div style={{ flex: 1, background: CORP_NAVY, color: '#fff', padding: '30px 20px 26px 55px', minWidth: 0, ...PRINT_EXACT }}>
+          <h1 style={{ fontSize: 30, fontWeight: 700, margin: '0 0 4px', letterSpacing: 0.4 }}>{data.name || 'Your Name'}</h1>
+          <p style={{ fontSize: 13.5, margin: 0, color: 'rgba(255,255,255,0.8)', textTransform: 'uppercase', letterSpacing: 2 }}>{data.title}</p>
+        </div>
+        <div style={{ width: 235, flexShrink: 0, background: accent, color: '#fff', padding: '30px 55px 26px 22px', ...PRINT_EXACT }}>
+          {contactItems(data).map((c) => (
+            <p key={c} style={{ fontSize: 11.2, margin: '0 0 4px', wordBreak: 'break-word', color: 'rgba(255,255,255,0.95)' }}>{c}</p>
+          ))}
+        </div>
+      </div>
+      <div style={{ padding: '26px 55px 46px' }}>
+        {data.summary && (
+          <div style={{ marginBottom: 20 }}>
+            <H>Professional Profile</H>
+            <p style={{ fontSize: 12.5, color: '#374151', margin: 0, textAlign: 'justify' }}>{data.summary}</p>
+          </div>
+        )}
+        {data.experience.length > 0 && (
+          <div style={{ marginBottom: 20 }}>
+            <H>Career History</H>
+            {data.experience.map((e) => (
+              <div key={e.id} style={{ marginBottom: 14 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap' }}>
+                  <h3 style={{ fontSize: 13.8, margin: 0, fontWeight: 700, color: CORP_NAVY, ...PRINT_EXACT }}>{e.role}</h3>
+                  <span style={{ fontSize: 11.5, color: '#64748b', fontWeight: 600 }}>{e.date}</span>
+                </div>
+                <div style={{ fontSize: 12.5, color: '#475569', fontWeight: 600, marginBottom: 4 }}>{e.company}</div>
+                <ul style={{ margin: 0, paddingLeft: 16, fontSize: 12.2, color: '#374151' }}>
+                  {bullets(e.desc).map((b, i) => <li key={i} style={{ marginBottom: 2 }}>{b}</li>)}
+                </ul>
+              </div>
+            ))}
+          </div>
+        )}
+        <div style={{ display: 'flex', gap: 30, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+          {data.education.length > 0 && (
+            <div style={{ flex: '1 1 46%', minWidth: 230 }}>
+              <H>Education</H>
+              {data.education.map((e) => (
+                <div key={e.id} style={{ marginBottom: 9 }}>
+                  <h3 style={{ fontSize: 12.8, margin: 0, fontWeight: 700, color: CORP_NAVY, ...PRINT_EXACT }}>{e.school}</h3>
+                  <p style={{ fontSize: 12, color: '#475569', margin: '1px 0 0' }}>{e.degree}</p>
+                  <p style={{ fontSize: 11.2, color: '#94a3b8', margin: '1px 0 0' }}>{e.date}</p>
+                </div>
+              ))}
+            </div>
+          )}
+          {data.skills && (
+            <div style={{ flex: '1 1 46%', minWidth: 230 }}>
+              <H>Core Competencies</H>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '3px 16px' }}>
+                {skillList(data.skills).map((s) => (
+                  <span key={s} style={{ fontSize: 12, color: '#374151' }}>
+                    <span style={{ color: accent, fontWeight: 800, marginRight: 6, ...PRINT_EXACT }}>▪</span>{s}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ───────────────────────── colour helpers ─────────────────────────
 /** Lightens (positive) or darkens (negative) a #rrggbb hex by `amt` (0-255). */
 export function shade(hex: string, amt: number): string {
@@ -571,6 +1176,14 @@ export const TEMPLATES: TemplateDef[] = [
   { id: 'minimal', name: 'Minimal', blurb: 'Clean, maximum ATS safety', atsSafe: true, defaultAccent: '#0891b2', Render: Minimal },
   { id: 'timeline', name: 'Timeline', blurb: 'Visual career progression', atsSafe: false, defaultAccent: '#db2777', Render: Timeline },
   { id: 'executive', name: 'Executive', blurb: 'Dark, authoritative header', atsSafe: false, defaultAccent: '#f59e0b', Render: Executive },
+  { id: 'twoColumn', name: 'Compact', blurb: 'Balanced two-column, no dark rail', atsSafe: true, defaultAccent: '#334155', Render: TwoColumn },
+  { id: 'banner', name: 'Banner', blurb: 'Monogram hero band, single column', atsSafe: false, defaultAccent: '#4338ca', Render: Banner },
+  { id: 'cards', name: 'Cards', blurb: 'Soft shadowed cards per role', atsSafe: false, defaultAccent: '#0891b2', Render: Cards },
+  { id: 'academic', name: 'Academic', blurb: 'Serif CV, education first', atsSafe: true, defaultAccent: '#15803d', Render: Academic },
+  { id: 'techGrid', name: 'Tech', blurb: 'Monospace accents, skill grid', atsSafe: false, defaultAccent: '#0f766e', Render: TechGrid },
+  { id: 'infographic', name: 'Infographic', blurb: 'Skill bars and stat chips', atsSafe: false, defaultAccent: '#db2777', Render: Infographic },
+  { id: 'swiss', name: 'Swiss', blurb: 'Strict grid, big type, whitespace', atsSafe: true, defaultAccent: '#dc2626', Render: Swiss },
+  { id: 'corporate', name: 'Corporate', blurb: 'Two-tone formal header bar', atsSafe: false, defaultAccent: '#be123c', Render: Corporate },
 ];
 
 /** Curated accents that stay legible on white in every template. */
