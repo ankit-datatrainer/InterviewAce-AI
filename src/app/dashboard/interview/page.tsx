@@ -90,8 +90,6 @@ export default function InterviewPage() {
   // Empty by default: the user types whatever role they're targeting. The
   // suggestion list is only a shortcut, never a restriction.
   const [selectedRole, setSelectedRole] = useState('');
-  const [linkedinUrl, setLinkedinUrl] = useState('');
-  const [extractingLinkedIn, setExtractingLinkedIn] = useState(false);
   const [customJD, setCustomJD] = useState('');
   const [resumeFile, setResumeFile] = useState<File | null>(null);
   const [resumeText, setResumeText] = useState('');
@@ -210,52 +208,6 @@ export default function InterviewPage() {
   useEffect(() => { selectedDiffRef.current = selectedDiff; }, [selectedDiff]);
   useEffect(() => { customJDRef.current = customJD; }, [customJD]);
   useEffect(() => { resumeTextRef.current = resumeText; }, [resumeText]);
-
-  const handleLinkedInExtract = async () => {
-    if (!linkedinUrl.trim()) {
-      toast('Please enter a LinkedIn profile URL.');
-      return;
-    }
-    // Normalize: accept "linkedin.com/in/x", "www.linkedin.com/in/x", with or
-    // without https://, and mobile links — then validate it's a profile URL.
-    let url = linkedinUrl.trim();
-    if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
-    if (!/^https?:\/\/([a-z]{2,3}\.)?linkedin\.com\/(in|pub)\//i.test(url)) {
-      toast('That does not look like a LinkedIn profile link. Example: linkedin.com/in/your-name');
-      return;
-    }
-    setExtractingLinkedIn(true);
-    try {
-      const res = await fetch('/api/linkedin/extract', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url })
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        toast(data.error || 'Failed to extract LinkedIn profile.');
-      } else {
-        setSelectedRole(data.role);
-        // Save the (normalized) URL so it's remembered next time.
-        setLinkedinUrl(url);
-        try { localStorage.setItem('interview_linkedin_url', url); } catch { /* ignore */ }
-        toast(`Autofilled Target Role as: ${data.role}`);
-      }
-    } catch (err) {
-      console.error(err);
-      toast('Error connecting to extraction API.');
-    } finally {
-      setExtractingLinkedIn(false);
-    }
-  };
-
-  // Restore a previously saved LinkedIn URL.
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem('interview_linkedin_url');
-      if (saved) setLinkedinUrl(saved);
-    } catch { /* ignore */ }
-  }, []);
 
   // Timer
   useEffect(() => {
@@ -774,10 +726,8 @@ export default function InterviewPage() {
       toast('Please complete all selections before starting.');
       return;
     }
-    if (!resumeFile && !hasSavedResume) {
-      toast('Please upload your resume to personalize the interview.');
-      return;
-    }
+    // A résumé is optional: with one the questions are personalised to it,
+    // without one the AI interviews against the target role alone.
     setShowSetup(true);
   };
 
@@ -1228,26 +1178,6 @@ export default function InterviewPage() {
               </small>
             </div>
 
-            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.4rem' }}>
-              <input 
-                type="text" 
-                className="input" 
-                placeholder="Or paste LinkedIn Profile URL to auto-detect role..."
-                value={linkedinUrl}
-                onChange={(e) => setLinkedinUrl(e.target.value)}
-                style={{ flex: 1, height: '42px', margin: 0 }}
-              />
-              <button 
-                type="button" 
-                className="btn btn-ghost" 
-                onClick={handleLinkedInExtract}
-                disabled={extractingLinkedIn}
-                style={{ height: '42px', whiteSpace: 'nowrap', border: '1px solid var(--line)' }}
-              >
-                {extractingLinkedIn ? 'Extracting...' : 'Auto-fill'}
-              </button>
-            </div>
-
             {selectedRole === 'Custom Job Description' && (
               <div className="field" style={{ marginBottom: '1.4rem' }}>
                 <textarea 
@@ -1260,7 +1190,12 @@ export default function InterviewPage() {
               </div>
             )}
 
-            <h4>4 &middot; Upload Resume</h4>
+            <h4>
+              4 &middot; Upload Resume
+              <span style={{ marginLeft: '.5rem', fontSize: '.72rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--text-3)', border: '1px solid var(--line)', borderRadius: 999, padding: '.12rem .5rem' }}>
+                Optional
+              </span>
+            </h4>
             <div className="field" style={{ marginBottom: '1.4rem' }}>
               {hasSavedResume && !resumeFile && !replaceResume ? (
                 <div style={{ padding: '1rem', background: 'var(--card)', borderRadius: 'var(--r-md)', border: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
@@ -1277,7 +1212,9 @@ export default function InterviewPage() {
                     style={{ padding: '0.8rem', background: 'var(--card)', borderRadius: 'var(--r-md)', border: '1px solid var(--line)', opacity: isUploadingResume ? 0.6 : 1, cursor: isUploadingResume ? 'not-allowed' : 'pointer' }}
                   />
                   {isUploadingResume && <small style={{ display: 'block', marginTop: '0.4rem', color: 'var(--accent)' }}>Uploading and analyzing your résumé... Please wait.</small>}
-                  <small style={{ display: 'block', marginTop: '0.4rem', color: 'var(--text-2)' }}>The AI will analyze your resume to personalize the interview questions.</small>
+                  <small style={{ display: 'block', marginTop: '0.4rem', color: 'var(--text-2)' }}>
+                    Optional — upload a résumé and the AI tailors its questions to your actual experience. Skip it and you&apos;ll be interviewed on the target role alone.
+                  </small>
                   {hasSavedResume && replaceResume && (
                     <button type="button" className="btn btn-ghost btn-sm" style={{ marginTop: '0.5rem' }} onClick={() => { setReplaceResume(false); setResumeFile(null); }}>Keep saved résumé</button>
                   )}
@@ -1288,9 +1225,9 @@ export default function InterviewPage() {
             <button
               className="btn btn-primary"
               onClick={startInterview}
-              disabled={(!resumeFile && !hasSavedResume) || !selectedRole.trim()}
+              disabled={!selectedRole.trim()}
               title={!selectedRole.trim() ? 'Enter the role you are interviewing for' : undefined}
-              style={{ opacity: ((!resumeFile && !hasSavedResume) || !selectedRole.trim()) ? 0.5 : 1, cursor: ((!resumeFile && !hasSavedResume) || !selectedRole.trim()) ? 'not-allowed' : 'pointer' }}
+              style={{ opacity: !selectedRole.trim() ? 0.5 : 1, cursor: !selectedRole.trim() ? 'not-allowed' : 'pointer' }}
             >
               <Mic size={18} />
               Enter interview room
