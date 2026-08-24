@@ -14,11 +14,14 @@ import {
   ChevronRight,
   Gift,
   X,
+  BookOpen,
 } from 'lucide-react';
 import { addGems, playDuoSound } from '@/lib/gamification';
+import UnitGuidebookModal from '@/components/UnitGuidebookModal';
 
 type StageNode = {
   id: string;
+  unit: number;
   number: number;
   title: string;
   sub: string;
@@ -31,9 +34,10 @@ type StageNode = {
   gemsReward: number;
 };
 
-const STAGES: StageNode[] = [
+const UNIT_1_STAGES: StageNode[] = [
   {
     id: 'stage-1',
+    unit: 1,
     number: 1,
     title: 'HR Icebreaker & Culture Fit',
     sub: 'Master your "Tell me about yourself" & strengths pitch',
@@ -47,22 +51,24 @@ const STAGES: StageNode[] = [
   },
   {
     id: 'stage-2',
+    unit: 1,
     number: 2,
-    title: 'Technical Fundamentals',
-    sub: 'Domain knowledge, algorithm patterns & architecture basics',
-    type: 'tech',
-    difficulty: 'mid',
-    icon: '💻',
+    title: 'Behavioral & Situational Basics',
+    sub: 'Explain conflict, teamwork, and decision-making scenarios',
+    type: 'behav',
+    difficulty: 'fresher',
+    icon: '🗣️',
     status: 'active',
     stars: 1,
-    xpReward: 80,
+    xpReward: 75,
     gemsReward: 20,
   },
   {
     id: 'stage-3',
+    unit: 1,
     number: 3,
-    title: 'STAR Behavioral Mastery',
-    sub: 'Handling conflict, leadership examples & crisis resolution',
+    title: 'STAR Method Framework',
+    sub: 'Structure Situation, Task, Action & Result with high impact',
     type: 'behav',
     difficulty: 'mid',
     icon: '🌟',
@@ -71,30 +77,49 @@ const STAGES: StageNode[] = [
     xpReward: 90,
     gemsReward: 25,
   },
+];
+
+const UNIT_2_STAGES: StageNode[] = [
   {
     id: 'stage-4',
+    unit: 2,
     number: 4,
-    title: 'Advanced Domain & System Design',
-    sub: 'End-to-end scalability, database trade-offs & edge cases',
+    title: 'Technical Fundamentals',
+    sub: 'Data structures, algorithms & domain problem solving',
+    type: 'tech',
+    difficulty: 'mid',
+    icon: '💻',
+    status: 'locked',
+    stars: 0,
+    xpReward: 110,
+    gemsReward: 30,
+  },
+  {
+    id: 'stage-5',
+    unit: 2,
+    number: 5,
+    title: 'System Design & Trade-Offs',
+    sub: 'Scalability, microservices, databases & caching strategies',
     type: 'tech',
     difficulty: 'adv',
     icon: '🏗️',
     status: 'locked',
     stars: 0,
-    xpReward: 120,
-    gemsReward: 35,
+    xpReward: 140,
+    gemsReward: 40,
   },
   {
-    id: 'stage-5',
-    number: 5,
-    title: 'Executive Round & Offer Closing',
-    sub: 'Strategic vision, salary negotiation & executive presence',
+    id: 'stage-6',
+    unit: 2,
+    number: 6,
+    title: 'Executive Final Round',
+    sub: 'Leadership vision, salary negotiation & closing the offer',
     type: 'hr',
     difficulty: 'adv',
     icon: '👑',
     status: 'locked',
     stars: 0,
-    xpReward: 150,
+    xpReward: 180,
     gemsReward: 50,
   },
 ];
@@ -104,12 +129,14 @@ export default function CareerQuestPath() {
   const [selectedStage, setSelectedStage] = useState<StageNode | null>(null);
   const [chestClaimed, setChestClaimed] = useState(false);
   const [chestModal, setChestModal] = useState(false);
+  const [guidebookUnit, setGuidebookUnit] = useState<{ number: number; title: string } | null>(null);
 
   const handleOpenChest = () => {
     if (chestClaimed) return;
     addGems(30);
     setChestClaimed(true);
     setChestModal(true);
+    playDuoSound('chest');
   };
 
   const handleStartStage = (stage: StageNode) => {
@@ -117,31 +144,28 @@ export default function CareerQuestPath() {
     router.push(`/dashboard/interview?type=${stage.type}&diff=${stage.difficulty}`);
   };
 
-  return (
-    <div className="career-quest-container">
-      {/* Path Header */}
-      <div className="quest-head">
-        <div className="quest-head-badge">
-          <span className="quest-flag">🗺️</span>
-          <span>UNIT 1 &middot; CAREER ACCELERATOR QUEST</span>
-        </div>
-        <h3>Interview Mastery Road</h3>
-        <p>Complete milestones along the path to unlock verified candidate badges & XP.</p>
-      </div>
+  const renderStagesList = (stages: StageNode[], isUnit1: boolean) => {
+    const offsetPositions = ['0px', '52px', '-52px', '40px', '-40px', '0px'];
 
-      {/* Interactive Path Tree */}
-      <div className="duo-path-tree">
-        {STAGES.map((stage, idx) => {
+    return (
+      <div className="duo-unit-path-track">
+        {stages.map((stage, idx) => {
           const isCompleted = stage.status === 'completed';
           const isActive = stage.status === 'active';
           const isLocked = stage.status === 'locked';
-
-          // Zig-zag offset like Duolingo path
-          const offsetPositions = ['0px', '45px', '-45px', '30px', '0px'];
           const offset = offsetPositions[idx % offsetPositions.length];
 
           return (
             <React.Fragment key={stage.id}>
+              {/* Stepping Connector Dots */}
+              {idx > 0 && (
+                <div className="duo-stepping-connector">
+                  <span className="step-dot" />
+                  <span className="step-dot" />
+                  <span className="step-dot" />
+                </div>
+              )}
+
               {/* Milestone Node */}
               <div
                 className="duo-path-node-wrapper"
@@ -175,13 +199,15 @@ export default function CareerQuestPath() {
 
                 <div className="duo-node-label">
                   <strong>{stage.title}</strong>
-                  <span>{stage.status === 'completed' ? 'Completed' : stage.status === 'active' ? 'Current Goal' : 'Locked'}</span>
+                  <span>
+                    {isCompleted ? 'Completed' : isActive ? 'Current Goal' : 'Locked'}
+                  </span>
                 </div>
               </div>
 
-              {/* Reward Chest midway between stage 2 and 3 */}
-              {idx === 1 && (
-                <div className="duo-chest-wrapper" style={{ transform: 'translateX(-20px)' }}>
+              {/* Reward Chest inside Unit 1 */}
+              {isUnit1 && idx === 1 && (
+                <div className="duo-chest-wrapper" style={{ transform: 'translateX(-30px)' }}>
                   <button
                     className={`duo-chest-btn ${chestClaimed ? 'claimed' : 'ready'}`}
                     onClick={handleOpenChest}
@@ -196,6 +222,58 @@ export default function CareerQuestPath() {
           );
         })}
       </div>
+    );
+  };
+
+  return (
+    <div className="career-quest-container">
+      {/* Unit 1 Header */}
+      <div className="duo-unit-banner unit-1-bg">
+        <div className="duo-unit-banner-content">
+          <div>
+            <span className="unit-badge">UNIT 1</span>
+            <h3>HR Round &amp; Culture Fit</h3>
+            <p>Master your elevator pitch, STAR stories &amp; behavioral questions</p>
+          </div>
+          <button
+            className="btn-duo btn-duo-ghost btn-duo-sm guidebook-btn"
+            onClick={() => setGuidebookUnit({ number: 1, title: 'HR Round & Culture Fit' })}
+          >
+            <BookOpen size={16} /> Guidebook
+          </button>
+        </div>
+      </div>
+
+      {/* Mascot Cheer Bubble */}
+      <div className="mascot-cheer-row">
+        <div className="mascot-avatar">🦉</div>
+        <div className="mascot-speech-bubble">
+          <strong>Daily Goal Active!</strong> Practice 5 minutes today to protect your streak flame 🔥
+        </div>
+      </div>
+
+      {/* Unit 1 Path */}
+      {renderStagesList(UNIT_1_STAGES, true)}
+
+      {/* Unit 2 Header */}
+      <div className="duo-unit-banner unit-2-bg" style={{ marginTop: '2.5rem' }}>
+        <div className="duo-unit-banner-content">
+          <div>
+            <span className="unit-badge">UNIT 2</span>
+            <h3>Technical Deep Dive &amp; System Design</h3>
+            <p>Live technical questions, architecture trade-offs &amp; executive closing</p>
+          </div>
+          <button
+            className="btn-duo btn-duo-ghost btn-duo-sm guidebook-btn"
+            onClick={() => setGuidebookUnit({ number: 2, title: 'Technical & System Design' })}
+          >
+            <BookOpen size={16} /> Guidebook
+          </button>
+        </div>
+      </div>
+
+      {/* Unit 2 Path */}
+      {renderStagesList(UNIT_2_STAGES, false)}
 
       {/* Stage Launch Modal */}
       {selectedStage && (
@@ -206,25 +284,25 @@ export default function CareerQuestPath() {
             </button>
             <div style={{ fontSize: '2.8rem', marginBottom: '.6rem' }}>{selectedStage.icon}</div>
             <div style={{ fontSize: '.78rem', fontWeight: 800, color: 'var(--duo-blue, #1cb0f6)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: '.3rem' }}>
-              Milestone {selectedStage.number}
+              Milestone {selectedStage.number} &middot; Unit {selectedStage.unit}
             </div>
             <h3 style={{ fontSize: '1.35rem', margin: '0 0 .5rem' }}>{selectedStage.title}</h3>
             <p style={{ color: 'var(--text-2)', fontSize: '.9rem', margin: '0 0 1.2rem' }}>
               {selectedStage.sub}
             </p>
 
-            <div style={{ display: 'flex', justifyContent: 'center', gap: '1rem', marginBottom: '1.4rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'center', gap: '0.8rem', marginBottom: '1.4rem', flexWrap: 'wrap' }}>
               <span className="tag blue">⚡ +{selectedStage.xpReward} XP</span>
               <span className="tag purple">💎 +{selectedStage.gemsReward} Gems</span>
               <span className="tag green">{selectedStage.difficulty.toUpperCase()}</span>
             </div>
 
             <button
-              className="btn-duo btn-duo-green"
+              className="btn-duo btn-duo-green btn-duo-lg"
               style={{ width: '100%' }}
               onClick={() => handleStartStage(selectedStage)}
             >
-              <Play size={16} style={{ fill: 'currentColor' }} /> Practice Stage Now
+              <Play size={18} style={{ fill: 'currentColor' }} /> Practice Milestone Now
             </button>
           </div>
         </div>
@@ -243,10 +321,20 @@ export default function CareerQuestPath() {
               You found a hidden bonus on the Career Quest path. <strong>+30 Gems</strong> have been added to your bank!
             </p>
             <button className="btn-duo btn-duo-blue" style={{ width: '100%' }} onClick={() => setChestModal(false)}>
-              Claim & Continue
+              Claim &amp; Continue
             </button>
           </div>
         </div>
+      )}
+
+      {/* Guidebook Modal */}
+      {guidebookUnit && (
+        <UnitGuidebookModal
+          unitNumber={guidebookUnit.number}
+          unitTitle={guidebookUnit.title}
+          isOpen={true}
+          onClose={() => setGuidebookUnit(null)}
+        />
       )}
     </div>
   );

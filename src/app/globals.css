@@ -2083,51 +2083,311 @@ table.adm tr:hover td { background: var(--chip); }
   box-shadow: 0 0 10px rgba(255, 150, 0, 0.35);
 }
 
-/* Duolingo Career Quest Path */
+/* Duolingo Dashboard Layout (Center Path + Right Gamification Rail) */
+.duo-dashboard-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 350px;
+  gap: 2rem;
+  align-items: start;
+  width: 100%;
+}
+
+.duo-main-stage {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.duo-sidebar-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 1.4rem;
+  position: sticky;
+  top: 1.2rem;
+}
+
+.duo-hud-card {
+  background: var(--surface-solid);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: 0.9rem 1.1rem;
+  display: flex;
+  justify-content: center;
+}
+
+/* Duolingo Unit Banners */
+.duo-unit-banner {
+  border-radius: 20px;
+  padding: 1.4rem 1.6rem;
+  color: #ffffff;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+}
+.unit-1-bg {
+  background: linear-gradient(135deg, #58cc02 0%, #0d79d1 100%);
+  border: 2px solid rgba(88, 204, 2, 0.4);
+}
+.unit-2-bg {
+  background: linear-gradient(135deg, #8b5cf6 0%, #1cb0f6 100%);
+  border: 2px solid rgba(139, 92, 246, 0.4);
+}
+.duo-unit-banner-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  position: relative;
+  z-index: 2;
+}
+.unit-badge {
+  display: inline-block;
+  background: rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(4px);
+  padding: 0.2rem 0.55rem;
+  border-radius: 6px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  margin-bottom: 0.35rem;
+}
+.duo-unit-banner h3 {
+  margin: 0 0 0.25rem;
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: #fff;
+}
+.duo-unit-banner p {
+  margin: 0;
+  font-size: 0.86rem;
+  opacity: 0.92;
+  color: #fff;
+}
+.guidebook-btn {
+  background: rgba(0, 0, 0, 0.22) !important;
+  color: #ffffff !important;
+  border: 1px solid rgba(255, 255, 255, 0.35) !important;
+  box-shadow: 0 4px 0 rgba(0, 0, 0, 0.3) !important;
+  white-space: nowrap;
+}
+.guidebook-btn:hover {
+  background: rgba(0, 0, 0, 0.35) !important;
+}
+
+/* Mascot Cheer Row */
+.mascot-cheer-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin: 1.2rem 0 1.8rem;
+  padding: 0 1rem;
+}
+.mascot-avatar {
+  font-size: 2.8rem;
+  animation: duoBounce 2.5s infinite;
+  filter: drop-shadow(0 4px 8px rgba(0,0,0,0.3));
+}
+.mascot-speech-bubble {
+  background: var(--card);
+  border: 2px solid var(--line);
+  border-radius: 16px;
+  padding: 0.75rem 1.1rem;
+  font-size: 0.86rem;
+  color: var(--text);
+  position: relative;
+  box-shadow: 0 6px 16px rgba(0,0,0,0.1);
+}
+.mascot-speech-bubble::before {
+  content: '';
+  position: absolute;
+  left: -10px;
+  top: 50%;
+  transform: translateY(-50%);
+  border-width: 6px 10px 6px 0;
+  border-style: solid;
+  border-color: transparent var(--line) transparent transparent;
+}
+
+/* Stepping Connectors */
+.duo-unit-path-track {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.8rem 0 1.5rem;
+}
+.duo-stepping-connector {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  margin: 0.5rem 0;
+}
+.step-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--line);
+  opacity: 0.6;
+}
+
+/* Duolingo Leaderboard Card */
+.duo-leaderboard-card {
+  background: var(--surface-solid);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: 1.1rem;
+}
+.duo-leaderboard-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.9rem;
+  padding-bottom: 0.6rem;
+  border-bottom: 1px solid var(--line);
+}
+.league-icon-badge {
+  font-size: 1.6rem;
+  animation: duoPulse 2.5s infinite;
+}
+.league-time-tag {
+  background: rgba(255, 200, 0, 0.12);
+  color: #ffc800;
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 200, 0, 0.25);
+}
+.duo-leaderboard-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.leaderboard-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.55rem 0.75rem;
+  border-radius: 12px;
+  background: var(--card);
+  border: 1px solid transparent;
+  transition: transform 0.15s ease, border-color 0.15s ease;
+}
+.leaderboard-row.promotion-zone {
+  border-color: rgba(28, 176, 246, 0.15);
+}
+.leaderboard-row.is-current-user {
+  background: rgba(28, 176, 246, 0.12);
+  border-color: #1cb0f6;
+  box-shadow: 0 4px 14px rgba(28, 176, 246, 0.2);
+}
+.rank-badge {
+  font-size: 0.85rem;
+  font-weight: 800;
+  width: 22px;
+  text-align: center;
+}
+.competitor-avatar {
+  font-size: 1.2rem;
+}
+.competitor-info {
+  display: flex;
+  flex-direction: column;
+}
+.competitor-name {
+  font-size: 0.84rem;
+  font-weight: 700;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.you-pill {
+  background: var(--duo-green);
+  color: #fff;
+  font-size: 0.62rem;
+  font-weight: 800;
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+}
+.competitor-sub {
+  font-size: 0.68rem;
+  color: var(--text-3);
+}
+.competitor-xp strong {
+  font-size: 0.88rem;
+  color: var(--text);
+}
+.competitor-xp small {
+  font-size: 0.7rem;
+  color: var(--text-2);
+  margin-left: 2px;
+}
+
+/* Duolingo Power-Up Shop Card */
+.duo-shop-card {
+  background: var(--surface-solid);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: 1.1rem;
+}
+.duo-shop-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.8rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--line);
+}
+.duo-shop-items {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+.shop-item-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.6rem 0.75rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  gap: 0.5rem;
+}
+.shop-item-icon {
+  font-size: 1.3rem;
+}
+
+/* Quest Mini Card */
+.quest-mini-card {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.65rem 0.8rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.quest-bar-bg {
+  width: 100%;
+  height: 6px;
+  background: var(--line);
+  border-radius: 999px;
+  margin-top: 0.3rem;
+  overflow: hidden;
+}
+.quest-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.3s ease;
+}
+
+/* Career Quest Path Container */
 .career-quest-container {
   background: var(--surface-solid);
   border: 1px solid var(--line);
   border-radius: var(--r-lg);
-  padding: 1.8rem;
-  margin-top: 1.5rem;
-}
-.quest-head {
-  text-align: center;
-  margin-bottom: 2rem;
-}
-.quest-head-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  padding: 0.3rem 0.8rem;
-  border-radius: 999px;
-  background: rgba(28, 176, 246, 0.12);
-  border: 1px solid rgba(28, 176, 246, 0.3);
-  color: #1cb0f6;
-  font-weight: 800;
-  font-size: 0.75rem;
-  letter-spacing: 0.05em;
-  margin-bottom: 0.6rem;
-}
-.quest-head h3 {
-  font-size: 1.5rem;
-  font-weight: 800;
-  margin-bottom: 0.35rem;
-}
-.quest-head p {
-  color: var(--text-2);
-  font-size: 0.92rem;
-  max-width: 500px;
-  margin: 0 auto;
-}
-
-.duo-path-tree {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 1.8rem;
-  position: relative;
-  padding: 1rem 0 2rem;
+  padding: 1.5rem;
 }
 
 .duo-path-node-wrapper {
@@ -2299,4 +2559,13 @@ table.adm tr:hover td { background: var(--chip); }
 @keyframes flameFlicker {
   0% { transform: scale(1) rotate(-2deg); filter: drop-shadow(0 0 4px rgba(255,150,0,0.6)); }
   100% { transform: scale(1.15) rotate(2deg); filter: drop-shadow(0 0 10px rgba(255,80,0,0.85)); }
+}
+
+@media (max-width: 1100px) {
+  .duo-dashboard-layout {
+    grid-template-columns: 1fr;
+  }
+  .duo-sidebar-rail {
+    position: static;
+  }
 }
