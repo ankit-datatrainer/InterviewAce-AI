@@ -63,8 +63,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="app-shell">
-      {/* Mobile Header */}
-      <div className="mobile-dash-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem 1rem' }}>
+      {/* Mobile Header (only visible on <= 1024px screens via CSS) */}
+      <div className="mobile-dash-header">
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
           <button 
             className="dash-hamburger" 
@@ -73,14 +73,36 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           >
             {mobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
           </button>
-          <span style={{ fontWeight: 800, fontSize: '1.1rem' }}>
+          <span style={{ fontWeight: 800, fontSize: '1.1rem', fontFamily: 'var(--font-display)' }}>
             Interview<span style={{ color: 'var(--duo-blue, #1cb0f6)' }}>Ace</span>
           </span>
         </div>
-        {!isInterviewActiveRoom && <GamificationBar />}
       </div>
 
       <aside className={`sidebar ${mobileMenuOpen ? 'open' : ''}`}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '.6rem', padding: '.4rem .8rem', marginBottom: '1rem' }}>
+          <span
+            style={{
+              width: 32,
+              height: 32,
+              borderRadius: 10,
+              background: 'var(--grad)',
+              display: 'grid',
+              placeItems: 'center',
+              color: '#fff',
+              fontSize: '.95rem',
+              fontWeight: 800,
+              boxShadow: '0 6px 18px -4px rgba(37,99,235,.6)',
+              flexShrink: 0,
+            }}
+          >
+            ⚡
+          </span>
+          <span style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: '1.05rem' }}>
+            Interview<span style={{ color: 'var(--duo-blue, #1cb0f6)' }}>Ace</span>
+          </span>
+        </div>
+
         <span className="side-group">Student</span>
         {studentLinks.map((link) => {
           const Icon = link.icon;

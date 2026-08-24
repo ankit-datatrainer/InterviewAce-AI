@@ -1417,11 +1417,11 @@ table.adm tr:hover td { background: var(--chip); }
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 1rem 1.4rem;
+    padding: 0.85rem 1.2rem;
     background: var(--nav-bg);
     border-bottom: 1px solid var(--line);
     position: sticky;
-    top: 70px;
+    top: 0;
     z-index: 40;
     backdrop-filter: blur(18px);
   }
@@ -1535,6 +1535,7 @@ table.adm tr:hover td { background: var(--chip); }
 
   /* Container wider on mobile */
   .container { width: 94%; }
+  .app-main { padding: 1.2rem 1rem 90px; }
 
   /* Grids to single column */
   .feat-grid, .metrics, .steps, .plans, .coach-grid, .form-row, .opt-cards { grid-template-columns: 1fr; }

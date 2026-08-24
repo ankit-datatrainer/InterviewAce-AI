@@ -139,8 +139,10 @@ export default function DashboardPage() {
   return (
     <>
       <style dangerouslySetInnerHTML={{__html: `
-        @media (max-width: 480px) {
+        @media (max-width: 680px) {
           .home-session-row { flex-wrap: wrap; row-gap: .5rem; }
+          .dash-head-actions { width: 100%; display: flex; flex-direction: column; align-items: stretch; gap: 0.8rem; }
+          .dash-head-actions .btn-duo { width: 100%; justify-content: center; }
         }
       `}} />
       {/* App head */}
@@ -155,7 +157,7 @@ export default function DashboardPage() {
                 : '🔥 Weekly streak goal achieved! Keep practicing to maintain your edge.'}
           </p>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', flexWrap: 'wrap' }}>
+        <div className="dash-head-actions" style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', flexWrap: 'wrap' }}>
           <GamificationBar />
           <Link href="/dashboard/interview" className="btn-duo btn-duo-green btn-duo-sm">
             <Plus size={16} /> New mock interview
