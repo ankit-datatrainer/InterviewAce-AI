@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { Star, Plus, Trash2, Edit3, Save, X } from 'lucide-react';
 import { useToast } from '@/components/Toast';
+import { addXP, addGems, updateQuestProgress, unlockBadge, playDuoSound } from '@/lib/gamification';
 
 type StarStory = {
   id: string;
@@ -61,7 +62,16 @@ export default function StarBuilderPage() {
     saveStories(newStories);
     setEditingId(null);
     setCurrentStory(null);
-    toast('Story saved successfully!');
+    try {
+      addXP(30);
+      addGems(10);
+      updateQuestProgress('star_story', 1);
+      if (newStories.length >= 3) {
+        unlockBadge('star_master');
+      }
+      playDuoSound('correct');
+    } catch {}
+    toast('⭐ Story saved! +30 XP & +10 💎 earned!');
   };
 
   const handleCancel = () => {
@@ -92,7 +102,7 @@ export default function StarBuilderPage() {
           <p>Prepare your behavioral stories using the Situation, Task, Action, Result framework.</p>
         </div>
         {!editingId && (
-          <button className="btn btn-primary" onClick={handleAddNew}>
+          <button className="btn-duo btn-duo-green btn-duo-sm" onClick={handleAddNew}>
             <Plus size={18} /> New Story
           </button>
         )}

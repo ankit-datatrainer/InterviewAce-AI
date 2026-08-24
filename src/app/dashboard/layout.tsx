@@ -17,9 +17,11 @@ import {
   Star,
   Menu,
   X,
-  CalendarDays
+  CalendarDays,
+  Sparkles,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
+import GamificationBar from '@/components/GamificationBar';
 
 const studentLinks = [
   { href: '/dashboard', label: 'Dashboard', icon: Home },
@@ -56,18 +58,26 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     return pathname.startsWith(href);
   };
 
+  // Interview active room takes full screen without standard chrome
+  const isInterviewActiveRoom = pathname === '/dashboard/interview';
+
   return (
     <div className="app-shell">
       {/* Mobile Header */}
-      <div className="mobile-dash-header">
-        <h2>Dashboard</h2>
-        <button 
-          className="dash-hamburger" 
-          onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-          aria-label="Toggle Dashboard Menu"
-        >
-          {mobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
-        </button>
+      <div className="mobile-dash-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem 1rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+          <button 
+            className="dash-hamburger" 
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            aria-label="Toggle Dashboard Menu"
+          >
+            {mobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
+          </button>
+          <span style={{ fontWeight: 800, fontSize: '1.1rem' }}>
+            Interview<span style={{ color: 'var(--duo-blue, #1cb0f6)' }}>Ace</span>
+          </span>
+        </div>
+        {!isInterviewActiveRoom && <GamificationBar />}
       </div>
 
       <aside className={`sidebar ${mobileMenuOpen ? 'open' : ''}`}>

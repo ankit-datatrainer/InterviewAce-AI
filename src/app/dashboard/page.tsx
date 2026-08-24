@@ -8,6 +8,11 @@ import {
   Target,
   FileText,
   Plus,
+  Flame,
+  CheckCircle2,
+  Sparkles,
+  Trophy,
+  Award,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 import { getInterviews, hydrateInterviews } from '@/lib/interview-store';
@@ -17,6 +22,9 @@ import type { ResumeRecord } from '@/lib/resume-store';
 import { getUpcomingBookings, hydrateBookings } from '@/lib/booking-store';
 import type { BookingRecord } from '@/lib/booking-store';
 import { useSessionWindow } from '@/lib/session-window';
+import GamificationBar from '@/components/GamificationBar';
+import CareerQuestPath from '@/components/CareerQuestPath';
+import { getGamificationState, GamificationState } from '@/lib/gamification';
 
 // The coaching room opens 5 minutes before the booked slot. Until then the
 // Join button is hidden and a live countdown is shown instead.
@@ -66,6 +74,7 @@ export default function DashboardPage() {
   const [interviews, setInterviews] = useState<InterviewRecord[]>([]);
   const [latestResume, setLatestResume] = useState<ResumeRecord | null>(null);
   const [upcomingBookings, setUpcomingBookings] = useState<BookingRecord[]>([]);
+  const [gameState, setGameState] = useState<GamificationState | null>(null);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
@@ -90,13 +99,12 @@ export default function DashboardPage() {
     setInterviews(getInterviews());
     setLatestResume(getLatestResume());
     setUpcomingBookings(getUpcomingBookings());
+    setGameState(getGamificationState());
     setLoaded(true);
     loadUser();
-    // Pull the user's interviews from the database so past records show up on
-    // any device they log into (not just the browser they practiced on).
+
     hydrateInterviews().then((all) => setInterviews([...all])).catch(() => {});
     hydrateResumes().then((all) => setLatestResume(all.length > 0 ? all[all.length - 1] : null)).catch(() => {});
-    // Pull real bookings from Supabase so sessions booked on any device show up here.
     hydrateBookings().then((all) => setUpcomingBookings(all.filter((b) => b.status === 'upcoming'))).catch(() => {});
   }, []);
 
@@ -136,20 +144,23 @@ export default function DashboardPage() {
         }
       `}} />
       {/* App head */}
-      <div className="app-head">
+      <div className="app-head" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1.2rem', marginBottom: '1.5rem' }}>
         <div>
           <h2>Welcome back{firstName ? `, ${firstName}` : ''} {'\ud83d\udc4b'}</h2>
           <p>
             {count === 0
-              ? 'Start your first mock interview to track your progress.'
+              ? 'Start your first mock interview to ignite your practice streak!'
               : goalRemaining > 0
-                ? `You're ${goalRemaining} mock interview${goalRemaining > 1 ? 's' : ''} away from your weekly goal.`
-                : 'You have reached your weekly goal! Keep practicing to improve.'}
+                ? `You're on a 🔥 ${gameState?.streak || 1}-day streak! ${goalRemaining} more mock round${goalRemaining > 1 ? 's' : ''} to reach your weekly milestone.`
+                : '🔥 Weekly streak goal achieved! Keep practicing to maintain your edge.'}
           </p>
         </div>
-        <Link href="/dashboard/interview" className="btn btn-primary btn-sm">
-          <Plus size={16} /> New mock interview
-        </Link>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', flexWrap: 'wrap' }}>
+          <GamificationBar />
+          <Link href="/dashboard/interview" className="btn-duo btn-duo-green btn-duo-sm">
+            <Plus size={16} /> New mock interview
+          </Link>
+        </div>
       </div>
 
       {/* KPI Row */}
@@ -194,8 +205,58 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      {/* Career Quest Path (Duolingo Style Roadmap) */}
+      <CareerQuestPath />
+
       {/* Two-column row */}
-      <div className="dash-grid-2">
+      <div className="dash-grid-2" style={{ marginTop: '1.5rem' }}>
+        {/* Daily Quests Widget */}
+        <div className="widget">
+          <h4>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              <span>🎯</span> Daily Goals &amp; Quests
+            </span>
+            <span className="tag amber" style={{ fontSize: '0.72rem' }}>Resets Daily</span>
+          </h4>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem', marginTop: '0.6rem' }}>
+            {gameState?.quests?.map((q) => (
+              <div
+                key={q.id}
+                style={{
+                  background: 'var(--card)',
+                  border: '1px solid var(--line)',
+                  borderRadius: '16px',
+                  padding: '0.85rem 1rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '0.8rem',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                  <span style={{ fontSize: '1.4rem' }}>{q.icon}</span>
+                  <div>
+                    <strong style={{ fontSize: '0.88rem', display: 'block', color: 'var(--text)' }}>
+                      {q.title}
+                    </strong>
+                    <span style={{ fontSize: '0.78rem', color: 'var(--text-2)' }}>{q.desc}</span>
+                    <div style={{ width: '120px', height: '6px', background: 'var(--line)', borderRadius: '999px', marginTop: '0.35rem', overflow: 'hidden' }}>
+                      <div style={{ width: `${(q.current / q.target) * 100}%`, height: '100%', background: q.completed ? 'var(--duo-green)' : 'var(--duo-blue)', borderRadius: '999px' }} />
+                    </div>
+                  </div>
+                </div>
+                <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                  <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#ffc800', display: 'block' }}>
+                    +{q.xpReward} XP
+                  </span>
+                  <span style={{ fontSize: '0.72rem', fontWeight: 700, color: '#1cb0f6' }}>
+                    +{q.gemsReward} 💎
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
         {/* Recent interviews */}
         <div className="widget">
           <h4>

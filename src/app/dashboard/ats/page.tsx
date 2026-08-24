@@ -18,6 +18,7 @@ import {
 import { useToast } from '@/components/Toast';
 import RoleCombobox, { COMMON_ROLES } from '@/components/RoleCombobox';
 import { saveResume, getLatestResume, type ResumeRecord } from '@/lib/resume-store';
+import { addXP, addGems, updateQuestProgress, playDuoSound } from '@/lib/gamification';
 
 function downloadFile(content: string, filename: string, type = 'text/plain') {
   const blob = new Blob([content], { type });
@@ -233,6 +234,12 @@ export default function ATSPage() {
         if (analysisData.extractedData && typeof window !== 'undefined') {
           localStorage.setItem('resumeBuilderData', JSON.stringify(analysisData.extractedData));
         }
+        try {
+          addXP(25);
+          addGems(10);
+          updateQuestProgress('resume_scan', 1);
+          playDuoSound('correct');
+        } catch {}
         setResult(analysis);
         setView('result');
       }, 500);

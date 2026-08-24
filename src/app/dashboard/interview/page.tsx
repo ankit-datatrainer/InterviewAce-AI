@@ -21,7 +21,19 @@ import {
   Target,
   XCircle,
   Bot,
+  ArrowLeft,
 } from 'lucide-react';
+import DuolingoModal from '@/components/DuolingoModal';
+import GamificationBar from '@/components/GamificationBar';
+import {
+  addXP,
+  addGems,
+  updateQuestProgress,
+  unlockBadge,
+  playDuoSound,
+  loseHeart,
+  refillHearts,
+} from '@/lib/gamification';
 import { saveInterview } from '@/lib/interview-store';
 import { saveRecording } from '@/lib/recording-store';
 import type { InterviewRecord } from '@/lib/interview-store';
@@ -186,6 +198,8 @@ export default function InterviewPage() {
   const [setupError, setSetupError] = useState('');
   const [consentGiven, setConsentGiven] = useState(false);
   const [tabWarning, setTabWarning] = useState(false);
+  const [showQuitModal, setShowQuitModal] = useState(false);
+  const [showTerminatedModal, setShowTerminatedModal] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const [ariaSpeaking, setAriaSpeaking] = useState(false);
@@ -1179,8 +1193,20 @@ export default function InterviewPage() {
     if (videoBlob && videoBlob.size > 0) {
       try { await saveRecording(interviewId, videoBlob); } catch { /* recording is best-effort */ }
     }
+    // Gamification awards & progress
+    try {
+      addXP(80);
+      addGems(20);
+      updateQuestProgress('daily_interview', 1);
+      if (score >= 90) unlockBadge('score_90');
+      if (strikes === 0) unlockBadge('flawless_round');
+      unlockBadge('first_interview');
+      playDuoSound('levelup');
+    } catch (err) {
+      console.warn('Gamification update error', err);
+    }
     router.push(`/dashboard/analysis?id=${interviewId}`);
-  }, [stopHeygen, router, stopCombinedRecording]);
+  }, [stopHeygen, router, stopCombinedRecording, strikes]);
 
   // Expose the latest cleanup to the session-cap timer set up inside initHeygen.
   useEffect(() => { endInterviewCleanupRef.current = endInterviewCleanup; }, [endInterviewCleanup]);
@@ -1618,6 +1644,34 @@ export default function InterviewPage() {
 
 
 
+  const handleExitToDashboard = useCallback(() => {
+    if (endingRef.current) return;
+    endingRef.current = true;
+
+    if (document.fullscreenElement && document.exitFullscreen) {
+      document.exitFullscreen().catch(() => {});
+    }
+
+    if (timerRef.current) clearInterval(timerRef.current);
+    if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+    if (rambleTimerRef.current) clearTimeout(rambleTimerRef.current);
+    if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
+    if (dgSocketRef.current && dgSocketRef.current.readyState === WebSocket.OPEN) dgSocketRef.current.close();
+    dgSocketRef.current = null;
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      try { mediaRecorderRef.current.stop(); } catch {}
+    }
+    if (mediaStreamRef.current) { mediaStreamRef.current.getTracks().forEach((track) => track.stop()); }
+    if (cameraStreamRef.current) { cameraStreamRef.current.getTracks().forEach((track) => track.stop()); }
+    try { stopHeygen(); } catch {}
+
+    setInRoom(false);
+    setShowQuitModal(false);
+    setTabWarning(false);
+    setShowTerminatedModal(false);
+    router.push('/dashboard');
+  }, [router, stopHeygen]);
+
   const endInterview = () => {
     if (endingRef.current) return;
     if (document.fullscreenElement && document.exitFullscreen) {
@@ -1702,13 +1756,23 @@ export default function InterviewPage() {
       if (document.hidden) {
         pauseAI();
         setTabWarning(true);
-        setStrikes((s) => s + 1);
+        setStrikes((s) => {
+          const next = s + 1;
+          loseHeart();
+          playDuoSound('wrong');
+          return next;
+        });
       }
     };
     const handleBlur = () => {
       pauseAI();
       setTabWarning(true);
-      setStrikes((s) => s + 1);
+      setStrikes((s) => {
+        const next = s + 1;
+        loseHeart();
+        playDuoSound('wrong');
+        return next;
+      });
     };
 
     document.addEventListener("visibilitychange", handleVisibilityChange);
@@ -1769,8 +1833,13 @@ export default function InterviewPage() {
               noFaceStartTime = currentTime;
             } else if (currentTime - noFaceStartTime > 5000 && !strikeGiven) {
               // 5 seconds without face
-              toast("Face not detected for 5 seconds. Please stay in the frame! Strike added.");
-              setStrikes((s) => s + 1);
+              toast("Face not detected for 5 seconds. Please stay in the frame! Life lost.");
+              setStrikes((s) => {
+                const next = s + 1;
+                loseHeart();
+                playDuoSound('wrong');
+                return next;
+              });
               strikeGiven = true;
             }
           } else {
@@ -1789,8 +1858,13 @@ export default function InterviewPage() {
 
   useEffect(() => {
     if (strikes >= 3 && inRoomRef.current) {
-      toast('Maximum strikes reached. Interview terminated.');
-      endInterview();
+      playDuoSound('wrong');
+      setShowTerminatedModal(true);
+      setTabWarning(false);
+      if (heygenVideoRef.current) {
+        heygenVideoRef.current.muted = true;
+        try { heygenVideoRef.current.pause(); } catch { /* ignore */ }
+      }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [strikes]);
@@ -1862,27 +1936,70 @@ export default function InterviewPage() {
   // ─── FULLSCREEN WRAPPER ───
   return (
     <div ref={containerRef} style={{ display: 'flex', flexDirection: 'column', background: 'var(--bg)', overflowY: 'auto', ...(inRoom ? { position: 'fixed', inset: 0, zIndex: 2000, width: '100vw', height: '100vh', padding: '1.25rem 1.5rem' } : { width: '100%', height: '100%' }) }}>
-      {tabWarning && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.95)', zIndex: 99999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: 'var(--surface-solid)', padding: '3rem', borderRadius: 'var(--r-lg)', border: '1px solid var(--error-border)', textAlign: 'center', maxWidth: 500 }}>
-            <h2 style={{ marginBottom: '1rem', color: 'var(--error-text)' }}>Interview Paused</h2>
-            <div style={{ background: 'var(--error-bg)', color: 'var(--error-text)', padding: '0.8rem', borderRadius: 'var(--r-md)', fontWeight: 'bold', marginBottom: '1.5rem', display: 'inline-block' }}>
-              {strikes >= 3 ? "INTERVIEW TERMINATED" : `STRIKE ${strikes} OF 3`}
-            </div>
-            <p style={{ color: 'var(--text)', marginBottom: '2rem' }}>You must stay on the interview screen. Switching tabs or windows is a violation. 3 strikes will immediately terminate the interview.</p>
-            {strikes < 3 && (
-              <button className="btn btn-primary" onClick={() => { setTabWarning(false); if (heygenVideoRef.current) { heygenVideoRef.current.muted = false; heygenVideoRef.current.play().catch(() => {}); } if (containerRef.current?.requestFullscreen) containerRef.current.requestFullscreen().catch(()=>console.log('fs error')); }} style={{ background: 'var(--error-text)', border: 'none', margin: '0 auto' }}>
-                Acknowledge Warning & Return
-              </button>
-            )}
-          </div>
-        </div>
-      )}
+      {/* 1. Tab Switch / Focus Loss Warning Modal (Duolingo Style) */}
+      <DuolingoModal
+        isOpen={tabWarning && strikes < 3}
+        type="strike_warning"
+        title="⚠️ Screen Switched!"
+        subtitle="You navigated away from the interview room. Please stay on this tab to simulate a real proctored interview. Losing all 3 lives will terminate the session."
+        heartsRemaining={Math.max(0, 3 - strikes)}
+        maxHearts={3}
+        primaryButtonText="I'm Ready — Resume Interview"
+        onPrimaryClick={() => {
+          setTabWarning(false);
+          if (heygenVideoRef.current) {
+            heygenVideoRef.current.muted = false;
+            heygenVideoRef.current.play().catch(() => {});
+          }
+          if (containerRef.current?.requestFullscreen) {
+            containerRef.current.requestFullscreen().catch(() => {});
+          }
+        }}
+        secondaryButtonText="Exit to Dashboard"
+        onSecondaryClick={handleExitToDashboard}
+      />
+
+      {/* 2. Out of Lives / Terminated Modal */}
+      <DuolingoModal
+        isOpen={showTerminatedModal || strikes >= 3}
+        type="terminated"
+        title="Out of Lives / Interview Ended"
+        subtitle="You received 3 strikes for navigating away or leaving the camera view. Don't worry, every mock session is a valuable learning experience!"
+        heartsRemaining={0}
+        maxHearts={3}
+        primaryButtonText="Return to Dashboard"
+        onPrimaryClick={handleExitToDashboard}
+        secondaryButtonText="Try Again with Full Lives"
+        onSecondaryClick={() => {
+          refillHearts();
+          setStrikes(0);
+          setShowTerminatedModal(false);
+          setTabWarning(false);
+          setInRoom(false);
+          setShowSetup(false);
+        }}
+      />
+
+      {/* 3. Exit Confirmation Modal ("Wait, don't leave!") */}
+      <DuolingoModal
+        isOpen={showQuitModal}
+        type="quit_warning"
+        title="Wait, don't leave!"
+        subtitle="You're doing great in your mock interview! If you quit now, this session's streak bonus and answer feedback will not be recorded."
+        heartsRemaining={Math.max(0, 3 - strikes)}
+        maxHearts={3}
+        primaryButtonText="Keep Practicing"
+        onPrimaryClick={() => setShowQuitModal(false)}
+        secondaryButtonText="Quit & Go Back"
+        onSecondaryClick={handleExitToDashboard}
+        onClose={() => setShowQuitModal(false)}
+      />
 
       {connecting ? (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', gap: '1rem', flex: 1 }}>
+          <div style={{ fontSize: '3rem', animation: 'duoBounce 1.5s infinite' }}>🤖</div>
           <h3 style={{ margin: 0 }}>Connecting to your interviewer...</h3>
-          <p style={{ color: 'var(--text-2)', margin: 0 }}>Setting up your session</p>
+          <p style={{ color: 'var(--text-2)', margin: 0 }}>Preparing your practice room</p>
         </div>
       ) : !inRoom ? (
         <>
@@ -1903,20 +2020,21 @@ export default function InterviewPage() {
                   <span>I understand and consent to camera/microphone access, session recording, transcription, and AI analysis for this mock interview.</span>
                 </label>
                 {setupError && <div style={{ color: 'var(--error-text)', marginBottom: '1rem', fontSize: '0.85rem' }}>{setupError}</div>}
-                <button className="btn btn-primary" onClick={requestPermissions} disabled={!consentGiven} style={{ width: '100%', justifyContent: 'center', opacity: consentGiven ? 1 : .55 }}>
-                  Consent and enable devices
+                <button className="btn-duo btn-duo-green" onClick={requestPermissions} disabled={!consentGiven} style={{ width: '100%', justifyContent: 'center', opacity: consentGiven ? 1 : .55 }}>
+                  Consent &amp; Enable Devices
                 </button>
-                <button className="btn btn-ghost" onClick={() => setShowSetup(false)} style={{ width: '100%', justifyContent: 'center', marginTop: '0.5rem' }}>
+                <button className="btn-duo btn-duo-ghost" onClick={() => setShowSetup(false)} style={{ width: '100%', justifyContent: 'center', marginTop: '0.6rem' }}>
                   Cancel
                 </button>
               </div>
             </div>
           )}
-          <div className="app-head">
+          <div className="app-head" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
             <div>
               <h2>Set up your mock interview</h2>
-              <p>Configure your session and enter the interview room.</p>
+              <p>Configure your session and enter the gamified practice arena.</p>
             </div>
+            <GamificationBar />
           </div>
 <div className="setup-grid">
           {/* Left: Options */}
@@ -2047,14 +2165,14 @@ export default function InterviewPage() {
             </div>
 
             <button
-              className="btn btn-primary"
+              className="btn-duo btn-duo-green btn-duo-lg"
               onClick={startInterview}
               disabled={!selectedRole.trim()}
               title={!selectedRole.trim() ? 'Enter the role you are interviewing for' : undefined}
-              style={{ opacity: !selectedRole.trim() ? 0.5 : 1, cursor: !selectedRole.trim() ? 'not-allowed' : 'pointer' }}
+              style={{ width: '100%', opacity: !selectedRole.trim() ? 0.5 : 1, cursor: !selectedRole.trim() ? 'not-allowed' : 'pointer' }}
             >
-              <Mic size={18} />
-              Enter interview room
+              <Mic size={20} />
+              Start Practice Session
             </button>
           </div>
 
@@ -2130,25 +2248,58 @@ export default function InterviewPage() {
             <style>{`@keyframes atsSpin { to { transform: rotate(360deg); } }`}</style>
           </div>
         )}
-<div className="app-head">
-        <div>
-          <h2>Interview room</h2>
-          <p>
-            {interviewTypes.find((t) => t.id === selectedType)?.label} &middot;{' '}
-            {selectedRole} &middot;{' '}
-            {difficulties.find((d) => d.id === selectedDiff)?.label}
-          </p>
+      <div className="app-head" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem', marginBottom: '1rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          <button
+            type="button"
+            className="btn-duo btn-duo-ghost btn-duo-sm"
+            onClick={() => setShowQuitModal(true)}
+            title="Exit to Dashboard"
+            style={{ padding: '0.45rem 0.85rem', gap: '0.4rem', fontSize: '0.84rem' }}
+          >
+            <ArrowLeft size={16} /> Exit
+          </button>
+          <div>
+            <h2 style={{ margin: 0, fontSize: '1.25rem' }}>Interview room</h2>
+            <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-2)' }}>
+              {interviewTypes.find((t) => t.id === selectedType)?.label} &middot;{' '}
+              {selectedRole} &middot;{' '}
+              {difficulties.find((d) => d.id === selectedDiff)?.label}
+            </p>
+          </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
           <div style={{ textAlign: 'right' }}>
             <span className="timer" title={`Elapsed ${formattedTime}`}>{formattedRemaining} remaining</span>
           </div>
-          <div className="strikes">
+          {/* Duolingo Practice Lives Display */}
+          <div
+            className="room-hearts-box"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.35rem',
+              background: 'rgba(255, 75, 75, 0.1)',
+              padding: '0.35rem 0.75rem',
+              borderRadius: '999px',
+              border: '1px solid rgba(255, 75, 75, 0.25)',
+            }}
+          >
             {[0, 1, 2].map((i) => (
-              <div key={i} className={`strike${i < strikes ? ' hit' : ''}`}>
-                {i < strikes ? <XCircle size={14} /> : ''}
-              </div>
+              <span
+                key={i}
+                style={{
+                  fontSize: '1.1rem',
+                  filter: i < (3 - strikes) ? 'drop-shadow(0 2px 4px rgba(255,75,75,0.5))' : 'grayscale(1) opacity(0.3)',
+                  transition: 'all 0.3s',
+                }}
+              >
+                {i < (3 - strikes) ? '❤️' : '🤍'}
+              </span>
             ))}
+            <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#ff4b4b', marginLeft: '0.2rem' }}>
+              {Math.max(0, 3 - strikes)}/3
+            </span>
           </div>
         </div>
       </div>
@@ -2254,14 +2405,14 @@ export default function InterviewPage() {
             </div>
           </div>
 
-          <div className="room-controls" style={{ marginTop: 'auto' }}>
-            <button className="ctrl" title="Skip this question" onClick={advanceQuestion} style={{ width: 'auto', padding: '0 .85rem', gap: '.45rem' }}>
-              <SkipForward size={20} />
-              <span style={{ fontSize: '.78rem', fontWeight: 650 }}>Skip question</span>
+          <div className="room-controls" style={{ marginTop: 'auto', display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', paddingTop: '1rem' }}>
+            <button className="btn-duo btn-duo-ghost btn-duo-sm" title="Skip this question" onClick={advanceQuestion}>
+              <SkipForward size={18} />
+              <span>Skip Question</span>
             </button>
-            <button className="ctrl end" title="End interview" onClick={endInterview} style={{ width: 'auto', padding: '0 .85rem', gap: '.45rem' }}>
-              <Square size={20} />
-              <span style={{ fontSize: '.78rem', fontWeight: 650 }}>End interview</span>
+            <button className="btn-duo btn-duo-red btn-duo-sm" title="End or leave interview" onClick={() => setShowQuitModal(true)}>
+              <Square size={18} />
+              <span>Quit &amp; Exit</span>
             </button>
           </div>
         </div>

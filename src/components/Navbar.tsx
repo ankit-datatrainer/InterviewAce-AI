@@ -98,16 +98,16 @@ export default function Navbar() {
             {dark === null ? <Moon size={18} /> : dark ? <Sun size={18} /> : <Moon size={18} />}
           </button>
           {isAuthenticated ? (
-            <Link href="/dashboard" className="btn btn-primary btn-sm">
+            <Link href="/dashboard" className="btn-duo btn-duo-green btn-duo-sm">
               Dashboard
             </Link>
           ) : (
             <>
-              <Link href="/login" className="btn btn-ghost btn-sm">
+              <Link href="/login" className="btn-duo btn-duo-ghost btn-duo-sm">
                 Log in
               </Link>
-              <Link href="/signup" className="btn btn-primary btn-sm">
-                Start free
+              <Link href="/signup" className="btn-duo btn-duo-green btn-duo-sm">
+                Start Free
               </Link>
             </>
           )}
@@ -135,16 +135,16 @@ export default function Navbar() {
             )
           )}
           {isAuthenticated ? (
-            <Link href="/dashboard" className="btn btn-primary btn-sm" onClick={() => setMobileOpen(false)} style={{ minHeight: '44px', justifyContent: 'center' }}>
+            <Link href="/dashboard" className="btn-duo btn-duo-green btn-duo-sm" onClick={() => setMobileOpen(false)} style={{ minHeight: '44px', justifyContent: 'center' }}>
               Dashboard
             </Link>
           ) : (
             <>
-              <Link href="/login" className="btn btn-ghost btn-sm" onClick={() => setMobileOpen(false)} style={{ minHeight: '44px', justifyContent: 'center' }}>
+              <Link href="/login" className="btn-duo btn-duo-ghost btn-duo-sm" onClick={() => setMobileOpen(false)} style={{ minHeight: '44px', justifyContent: 'center' }}>
                 Log in
               </Link>
-              <Link href="/signup" className="btn btn-primary btn-sm" onClick={() => setMobileOpen(false)} style={{ minHeight: '44px', justifyContent: 'center' }}>
-                Start free
+              <Link href="/signup" className="btn-duo btn-duo-green btn-duo-sm" onClick={() => setMobileOpen(false)} style={{ minHeight: '44px', justifyContent: 'center' }}>
+                Start Free
               </Link>
             </>
           )}

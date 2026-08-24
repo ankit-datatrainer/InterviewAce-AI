@@ -1777,3 +1777,525 @@ table.adm tr:hover td { background: var(--chip); }
     text-shadow: none !important;
   }
 }
+
+/* ==========================================================================
+   DUOLINGO GAMIFICATION DESIGN SYSTEM
+   ========================================================================== */
+
+:root {
+  --duo-green: #58CC02;
+  --duo-green-shadow: #46A302;
+  --duo-blue: #1CB0F6;
+  --duo-blue-shadow: #1899D6;
+  --duo-orange: #FF9600;
+  --duo-orange-shadow: #E08500;
+  --duo-red: #FF4B4B;
+  --duo-red-shadow: #EA2B2B;
+  --duo-yellow: #FFC800;
+  --duo-yellow-shadow: #E5A400;
+  --duo-purple: #CE82FF;
+  --duo-purple-shadow: #A560E8;
+  --duo-gray: #E5E5E5;
+  --duo-gray-shadow: #CDCDCD;
+}
+
+/* Tactile 3D Duolingo-style Buttons */
+.btn-duo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  font-weight: 750;
+  font-size: 0.95rem;
+  border-radius: 16px;
+  padding: 0.85rem 1.6rem;
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.15s ease, filter 0.15s ease;
+  border: none;
+  text-decoration: none;
+  text-align: center;
+  user-select: none;
+}
+.btn-duo-sm {
+  padding: 0.5rem 1rem;
+  font-size: 0.82rem;
+  border-radius: 12px;
+}
+.btn-duo-lg {
+  padding: 1.1rem 2.2rem;
+  font-size: 1.1rem;
+  border-radius: 20px;
+}
+
+.btn-duo-green {
+  background: var(--duo-green);
+  color: #ffffff !important;
+  box-shadow: 0 4px 0 var(--duo-green-shadow);
+}
+.btn-duo-green:hover {
+  filter: brightness(1.06);
+}
+.btn-duo-green:active {
+  transform: translateY(3px);
+  box-shadow: 0 1px 0 var(--duo-green-shadow);
+}
+
+.btn-duo-blue {
+  background: var(--duo-blue);
+  color: #ffffff !important;
+  box-shadow: 0 4px 0 var(--duo-blue-shadow);
+}
+.btn-duo-blue:hover {
+  filter: brightness(1.06);
+}
+.btn-duo-blue:active {
+  transform: translateY(3px);
+  box-shadow: 0 1px 0 var(--duo-blue-shadow);
+}
+
+.btn-duo-orange {
+  background: var(--duo-orange);
+  color: #ffffff !important;
+  box-shadow: 0 4px 0 var(--duo-orange-shadow);
+}
+.btn-duo-orange:hover {
+  filter: brightness(1.06);
+}
+.btn-duo-orange:active {
+  transform: translateY(3px);
+  box-shadow: 0 1px 0 var(--duo-orange-shadow);
+}
+
+.btn-duo-red {
+  background: var(--duo-red);
+  color: #ffffff !important;
+  box-shadow: 0 4px 0 var(--duo-red-shadow);
+}
+.btn-duo-red:hover {
+  filter: brightness(1.06);
+}
+.btn-duo-red:active {
+  transform: translateY(3px);
+  box-shadow: 0 1px 0 var(--duo-red-shadow);
+}
+
+.btn-duo-purple {
+  background: var(--duo-purple);
+  color: #ffffff !important;
+  box-shadow: 0 4px 0 var(--duo-purple-shadow);
+}
+.btn-duo-purple:hover {
+  filter: brightness(1.06);
+}
+.btn-duo-purple:active {
+  transform: translateY(3px);
+  box-shadow: 0 1px 0 var(--duo-purple-shadow);
+}
+
+.btn-duo-ghost {
+  background: var(--card, #ffffff);
+  color: var(--text, #1e1538) !important;
+  border: 2px solid var(--line, rgba(0, 0, 0, 0.12));
+  box-shadow: 0 4px 0 var(--line-2, rgba(0, 0, 0, 0.18));
+}
+.btn-duo-ghost:hover {
+  background: var(--surface, rgba(0, 0, 0, 0.03));
+}
+.btn-duo-ghost:active {
+  transform: translateY(3px);
+  box-shadow: 0 1px 0 var(--line-2, rgba(0, 0, 0, 0.18));
+}
+
+/* Gamification Top Bar */
+.gamification-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.stat-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  background: var(--surface-solid);
+  border: 1px solid var(--line);
+  color: var(--text);
+  font-weight: 750;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+  user-select: none;
+}
+.stat-pill:hover {
+  transform: translateY(-1px);
+  border-color: var(--accent);
+}
+.stat-pill:active {
+  transform: scale(0.96);
+}
+
+.streak-pill {
+  color: #ff9600;
+  border-color: rgba(255, 150, 0, 0.25);
+  background: rgba(255, 150, 0, 0.08);
+}
+.streak-pill .flame-icon {
+  font-size: 1.1rem;
+  animation: flameFlicker 1.8s infinite alternate ease-in-out;
+}
+
+.gems-pill {
+  color: #1cb0f6;
+  border-color: rgba(28, 176, 246, 0.25);
+  background: rgba(28, 176, 246, 0.08);
+}
+
+.hearts-pill {
+  color: #ff4b4b;
+  border-color: rgba(255, 75, 75, 0.25);
+  background: rgba(255, 75, 75, 0.08);
+}
+
+.level-pill {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: var(--surface-solid);
+}
+.level-badge {
+  background: linear-gradient(135deg, #ffc800, #ff9600);
+  color: #1e1538;
+  font-weight: 800;
+  font-size: 0.72rem;
+  padding: 0.15rem 0.45rem;
+  border-radius: 6px;
+  text-transform: uppercase;
+}
+.xp-track {
+  width: 50px;
+  height: 8px;
+  background: var(--line);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.xp-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #ffc800, #58cc02);
+  border-radius: 999px;
+  transition: width 0.3s ease;
+}
+.xp-text {
+  font-size: 0.75rem;
+  color: var(--text-2);
+}
+
+.audio-toggle-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-solid);
+  border: 1px solid var(--line);
+  color: var(--text-2);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.audio-toggle-btn:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+/* Popover Modals */
+.duo-popover-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  animation: duoFadeIn 0.2s ease;
+}
+.duo-popover-card {
+  background: var(--surface-solid);
+  border: 2px solid var(--line);
+  border-radius: 24px;
+  padding: 2rem;
+  max-width: 420px;
+  width: 100%;
+  text-align: center;
+  position: relative;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.4);
+  animation: duoPopIn 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.duo-popover-close {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--card);
+  border: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.streak-calendar-preview {
+  display: flex;
+  justify-content: center;
+  gap: 0.5rem;
+  margin: 1rem 0;
+}
+.streak-day-dot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.75rem;
+  color: var(--text-2);
+}
+.streak-day-dot .dot-circle {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--card);
+  border: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.9rem;
+}
+.streak-day-dot.active .dot-circle {
+  background: rgba(255, 150, 0, 0.2);
+  border-color: #ff9600;
+  box-shadow: 0 0 10px rgba(255, 150, 0, 0.35);
+}
+
+/* Duolingo Career Quest Path */
+.career-quest-container {
+  background: var(--surface-solid);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  padding: 1.8rem;
+  margin-top: 1.5rem;
+}
+.quest-head {
+  text-align: center;
+  margin-bottom: 2rem;
+}
+.quest-head-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.8rem;
+  border-radius: 999px;
+  background: rgba(28, 176, 246, 0.12);
+  border: 1px solid rgba(28, 176, 246, 0.3);
+  color: #1cb0f6;
+  font-weight: 800;
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.6rem;
+}
+.quest-head h3 {
+  font-size: 1.5rem;
+  font-weight: 800;
+  margin-bottom: 0.35rem;
+}
+.quest-head p {
+  color: var(--text-2);
+  font-size: 0.92rem;
+  max-width: 500px;
+  margin: 0 auto;
+}
+
+.duo-path-tree {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.8rem;
+  position: relative;
+  padding: 1rem 0 2rem;
+}
+
+.duo-path-node-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  transition: transform 0.3s ease;
+}
+
+.duo-active-tooltip {
+  position: absolute;
+  top: -32px;
+  background: var(--duo-green);
+  color: #fff;
+  font-weight: 800;
+  font-size: 0.72rem;
+  letter-spacing: 0.05em;
+  padding: 0.25rem 0.65rem;
+  border-radius: 8px;
+  box-shadow: 0 4px 10px rgba(88, 204, 2, 0.4);
+  animation: duoBounce 1.5s infinite;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  z-index: 2;
+}
+.duo-active-tooltip::after {
+  content: '';
+  position: absolute;
+  bottom: -6px;
+  left: 50%;
+  transform: translateX(-50%);
+  border-width: 6px 6px 0;
+  border-style: solid;
+  border-color: var(--duo-green) transparent;
+}
+
+.duo-node-btn {
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  position: relative;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  user-select: none;
+}
+.duo-node-inner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2rem;
+}
+
+.duo-node-btn.completed {
+  background: var(--duo-yellow);
+  box-shadow: 0 6px 0 var(--duo-yellow-shadow), 0 10px 20px rgba(255, 200, 0, 0.35);
+  color: #1e1538;
+}
+.duo-node-btn.completed:active {
+  transform: translateY(4px);
+  box-shadow: 0 2px 0 var(--duo-yellow-shadow);
+}
+
+.duo-node-btn.active {
+  background: var(--duo-green);
+  box-shadow: 0 6px 0 var(--duo-green-shadow), 0 10px 24px rgba(88, 204, 2, 0.5);
+  color: #ffffff;
+  animation: duoPulse 2.2s infinite;
+}
+.duo-node-btn.active:active {
+  transform: translateY(4px);
+  box-shadow: 0 2px 0 var(--duo-green-shadow);
+}
+
+.duo-node-btn.locked {
+  background: var(--surface);
+  border: 2px solid var(--line);
+  box-shadow: 0 6px 0 var(--line-2);
+  color: var(--text-3);
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.node-stars {
+  position: absolute;
+  bottom: -8px;
+  font-size: 0.75rem;
+  letter-spacing: -0.1em;
+}
+
+.duo-node-label {
+  margin-top: 0.6rem;
+  text-align: center;
+  max-width: 220px;
+}
+.duo-node-label strong {
+  display: block;
+  font-size: 0.92rem;
+  color: var(--text);
+}
+.duo-node-label span {
+  font-size: 0.75rem;
+  color: var(--text-2);
+}
+
+.duo-chest-wrapper {
+  margin: 0.5rem 0;
+}
+.duo-chest-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  border-radius: 999px;
+  background: var(--card);
+  border: 2px solid var(--line);
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+.duo-chest-btn.ready {
+  border-color: #ffc800;
+  box-shadow: 0 4px 14px rgba(255, 200, 0, 0.35);
+  animation: duoBounce 2s infinite;
+}
+.duo-chest-btn.claimed {
+  opacity: 0.6;
+}
+.chest-emoji {
+  font-size: 1.3rem;
+}
+.chest-tag {
+  font-size: 0.8rem;
+  font-weight: 800;
+  color: #ffc800;
+}
+
+/* Animations */
+@keyframes duoBounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+
+@keyframes duoPopIn {
+  0% { transform: scale(0.85); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes duoFadeIn {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+@keyframes duoPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+}
+
+@keyframes duoShake {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-8px); }
+  40%, 80% { transform: translateX(8px); }
+}
+
+@keyframes flameFlicker {
+  0% { transform: scale(1) rotate(-2deg); filter: drop-shadow(0 0 4px rgba(255,150,0,0.6)); }
+  100% { transform: scale(1.15) rotate(2deg); filter: drop-shadow(0 0 10px rgba(255,80,0,0.85)); }
+}

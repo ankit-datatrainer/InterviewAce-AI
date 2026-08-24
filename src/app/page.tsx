@@ -404,32 +404,32 @@ export default function Home() {
           <div className="hero-grid">
             {/* Left */}
             <div>
-              <span className="chip">
-                <Zap size={14} /> AI-powered career platform
+              <span className="chip" style={{ background: 'rgba(88, 204, 2, 0.12)', borderColor: 'rgba(88, 204, 2, 0.3)', color: '#58cc02', fontWeight: 750 }}>
+                <span>🔥</span> Gamified AI Career Arena &middot; Earn XP &amp; Streaks
               </span>
               <h1>
                 Ace every interview <span className="grad-text">with AI</span>
               </h1>
               <p className="sub">
-                Practice with a realistic AI interviewer, get your resume past ATS filters, and book 1-on-1 sessions with expert coaches — everything you need to walk into your next interview with total confidence.
+                Practice with a lifelike AI interviewer in an engaging, gamified simulator. Get your resume past ATS filters, conquer daily quests, and level up to land your dream offer.
               </p>
               <div className="hero-ctas">
-                <Link href="/dashboard/interview" className="btn btn-primary">
-                  <Mic size={18} /> Start free mock interview
+                <Link href="/dashboard/interview" className="btn-duo btn-duo-green btn-duo-lg">
+                  <Mic size={20} /> Start Free Mock Round
                 </Link>
-                <Link href="/dashboard/ats" className="btn btn-ghost">
-                  <FileText size={18} /> Analyze my resume
+                <Link href="/dashboard/ats" className="btn-duo btn-duo-ghost btn-duo-lg">
+                  <FileText size={20} /> Analyze My Resume
                 </Link>
               </div>
               <div className="hero-note">
                 <span>
-                  <Check size={15} /> No credit card required
+                  <Check size={15} /> 100% Free to Practice
                 </span>
                 <span>
-                  <Check size={15} /> Feedback in under 2 minutes
+                  <Check size={15} /> Instant 10-Metric Scorecard
                 </span>
                 <span>
-                  <Check size={15} /> Built for students &amp; freshers
+                  <Check size={15} /> Streak &amp; XP Progression
                 </span>
               </div>
             </div>
@@ -598,7 +598,7 @@ export default function Home() {
                     </li>
                   ))}
                 </ul>
-                <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }}>
+                <button className={`btn-duo ${p.popular ? 'btn-duo-green' : 'btn-duo-ghost'}`} style={{ width: '100%', justifyContent: 'center' }}>
                   {p.cta}
                 </button>
               </div>
@@ -767,7 +767,7 @@ export default function Home() {
                   <label>Message</label>
                   <textarea rows={4} placeholder="How can we help you?" required />
                 </div>
-                <button type="submit" className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }}>
+                <button type="submit" className="btn-duo btn-duo-green" style={{ width: '100%', justifyContent: 'center' }}>
                   <Send size={16} /> Send message
                 </button>
               </form>
