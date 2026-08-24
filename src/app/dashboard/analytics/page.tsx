@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Download, AlertTriangle } from 'lucide-react';
 import { useToast } from '@/components/Toast';
 import { getInterviews } from '@/lib/interview-store';
 import type { InterviewRecord } from '@/lib/interview-store';
+import { calculateInterviewProductMetrics } from '@/lib/interview-telemetry';
 import { getResumes } from '@/lib/resume-store';
 import type { ResumeRecord } from '@/lib/resume-store';
 
@@ -235,6 +236,21 @@ function buildSkills(interviews: InterviewRecord[]) {
   }));
 }
 
+function formatRate(value: number | null): string {
+  return value === null ? 'not enough data' : `${Math.round(value * 100)}%`;
+}
+
+function formatLatency(value: number | null): string {
+  if (value === null) return 'not enough data';
+  if (value < 1000) return `${value} ms`;
+  return `${(value / 1000).toFixed(2)} s`;
+}
+
+function formatScoreDelta(value: number | null): string {
+  if (value === null) return 'not enough data';
+  return `${value > 0 ? '+' : ''}${value} points`;
+}
+
 export default function AnalyticsPage() {
   const confCanvas = useRef<HTMLCanvasElement>(null);
   const scoreCanvas = useRef<HTMLCanvasElement>(null);
@@ -254,6 +270,70 @@ export default function AnalyticsPage() {
 
   const skills = buildSkills(interviews);
   const hasEnoughData = interviews.length >= 2;
+  const productMetrics = useMemo(
+    () => calculateInterviewProductMetrics(interviews),
+    [interviews],
+  );
+  const qaMetrics = [
+    {
+      label: 'Median response latency',
+      value: formatLatency(productMetrics.responseLatencyMs.median),
+      detail: productMetrics.responseLatencyMs.samples > 0
+        ? `${productMetrics.responseLatencyMs.samples} measured response${productMetrics.responseLatencyMs.samples === 1 ? '' : 's'}`
+        : 'No measured voice responses yet',
+    },
+    {
+      label: 'P95 response latency',
+      value: formatLatency(productMetrics.responseLatencyMs.p95),
+      detail: productMetrics.responseLatencyMs.samples > 0
+        ? '95% of measured responses were this fast or faster'
+        : 'No measured voice responses yet',
+    },
+    {
+      label: 'Contextual follow-up rate',
+      value: formatRate(productMetrics.contextualFollowUpRate),
+      detail: 'Questions that adapt to the previous answer',
+    },
+    {
+      label: 'Repeated-question rate',
+      value: formatRate(productMetrics.repeatedQuestionRate),
+      detail: 'Lower is better; based on interviewer questions',
+    },
+    {
+      label: 'Long-range memory success',
+      value: formatRate(productMetrics.longMemoryRate),
+      detail: 'Eligible interviews where earlier context was reused',
+    },
+    {
+      label: 'Interview completion',
+      value: formatRate(productMetrics.completionRate),
+      detail: `${productMetrics.completedSessions} of ${productMetrics.sessions} tracked session${productMetrics.sessions === 1 ? '' : 's'} completed`,
+    },
+    {
+      label: 'Reports viewed',
+      value: formatRate(productMetrics.reportViewedRate),
+      detail: 'Completed reports opened after an interview',
+    },
+    {
+      label: 'Practice again',
+      value: formatRate(productMetrics.practiceAgainRate),
+      detail: 'Sessions followed by a targeted answer retry',
+    },
+    {
+      label: 'Second interview within 7 days',
+      value: formatRate(productMetrics.repeatWithin7DaysRate),
+      detail: 'Eligible completed interviews followed by another within a week',
+    },
+    {
+      label: 'Measured improvement',
+      value: formatScoreDelta(productMetrics.improvement.averageScoreDelta),
+      detail: productMetrics.improvement.attempts > 0
+        ? `${productMetrics.improvement.improvedAttempts} of ${productMetrics.improvement.attempts} practice attempt${productMetrics.improvement.attempts === 1 ? '' : 's'} improved`
+        : productMetrics.improvement.averageRepeatInterviewScoreDelta !== null
+          ? `${formatScoreDelta(productMetrics.improvement.averageRepeatInterviewScoreDelta)} across repeat interviews`
+          : 'No comparable practice attempts yet',
+    },
+  ];
 
   const drawAll = useCallback(() => {
     if (!hasEnoughData) return;
@@ -354,6 +434,50 @@ export default function AnalyticsPage() {
           <Download size={16} /> Export report
         </button>
       </div>
+
+      <section className="widget" style={{ marginBottom: '1rem' }} aria-labelledby="interview-realism-heading">
+        <div style={{ marginBottom: '1rem' }}>
+          <h4 id="interview-realism-heading" style={{ marginBottom: '.3rem' }}>Interview Realism / QA metrics</h4>
+          <p style={{ color: 'var(--text-3)', fontSize: '.82rem' }}>
+            Calculated from your saved interview telemetry. Missing measurements are shown as not enough data.
+          </p>
+        </div>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))',
+            gap: '.75rem',
+          }}
+        >
+          {qaMetrics.map((metric) => {
+            const unavailable = metric.value === 'not enough data';
+            return (
+              <div
+                key={metric.label}
+                className="kpi"
+                style={{
+                  minHeight: '118px',
+                  padding: '1rem',
+                  border: '1px solid var(--line)',
+                  borderRadius: '12px',
+                  background: 'var(--bg-2)',
+                }}
+              >
+                <span className="l">{metric.label}</span>
+                <span
+                  className="v"
+                  style={unavailable ? { fontSize: '1.05rem', color: 'var(--text-3)' } : undefined}
+                >
+                  {metric.value}
+                </span>
+                <span className="d" style={{ color: 'var(--text-3)', fontWeight: 500 }}>
+                  {metric.detail}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </section>
 
       {!hasEnoughData ? (
         <div className="widget" style={{ textAlign: 'center', padding: '3rem 1rem' }}>

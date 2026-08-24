@@ -4,9 +4,16 @@ import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase';
 import { useToast } from '@/components/Toast';
 import { User, Lock, Palette, Trash2, Download, Shield } from 'lucide-react';
-import { getInterviews, clearInterviews } from '@/lib/interview-store';
+import {
+  getInterviews,
+  clearInterviews,
+  getInterviewRetentionPolicy,
+  setInterviewRetentionPolicy,
+  applyInterviewRetentionEverywhere,
+} from '@/lib/interview-store';
 import { getResumes, clearResumes } from '@/lib/resume-store';
-import { getBookings, clearBookings } from '@/lib/booking-store';
+import { getBookings } from '@/lib/booking-store';
+import { clearRecordings, deleteRecording } from '@/lib/recording-store';
 
 function downloadFile(content: string, filename: string, type = 'text/plain') {
   const blob = new Blob([content], { type });
@@ -40,6 +47,8 @@ export default function SettingsPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [confirmDeleteRecordings, setConfirmDeleteRecordings] = useState(false);
   const [confirmDeleteResumes, setConfirmDeleteResumes] = useState(false);
+  const [retentionEnabled, setRetentionEnabled] = useState(false);
+  const [retentionDays, setRetentionDays] = useState(90);
 
   useEffect(() => {
     const supabase = createClient();
@@ -57,6 +66,9 @@ export default function SettingsPage() {
     // Load theme preference
     const currentTheme = document.documentElement.getAttribute('data-theme');
     setDarkMode(currentTheme !== 'light');
+    const retention = getInterviewRetentionPolicy();
+    setRetentionEnabled(retention.enabled);
+    setRetentionDays(retention.retentionDays);
 
     loadUser();
   }, []);
@@ -158,6 +170,7 @@ export default function SettingsPage() {
       return;
     }
     clearInterviews();
+    void clearRecordings();
     setConfirmDeleteRecordings(false);
     toast('All interview data deleted');
   }
@@ -170,6 +183,25 @@ export default function SettingsPage() {
     clearResumes();
     setConfirmDeleteResumes(false);
     toast('All resumes deleted');
+  }
+
+  async function handleSaveRetention() {
+    const before = getInterviews();
+    setInterviewRetentionPolicy({
+      enabled: retentionEnabled,
+      retentionDays,
+      preserveLatest: 1,
+    });
+    const removed = await applyInterviewRetentionEverywhere();
+    if (removed > 0) {
+      const remainingIds = new Set(getInterviews().map((interview) => interview.id));
+      await Promise.all(before
+        .filter((interview) => !remainingIds.has(interview.id))
+        .map((interview) => deleteRecording(interview.id)));
+    }
+    toast(retentionEnabled
+      ? `Retention saved. ${removed} expired interview${removed === 1 ? '' : 's'} removed.`
+      : 'Automatic interview deletion is disabled.');
   }
 
   return (
@@ -340,6 +372,38 @@ export default function SettingsPage() {
             <div className="meta">Read our privacy policy and data handling practices.</div>
           </div>
           <a href="/privacy" className="btn btn-ghost btn-sm">View</a>
+        </div>
+
+        <div className="list-row">
+          <div>
+            <span>Interview data retention</span>
+            <div className="meta">
+              Automatically remove old interview reports and recordings while always preserving your latest interview.
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '.35rem', fontSize: '.85rem' }}>
+              <input
+                type="checkbox"
+                checked={retentionEnabled}
+                onChange={(event) => setRetentionEnabled(event.target.checked)}
+              />
+              Auto-delete
+            </label>
+            <select
+              value={retentionDays}
+              disabled={!retentionEnabled}
+              onChange={(event) => setRetentionDays(Number(event.target.value))}
+              aria-label="Interview retention period"
+              style={{ width: 'auto', minWidth: 110 }}
+            >
+              <option value={30}>After 30 days</option>
+              <option value={90}>After 90 days</option>
+              <option value={180}>After 180 days</option>
+              <option value={365}>After 1 year</option>
+            </select>
+            <button className="btn btn-ghost btn-sm" onClick={handleSaveRetention}>Save retention</button>
+          </div>
         </div>
 
         <div className="list-row">

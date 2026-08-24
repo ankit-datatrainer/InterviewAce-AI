@@ -1,4 +1,19 @@
 import { createClient } from '@/lib/supabase';
+import { buildInterviewMemory, type InterviewTranscriptMessage } from '@/lib/interview-decision';
+import {
+  DEFAULT_INTERVIEW_RETENTION_POLICY,
+  appendTelemetryEvent,
+  appendTelemetryLatency,
+  calculateInterviewProductMetrics,
+  inferInterviewTelemetry,
+  partitionInterviewsByRetention,
+  sanitizeInterviewTelemetry,
+  type InterviewProductMetrics,
+  type InterviewRetentionPolicy,
+  type InterviewTelemetry,
+  type InterviewTelemetryEvent,
+  type TelemetryLatencySample,
+} from '@/lib/interview-telemetry';
 
 export type AnswerVerdict = 'strong' | 'adequate' | 'weak';
 
@@ -64,6 +79,15 @@ export interface InterviewHighlights {
   practiceAreas?: PracticeArea[];
 }
 
+export interface InterviewPerformance {
+  responseLatenciesMs: number[];
+  averageResponseLatencyMs: number;
+  modelLatenciesMs?: number[];
+  averageModelLatencyMs?: number;
+  candidateInterruptions: number;
+  interviewerRedirects: number;
+}
+
 export interface InterviewRecord {
   id: string;
   type: string; // 'HR Round', 'Technical', 'Behavioral'
@@ -73,7 +97,7 @@ export interface InterviewRecord {
   duration: number; // seconds
   questionsCount: number;
   score: number; // 0-100, calculated from answers
-  transcript: { who: 'ai' | 'me'; text: string }[];
+  transcript: InterviewTranscriptMessage[];
   metrics: {
     communication: number;
     confidence: number;
@@ -95,26 +119,124 @@ export interface InterviewRecord {
   perQuestion?: PerQuestionFeedback[];
   /** Optional for the same backwards-compatibility reason. */
   highlights?: InterviewHighlights;
+  /** Measured candidate-stop to interviewer-speech latency and recovery events. */
+  performance?: InterviewPerformance;
+  /** Metadata-only, timestamped control-flow telemetry. Never contains transcript text. */
+  telemetry?: InterviewTelemetry;
   retakes?: RetakeResult[];
   dbId?: string; // Supabase interviews.id once synced (for cross-device)
 }
 
 const STORAGE_KEY = 'interviewace_interviews';
+const STORAGE_BACKUP_KEY = 'interviewace_interviews_backup';
+const RETENTION_KEY = 'interviewace_interview_retention';
+const DELETION_QUEUE_KEY = 'interviewace_interview_deletion_queue';
+const STORE_SCHEMA_VERSION = 2 as const;
+
+interface InterviewStoreEnvelope {
+  schemaVersion: typeof STORE_SCHEMA_VERSION;
+  updatedAt: string;
+  records: InterviewRecord[];
+  checksum: string;
+}
+
+function checksum(value: string): string {
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i += 1) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0');
+}
+
+function parseStoredRecords(raw: string | null): InterviewRecord[] | null {
+  if (!raw) return null;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    // Version 1 was a bare array. Continue accepting it indefinitely.
+    if (Array.isArray(parsed)) return parsed.filter((record) => record && typeof record === 'object') as InterviewRecord[];
+    if (!parsed || typeof parsed !== 'object') return null;
+    const envelope = parsed as Partial<InterviewStoreEnvelope>;
+    if (!Array.isArray(envelope.records)) return null;
+    if (typeof envelope.checksum === 'string') {
+      const payload = JSON.stringify(envelope.records);
+      if (checksum(payload) !== envelope.checksum) return null;
+    }
+    return envelope.records.filter((record) => record && typeof record === 'object') as InterviewRecord[];
+  } catch {
+    return null;
+  }
+}
+
+function enrichTelemetry(record: InterviewRecord): InterviewRecord {
+  const telemetry = sanitizeInterviewTelemetry(record.telemetry);
+  return telemetry
+    ? { ...record, telemetry }
+    : { ...record, telemetry: inferInterviewTelemetry({ ...record, telemetry: undefined }) };
+}
 
 function readStore(): InterviewRecord[] {
   if (typeof window === 'undefined') return [];
+  const primary = parseStoredRecords(localStorage.getItem(STORAGE_KEY));
+  const backup = primary ? null : parseStoredRecords(localStorage.getItem(STORAGE_BACKUP_KEY));
+  return (primary || backup || []).map(enrichTelemetry);
+}
+
+function writeStore(records: InterviewRecord[]): boolean {
+  if (typeof window === 'undefined') return false;
+  const enriched = records.map(enrichTelemetry);
+  const payload = JSON.stringify(enriched);
+  const envelope: InterviewStoreEnvelope = {
+    schemaVersion: STORE_SCHEMA_VERSION,
+    updatedAt: new Date().toISOString(),
+    records: enriched,
+    checksum: checksum(payload),
+  };
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    return JSON.parse(raw) as InterviewRecord[];
+    const previous = localStorage.getItem(STORAGE_KEY);
+    if (previous && parseStoredRecords(previous)) {
+      try { localStorage.setItem(STORAGE_BACKUP_KEY, previous); } catch { /* best-effort backup */ }
+    }
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(envelope));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function readDeletionQueue(): string[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(DELETION_QUEUE_KEY) || '[]');
+    return Array.isArray(parsed)
+      ? parsed.filter((value): value is string => typeof value === 'string' && value.length > 0)
+      : [];
   } catch {
     return [];
   }
 }
 
-function writeStore(records: InterviewRecord[]): void {
-  if (typeof window === 'undefined') return;
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+function queueRemoteDeletions(ids: readonly string[]): void {
+  if (typeof window === 'undefined' || ids.length === 0) return;
+  const queued = Array.from(new Set([...readDeletionQueue(), ...ids]));
+  localStorage.setItem(DELETION_QUEUE_KEY, JSON.stringify(queued));
+}
+
+/** Retries privacy deletions that were requested while offline or signed out. */
+export async function flushInterviewDeletionQueue(): Promise<number> {
+  const ids = readDeletionQueue();
+  if (ids.length === 0) return 0;
+  try {
+    const supabase = createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return 0;
+    const { error } = await supabase.from('interviews').delete().in('id', ids).eq('user_id', user.id);
+    if (error) return 0;
+    localStorage.removeItem(DELETION_QUEUE_KEY);
+    return ids.length;
+  } catch {
+    return 0;
+  }
 }
 
 // ── Deterministic transcript analysis ────────────────────────────────────────
@@ -160,8 +282,18 @@ function starFor(answer: string): StarCoverage {
 }
 
 /** Pairs each interviewer turn with the candidate turn(s) that followed it. */
-export function pairTranscript(transcript: InterviewRecord['transcript']): { question: string; answer: string }[] {
-  const pairs: { question: string; answer: string }[] = [];
+export function pairTranscript(transcript: InterviewRecord['transcript']): {
+  question: string;
+  answer: string;
+  decision?: InterviewTranscriptMessage['decision'];
+  timestampSeconds?: number;
+}[] {
+  const pairs: {
+    question: string;
+    answer: string;
+    decision?: InterviewTranscriptMessage['decision'];
+    timestampSeconds?: number;
+  }[] = [];
   for (let i = 0; i < transcript.length; i++) {
     if (transcript[i]?.who !== 'ai') continue;
     const parts: string[] = [];
@@ -171,7 +303,12 @@ export function pairTranscript(transcript: InterviewRecord['transcript']): { que
     }
     const answer = parts.join(' ').trim();
     if (!answer) continue;
-    pairs.push({ question: (transcript[i].text || '').trim(), answer });
+    pairs.push({
+      question: (transcript[i].text || '').trim(),
+      answer,
+      decision: transcript[i].decision,
+      timestampSeconds: transcript[i].timestampSeconds,
+    });
   }
   return pairs;
 }
@@ -266,13 +403,17 @@ export function deriveInsightsFromTranscript(
   for (let i = 1; i < pairs.length; i++) {
     const q = pairs[i].question;
     const prevA = pairs[i - 1]?.answer || '';
-    const isProbe = /\b(you mentioned|why did you|what specifically|can you walk me through|how did you measure|when you say|what alternatives|biggest challenge|your specific role)\b/i.test(q);
+    const isProbe = (pairs[i].decision && pairs[i].decision !== 'MOVE_ON')
+      || /\b(you mentioned|why did you|what specifically|can you walk me through|how did you measure|when you say|what alternatives|biggest challenge|your specific role)\b/i.test(q);
     if (isProbe && prevA) {
       challengeMoments.push({
         question: pairs[i - 1].question,
         candidateAnswer: clip(prevA, 140),
         followUp: q,
         whatWasMissing: pairs[i - 1].answer.length < 120 ? 'Initial answer lacked specific metrics or methodology.' : 'Interviewer probed to verify technical decision or direct personal attribution.',
+        timestamp: typeof pairs[i].timestampSeconds === 'number'
+          ? `${Math.floor(pairs[i].timestampSeconds! / 60)}:${Math.floor(pairs[i].timestampSeconds! % 60).toString().padStart(2, '0')}`
+          : undefined,
       });
       if (challengeMoments.length >= 3) break;
     }
@@ -306,6 +447,23 @@ export function deriveInsightsFromTranscript(
   const sorted = [...answers].sort((a, b) => b.length - a.length);
   const best = sorted[0] || '';
   const worst = sorted.length > 0 ? sorted[sorted.length - 1] : '';
+  const contradictions: ContradictionPoint[] = [];
+  const stableClaims = buildInterviewMemory(transcript).filter(
+    (claim) => claim.key === 'team_size' || claim.key === 'years_experience',
+  );
+  for (let i = 1; i < stableClaims.length; i += 1) {
+    const current = stableClaims[i];
+    const earlier = stableClaims.slice(0, i).find(
+      (claim) => claim.key === current.key && claim.value !== current.value,
+    );
+    if (!earlier) continue;
+    contradictions.push({
+      earlierStatement: earlier.text,
+      laterStatement: current.text,
+      explanation: `The stated ${current.key === 'team_size' ? 'team size' : 'years of experience'} changed and should be reconciled.`,
+    });
+    if (contradictions.length >= 3) break;
+  }
 
   return {
     perQuestion,
@@ -320,6 +478,7 @@ export function deriveInsightsFromTranscript(
       vagueClaims,
       missingKeywords,
       challengeMoments,
+      contradictions,
       practiceAreas,
     },
   };
@@ -368,6 +527,7 @@ const TAG_QUOTED_WEAKNESS = 'Quoted weakness: ';
 const TAG_FILLERS = 'Filler words: ';
 const TAG_VAGUE = 'Vague claims: ';
 const TAG_MISSING = 'Missing keywords: ';
+const TAG_TELEMETRY = 'Telemetry metadata v1: ';
 
 function buildStrengthsRows(record: InterviewRecord): string[] {
   const rows = [record.feedback.strengths];
@@ -379,12 +539,43 @@ function buildStrengthsRows(record: InterviewRecord): string[] {
 function buildImprovementRows(record: InterviewRecord): string[] {
   const rows = [record.feedback.improvements];
   const h = record.highlights;
-  if (!h) return rows;
-  if (h.quotedWeakness) rows.push(TAG_QUOTED_WEAKNESS + h.quotedWeakness);
-  if (h.fillerWords) rows.push(`${TAG_FILLERS}${h.fillerWords.count} | ${(h.fillerWords.examples || []).join(', ')}`);
-  if (h.vagueClaims?.length) rows.push(TAG_VAGUE + h.vagueClaims.join(' || '));
-  if (h.missingKeywords?.length) rows.push(TAG_MISSING + h.missingKeywords.join(', '));
+  if (h?.quotedWeakness) rows.push(TAG_QUOTED_WEAKNESS + h.quotedWeakness);
+  if (h?.fillerWords) rows.push(`${TAG_FILLERS}${h.fillerWords.count} | ${(h.fillerWords.examples || []).join(', ')}`);
+  if (h?.vagueClaims?.length) rows.push(TAG_VAGUE + h.vagueClaims.join(' || '));
+  if (h?.missingKeywords?.length) rows.push(TAG_MISSING + h.missingKeywords.join(', '));
+  // This payload is intentionally metadata-only; no transcript, resume, JD,
+  // user identity, or media data is duplicated into feedback storage.
+  if (record.telemetry) rows.push(TAG_TELEMETRY + JSON.stringify(record.telemetry));
   return rows;
+}
+
+function parseTelemetryRows(improvements: unknown): InterviewTelemetry | undefined {
+  if (!Array.isArray(improvements)) return undefined;
+  const row = improvements.find(
+    (value): value is string => typeof value === 'string' && value.startsWith(TAG_TELEMETRY),
+  );
+  if (!row) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(row.slice(TAG_TELEMETRY.length));
+    return sanitizeInterviewTelemetry(parsed) || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function syncTelemetryToDb(record: InterviewRecord): Promise<void> {
+  if (!record.dbId || !record.telemetry) return;
+  try {
+    const supabase = createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    await supabase
+      .from('interview_feedback')
+      .update({ improvements: buildImprovementRows(record) })
+      .eq('interview_id', record.dbId);
+  } catch {
+    // The browser copy remains authoritative until the next successful sync.
+  }
 }
 
 /** Rebuilds the highlights object from the tagged rows written above. */
@@ -424,7 +615,7 @@ function plainRow(rows: unknown, fallback: string): string {
     (r): r is string =>
       typeof r === 'string'
       && r.trim().length > 0
-      && ![TAG_QUOTED_STRENGTH, TAG_QUOTED_WEAKNESS, TAG_FILLERS, TAG_VAGUE, TAG_MISSING].some((t) => r.startsWith(t)),
+      && ![TAG_QUOTED_STRENGTH, TAG_QUOTED_WEAKNESS, TAG_FILLERS, TAG_VAGUE, TAG_MISSING, TAG_TELEMETRY].some((t) => r.startsWith(t)),
   );
   return first || fallback;
 }
@@ -434,6 +625,7 @@ function plainRow(rows: unknown, fallback: string): string {
 // the localStorage flow always works even when offline / not signed in.
 export async function persistInterviewToDb(record: InterviewRecord): Promise<string | null> {
   try {
+    const persistedRecord = enrichTelemetry(record);
     const supabase = createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return null;
@@ -442,20 +634,20 @@ export async function persistInterviewToDb(record: InterviewRecord): Promise<str
       .from('interviews')
       .insert({
         user_id: user.id,
-        interview_type: toDbType(record.type),
-        difficulty: toDbDiff(record.difficulty),
-        target_role: record.role || 'General',
-        duration_seconds: record.duration,
-        overall_score: Math.round(record.score),
+        interview_type: toDbType(persistedRecord.type),
+        difficulty: toDbDiff(persistedRecord.difficulty),
+        target_role: persistedRecord.role || 'General',
+        duration_seconds: persistedRecord.duration,
+        overall_score: Math.round(persistedRecord.score),
         status: 'completed',
-        completed_at: record.date,
+        completed_at: persistedRecord.date,
       })
       .select('id')
       .single();
     if (error || !inserted?.id) return null;
     const interviewId = inserted.id as string;
 
-    const m = record.metrics;
+    const m = persistedRecord.metrics;
     await supabase.from('interview_feedback').insert({
       interview_id: interviewId,
       communication_score: m.communication,
@@ -468,19 +660,19 @@ export async function persistInterviewToDb(record: InterviewRecord): Promise<str
       technical_score: m.technicalKnowledge,
       problem_solving_score: m.problemSolving,
       leadership_score: m.leadership,
-      strengths: buildStrengthsRows(record),
-      improvements: buildImprovementRows(record),
-      summary: record.feedback.nextStep,
+      strengths: buildStrengthsRows(persistedRecord),
+      improvements: buildImprovementRows(persistedRecord),
+      summary: persistedRecord.feedback.nextStep,
     });
 
     // Store the transcript as Q&A pairs (each AI turn + the following answer).
     const qa: { interview_id: string; question_number: number; question: string; answer: string }[] = [];
     let qn = 0;
-    for (let i = 0; i < record.transcript.length; i++) {
-      if (record.transcript[i].who === 'ai') {
-        const answer = record.transcript[i + 1]?.who === 'me' ? record.transcript[i + 1].text : '';
+    for (let i = 0; i < persistedRecord.transcript.length; i++) {
+      if (persistedRecord.transcript[i].who === 'ai') {
+        const answer = persistedRecord.transcript[i + 1]?.who === 'me' ? persistedRecord.transcript[i + 1].text : '';
         qn += 1;
-        qa.push({ interview_id: interviewId, question_number: qn, question: record.transcript[i].text, answer });
+        qa.push({ interview_id: interviewId, question_number: qn, question: persistedRecord.transcript[i].text, answer });
       }
     }
     if (qa.length > 0) await supabase.from('interview_qa').insert(qa);
@@ -504,32 +696,41 @@ export async function fetchInterviewsFromDb(): Promise<InterviewRecord[]> {
       .order('created_at', { ascending: false });
     if (!rows) return [];
 
-    return rows.map((r: any): InterviewRecord => withDerivedInsights(mapDbRow(r)));
+    return (rows as unknown[]).map((row): InterviewRecord => withDerivedInsights(mapDbRow(row)));
   } catch {
     return [];
   }
 }
 
-function mapDbRow(r: any): InterviewRecord {
-  const fb = Array.isArray(r.interview_feedback) ? r.interview_feedback[0] : r.interview_feedback;
-  const qaRows = (r.interview_qa || []).sort((a: any, b: any) => a.question_number - b.question_number);
+function mapDbRow(value: unknown): InterviewRecord {
+  const r = value && typeof value === 'object' ? value as Record<string, unknown> : {};
+  const rawFeedback = r.interview_feedback;
+  const feedbackValue = Array.isArray(rawFeedback) ? rawFeedback[0] : rawFeedback;
+  const fb = feedbackValue && typeof feedbackValue === 'object'
+    ? feedbackValue as Record<string, unknown>
+    : undefined;
+  const qaRows = (Array.isArray(r.interview_qa) ? r.interview_qa : [])
+    .filter((item): item is Record<string, unknown> => !!item && typeof item === 'object')
+    .sort((a, b) => Number(a.question_number || 0) - Number(b.question_number || 0));
   const transcript: InterviewRecord['transcript'] = [];
   for (const qa of qaRows) {
-    if (qa.question) transcript.push({ who: 'ai', text: qa.question });
-    if (qa.answer) transcript.push({ who: 'me', text: qa.answer });
+    if (typeof qa.question === 'string' && qa.question) transcript.push({ who: 'ai', text: qa.question });
+    if (typeof qa.answer === 'string' && qa.answer) transcript.push({ who: 'me', text: qa.answer });
   }
-  const n = (v: any, d = 5.5) => (typeof v === 'number' ? v : d);
+  const n = (v: unknown, d = 5.5) => (typeof v === 'number' ? v : d);
+  const s = (v: unknown, fallback: string) => (typeof v === 'string' && v ? v : fallback);
   const highlights = parseHighlightRows(fb?.strengths, fb?.improvements);
-  return {
-    id: r.id,
-    dbId: r.id,
-    type: fromDbType(r.interview_type),
-    role: r.target_role || 'General',
-    difficulty: fromDbDiff(r.difficulty),
-    date: r.completed_at || r.created_at,
-    duration: r.duration_seconds || 0,
+  const telemetry = parseTelemetryRows(fb?.improvements);
+  return enrichTelemetry({
+    id: s(r.id, crypto.randomUUID()),
+    dbId: s(r.id, ''),
+    type: fromDbType(s(r.interview_type, 'hr')),
+    role: s(r.target_role, 'General'),
+    difficulty: fromDbDiff(s(r.difficulty, 'intermediate')),
+    date: s(r.completed_at, s(r.created_at, new Date().toISOString())),
+    duration: n(r.duration_seconds, 0),
     questionsCount: qaRows.length,
-    score: r.overall_score || 0,
+    score: n(r.overall_score, 0),
     transcript,
     metrics: {
       communication: n(fb?.communication_score),
@@ -546,16 +747,18 @@ function mapDbRow(r: any): InterviewRecord {
     feedback: {
       strengths: plainRow(fb?.strengths, 'You completed the session.'),
       improvements: plainRow(fb?.improvements, 'Give longer, more detailed answers with concrete examples.'),
-      nextStep: fb?.summary || 'Retake the interview and aim for structured answers.',
+      nextStep: s(fb?.summary, 'Retake the interview and aim for structured answers.'),
     },
     ...(highlights ? { highlights } : {}),
-  };
+    ...(telemetry ? { telemetry } : {}),
+  });
 }
 
 // Merges DB records with any local records not yet synced, then rewrites the
 // cache. Call on dashboard / history / analysis mount so records appear on every
 // device they log into — not just the browser the interview was practiced on.
 export async function hydrateInterviews(): Promise<InterviewRecord[]> {
+  await flushInterviewDeletionQueue();
   const local = readStore();
   const db = await fetchInterviewsFromDb();
 
@@ -583,9 +786,11 @@ export async function hydrateInterviews(): Promise<InterviewRecord[]> {
 export function saveInterview(record: InterviewRecord): void {
   // Backfill per-question feedback / highlights when the caller did not supply
   // them, so every new record has an evidence-based breakdown.
-  const enriched = withDerivedInsights(record);
+  const enriched = enrichTelemetry(withDerivedInsights(record));
   const records = readStore();
-  records.push(enriched);
+  const existingIndex = records.findIndex((item) => item.id === enriched.id || (!!enriched.dbId && item.dbId === enriched.dbId));
+  if (existingIndex >= 0) records[existingIndex] = enriched;
+  else records.push(enriched);
   writeStore(records);
   // Best-effort DB sync; on success, tag the cached record with its DB id.
   void persistInterviewToDb(enriched).then((dbId) => {
@@ -632,11 +837,208 @@ export function addRetakeResult(interviewId: string, questionIdx: number, retake
     }
   }
 
+  record.telemetry = appendRecordTelemetryEvent(record, {
+    name: 'practice_again',
+    reasonCode: 'practice_submitted',
+    occurredAt: retake.date,
+  });
+
   writeStore(records);
+  void syncTelemetryToDb(record);
   return record;
+}
+
+function appendRecordTelemetryEvent(
+  record: InterviewRecord,
+  event: Pick<InterviewTelemetryEvent, 'name' | 'reasonCode'> & { occurredAt?: string },
+): InterviewTelemetry {
+  const telemetry = inferInterviewTelemetry(record);
+  const occurredAt = event.occurredAt && !Number.isNaN(Date.parse(event.occurredAt))
+    ? new Date(event.occurredAt).toISOString()
+    : new Date().toISOString();
+  const elapsedMs = Math.max(0, Date.parse(occurredAt) - Date.parse(telemetry.startedAt));
+  const previousState = telemetry.events.at(-1)?.state || {
+    status: telemetry.status,
+    turnIndex: 0,
+    questionCount: record.questionsCount,
+    candidateTurnCount: record.transcript.filter((message) => message.who === 'me').length,
+  };
+  return appendTelemetryEvent(telemetry, {
+    name: event.name,
+    ...(event.reasonCode ? { reasonCode: event.reasonCode } : {}),
+    occurredAt,
+    elapsedMs,
+    state: { ...previousState, status: telemetry.status },
+  });
+}
+
+/** Records a privacy-safe product event without accepting arbitrary text. */
+export function recordInterviewTelemetryEvent(
+  interviewId: string,
+  event: Pick<InterviewTelemetryEvent, 'name' | 'reasonCode'> & { occurredAt?: string },
+): InterviewRecord | null {
+  const records = readStore();
+  const index = records.findIndex((record) => record.id === interviewId || record.dbId === interviewId);
+  if (index < 0) return null;
+  records[index].telemetry = appendRecordTelemetryEvent(records[index], event);
+  writeStore(records);
+  void syncTelemetryToDb(records[index]);
+  return records[index];
+}
+
+/** Adds a per-component latency sample without storing request or response text. */
+export function recordInterviewLatency(
+  interviewId: string,
+  sample: Omit<TelemetryLatencySample, 'measuredAt'> & { measuredAt?: string },
+): InterviewRecord | null {
+  const records = readStore();
+  const index = records.findIndex((record) => record.id === interviewId || record.dbId === interviewId);
+  if (index < 0) return null;
+  const telemetry = inferInterviewTelemetry(records[index]);
+  records[index].telemetry = appendTelemetryLatency(telemetry, sample);
+  writeStore(records);
+  void syncTelemetryToDb(records[index]);
+  return records[index];
+}
+
+export function markInterviewReportViewed(interviewId: string, occurredAt?: string): InterviewRecord | null {
+  const record = getInterviewById(interviewId);
+  if (!record) return null;
+  if (record.telemetry?.events.some((event) => event.name === 'report_viewed')) return record;
+  return recordInterviewTelemetryEvent(interviewId, {
+    name: 'report_viewed',
+    reasonCode: 'report_opened',
+    ...(occurredAt ? { occurredAt } : {}),
+  });
+}
+
+/** Returns aggregate product metrics without changing stored records. */
+export function getInterviewProductMetrics(records: readonly InterviewRecord[] = readStore()): InterviewProductMetrics {
+  return calculateInterviewProductMetrics(records);
+}
+
+function sanitizeRetentionPolicy(value: unknown): InterviewRetentionPolicy {
+  if (!value || typeof value !== 'object') return DEFAULT_INTERVIEW_RETENTION_POLICY;
+  const candidate = value as Partial<InterviewRetentionPolicy>;
+  return {
+    enabled: candidate.enabled === true,
+    retentionDays: typeof candidate.retentionDays === 'number' && Number.isFinite(candidate.retentionDays)
+      ? Math.min(3650, Math.max(1, Math.floor(candidate.retentionDays)))
+      : DEFAULT_INTERVIEW_RETENTION_POLICY.retentionDays,
+    preserveLatest: typeof candidate.preserveLatest === 'number' && Number.isFinite(candidate.preserveLatest)
+      ? Math.min(100, Math.max(0, Math.floor(candidate.preserveLatest)))
+      : DEFAULT_INTERVIEW_RETENTION_POLICY.preserveLatest,
+  };
+}
+
+export function getInterviewRetentionPolicy(): InterviewRetentionPolicy {
+  if (typeof window === 'undefined') return DEFAULT_INTERVIEW_RETENTION_POLICY;
+  try {
+    return sanitizeRetentionPolicy(JSON.parse(localStorage.getItem(RETENTION_KEY) || 'null'));
+  } catch {
+    return DEFAULT_INTERVIEW_RETENTION_POLICY;
+  }
+}
+
+export function setInterviewRetentionPolicy(policy: InterviewRetentionPolicy): InterviewRetentionPolicy {
+  const sanitized = sanitizeRetentionPolicy(policy);
+  if (typeof window !== 'undefined') {
+    try { localStorage.setItem(RETENTION_KEY, JSON.stringify(sanitized)); } catch { /* policy remains usable in memory */ }
+  }
+  return sanitized;
+}
+
+/** Applies the opt-in retention policy to browser storage and returns deletions. */
+export function applyInterviewRetention(now = new Date()): { kept: InterviewRecord[]; expired: InterviewRecord[] } {
+  const partition = partitionInterviewsByRetention(readStore(), getInterviewRetentionPolicy(), now);
+  if (partition.expired.length > 0) writeStore(partition.kept);
+  return partition;
+}
+
+/** Deletes one interview from this browser. The database variant is below. */
+export function deleteInterviewLocal(interviewId: string): boolean {
+  const records = readStore();
+  const kept = records.filter((record) => record.id !== interviewId && record.dbId !== interviewId);
+  if (kept.length === records.length) return false;
+  writeStore(kept);
+  return true;
+}
+
+/** Deletes one interview and its cascading feedback/Q&A from Supabase and local storage. */
+export async function deleteInterviewEverywhere(interviewId: string): Promise<boolean> {
+  const record = getInterviewById(interviewId);
+  const dbId = record?.dbId || (record?.id === interviewId ? record.id : interviewId);
+  let remoteDeleted = !!record && !record.dbId;
+  try {
+    const supabase = createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user && dbId) {
+      const { error } = await supabase.from('interviews').delete().eq('id', dbId).eq('user_id', user.id);
+      remoteDeleted = !error;
+    }
+  } catch {
+    remoteDeleted = false;
+  }
+  if (!remoteDeleted && record?.dbId) queueRemoteDeletions([record.dbId]);
+  const localDeleted = deleteInterviewLocal(interviewId);
+  return localDeleted || remoteDeleted;
+}
+
+/** Applies retention locally and removes the same expired rows remotely when possible. */
+export async function applyInterviewRetentionEverywhere(now = new Date()): Promise<number> {
+  const records = readStore();
+  const partition = partitionInterviewsByRetention(records, getInterviewRetentionPolicy(), now);
+  if (partition.expired.length === 0) return 0;
+  const remoteIds = partition.expired.map((record) => record.dbId).filter((id): id is string => !!id);
+  if (remoteIds.length > 0) {
+    let remoteDeleted = false;
+    try {
+      const supabase = createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { error } = await supabase.from('interviews').delete().in('id', remoteIds).eq('user_id', user.id);
+        remoteDeleted = !error;
+      }
+    } catch {
+      remoteDeleted = false;
+    }
+    if (!remoteDeleted) queueRemoteDeletions(remoteIds);
+  }
+  writeStore(partition.kept);
+  return partition.expired.length;
+}
+
+/** Removes all interview rows for the signed-in user, then clears browser copies. */
+export async function deleteAllInterviewData(): Promise<void> {
+  const remoteIds = readStore().map((record) => record.dbId).filter((id): id is string => !!id);
+  let remoteDeleted = false;
+  try {
+    const supabase = createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      const { error } = await supabase.from('interviews').delete().eq('user_id', user.id);
+      remoteDeleted = !error;
+    }
+  } finally {
+    if (!remoteDeleted) queueRemoteDeletions(remoteIds);
+    clearInterviews();
+  }
 }
 
 export function clearInterviews(): void {
   if (typeof window === 'undefined') return;
+  const remoteIds = readStore().map((record) => record.dbId).filter((id): id is string => !!id);
   localStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem(STORAGE_BACKUP_KEY);
+  // Local deletion is immediate. Remote deletion is deliberately non-blocking
+  // so privacy controls continue to work offline and during page navigation.
+  void fetch('/api/privacy/data?scope=interviews', {
+    method: 'DELETE',
+    credentials: 'same-origin',
+    keepalive: true,
+  }).then((response) => {
+    if (!response.ok) queueRemoteDeletions(remoteIds);
+  }).catch(() => {
+    queueRemoteDeletions(remoteIds);
+  });
 }

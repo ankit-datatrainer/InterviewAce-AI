@@ -6,7 +6,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:interviews": "node test-interviews.mjs",
+    "test:interviews:live": "node test-interviews.mjs --live",
+    "test:interviews:tts": "node test-interviews.mjs --live --tts"
   },
   "dependencies": {
     "@100mslive/react-icons": "^0.12.3",

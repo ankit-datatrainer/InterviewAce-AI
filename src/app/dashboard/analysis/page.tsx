@@ -11,13 +11,16 @@ import {
   Sparkles,
   AlertTriangle,
   Flame,
-  CheckCircle2,
   RefreshCw,
   TrendingUp,
-  HelpCircle,
-  Award,
   Target,
-  ArrowRight,
+  Timer,
+  MessageCircleMore,
+  ShieldCheck,
+  CalendarDays,
+  BarChart3,
+  ThumbsUp,
+  ThumbsDown,
 } from 'lucide-react';
 import { useToast } from '@/components/Toast';
 import {
@@ -25,6 +28,8 @@ import {
   getLatestInterview,
   hydrateInterviews,
   addRetakeResult,
+  pairTranscript,
+  getInterviews,
 } from '@/lib/interview-store';
 import type { InterviewRecord, RetakeResult } from '@/lib/interview-store';
 import { getRecording } from '@/lib/recording-store';
@@ -45,6 +50,13 @@ function colorForValue(v: number): string {
   return 'red';
 }
 
+function formatTimestamp(totalSeconds: number | undefined): string {
+  if (typeof totalSeconds !== 'number' || totalSeconds < 0) return '';
+  const mins = Math.floor(totalSeconds / 60);
+  const secs = Math.floor(totalSeconds % 60);
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+
 const VERDICT_STYLES: Record<string, { label: string; bg: string; fg: string; border: string }> = {
   strong: { label: 'Strong', bg: 'rgba(34,197,94,.12)', fg: '#22C55E', border: 'rgba(34,197,94,.35)' },
   adequate: { label: 'Adequate', bg: 'rgba(245,158,11,.12)', fg: '#F59E0B', border: 'rgba(245,158,11,.35)' },
@@ -62,6 +74,60 @@ const STAR_LABELS: { key: 'situation' | 'task' | 'action' | 'result'; label: str
   { key: 'result', label: 'Result' },
 ];
 
+interface PracticeAgainResult {
+  newScore: number;
+  previousScore: number;
+  scoreDelta: number;
+  verdict: 'strong' | 'adequate' | 'weak';
+  whatImproved: string;
+  whatStillNeedsWork: string;
+  improvedKeywords?: string[];
+  comparison?: { status: 'improved' | 'stable' | 'weaker'; explanation: string };
+  evidenceAdded?: string[];
+  frameworkAssessment?: { preservedFacts: string[]; placeholdersNeeded: string[]; guidance: string };
+  nextPracticeQuestion?: string;
+}
+
+type ExtendedHighlights = NonNullable<InterviewRecord['highlights']> & {
+  rubric?: {
+    id: string;
+    version: string;
+    role: string;
+    difficulty: string;
+    dimensions: { key: string; label: string; weight: number; description: string }[];
+    excludedSignals: string[];
+  };
+  readiness?: { label: string; explanation: string; evidenceBasis: string; limitation: string };
+  uncertainty?: { level: 'low' | 'medium' | 'high'; explanation: string; missingEvidence: string[] };
+  moments?: { level: 'strong' | 'improve' | 'critical'; title: string; summary: string; evidence: string; timestampSeconds?: number; transcriptIndex: number; questionIndex: number }[];
+  verificationItems?: { type: string; label: string; evidence: string; guidance: string; timestampSeconds?: number; transcriptIndex: number }[];
+  topStrengths?: { title: string; evidence: string; whyItMatters: string }[];
+  topImprovements?: { title: string; evidence: string; action: string }[];
+  sevenDayPlan?: { day: number; focus: string; exercise: string; successMeasure: string; practiceQuestion?: string }[];
+};
+
+type ExtendedQuestionFeedback = NonNullable<InterviewRecord['perQuestion']>[number] & {
+  competency?: string;
+  evidence?: string;
+  uncertainty?: string;
+  timestampSeconds?: number;
+  transcriptIndex?: number;
+};
+
+const PRODUCT_EVENT_KEY = 'interviewace_product_events';
+
+function recordProductEvent(name: string, interviewId: string, metadata: Record<string, string | number | boolean> = {}) {
+  try {
+    const raw = localStorage.getItem(PRODUCT_EVENT_KEY);
+    const events = raw ? JSON.parse(raw) as unknown : [];
+    const safeEvents = Array.isArray(events) ? events.slice(-199) : [];
+    safeEvents.push({ name, interviewId, timestamp: new Date().toISOString(), metadata });
+    localStorage.setItem(PRODUCT_EVENT_KEY, JSON.stringify(safeEvents));
+  } catch {
+    // Product feedback is best-effort and must never block the report.
+  }
+}
+
 export default function AnalysisPage() {
   return (
     <Suspense fallback={null}>
@@ -71,40 +137,54 @@ export default function AnalysisPage() {
 }
 
 function AnalysisContent() {
-  const [animated, setAnimated] = useState(false);
   const [interview, setInterview] = useState<InterviewRecord | null>(null);
   const [loaded, setLoaded] = useState(false);
   const { toast } = useToast();
   const searchParams = useSearchParams();
   const transcriptRef = useRef<HTMLDivElement>(null);
+  const transcriptItemRefs = useRef<Record<number, HTMLDivElement | null>>({});
+  const loggedReportViews = useRef(new Set<string>());
   const [hasVideo, setHasVideo] = useState(false);
+  const [history, setHistory] = useState<InterviewRecord[]>([]);
+  const [focusedTranscriptIndex, setFocusedTranscriptIndex] = useState<number | null>(null);
+  const [usefulness, setUsefulness] = useState<'helpful' | 'not_helpful' | null>(null);
+  const [trainingPreference, setTrainingPreference] = useState<'here' | 'usual' | 'unsure' | null>(null);
 
   // Practice Again state per question index
   const [activeRetakeIdx, setActiveRetakeIdx] = useState<number | null>(null);
   const [retakeInputs, setRetakeInputs] = useState<Record<number, string>>({});
   const [retakeLoading, setRetakeLoading] = useState<Record<number, boolean>>({});
-  const [retakeOutputs, setRetakeOutputs] = useState<Record<number, any>>({});
+  const [retakeOutputs, setRetakeOutputs] = useState<Record<number, PracticeAgainResult>>({});
 
   useEffect(() => {
     const id = searchParams.get('id');
     const loadRecord = (record: InterviewRecord | null) => {
       setInterview(record);
       setLoaded(true);
-      requestAnimationFrame(() => setAnimated(true));
       if (record) {
         getRecording(record.id).then((blob) => setHasVideo(!!blob && blob.size > 0));
       }
     };
 
+    const cached = getInterviews();
+    setHistory(cached);
     const local = id ? getInterviewById(id) : getLatestInterview();
     if (local) {
       loadRecord(local);
-    } else {
-      hydrateInterviews()
-        .then((all) => loadRecord(id ? all.find((r) => r.id === id || r.dbId === id) ?? null : all[0] ?? null))
-        .catch(() => loadRecord(null));
     }
+    hydrateInterviews()
+      .then((all) => {
+        setHistory(all);
+        if (!local) loadRecord(id ? all.find((r) => r.id === id || r.dbId === id) ?? null : all[0] ?? null);
+      })
+      .catch(() => { if (!local) loadRecord(null); });
   }, [searchParams]);
+
+  useEffect(() => {
+    if (!interview || loggedReportViews.current.has(interview.id)) return;
+    loggedReportViews.current.add(interview.id);
+    recordProductEvent('report_view', interview.id, { role: interview.role, score: interview.score });
+  }, [interview]);
 
   async function handleDownloadVideo() {
     if (!interview) return;
@@ -160,9 +240,17 @@ function AnalysisContent() {
 
       const updated = addRetakeResult(interview.id, idx, retakeItem);
       if (updated) setInterview({ ...updated });
+      recordProductEvent('practice_again', interview.id, {
+        questionIndex: idx,
+        previousScore: prevScore,
+        newScore: data.newScore,
+        scoreDelta: data.scoreDelta,
+      });
 
-      toast(`Score improved: ${prevScore} → ${data.newScore}/100 (+${data.scoreDelta} pts)!`);
-    } catch (err: any) {
+      toast(data.scoreDelta > 0
+        ? `Score improved: ${prevScore} → ${data.newScore}/100 (+${data.scoreDelta} pts)!`
+        : `This attempt scored ${data.newScore}/100. Review the remaining gap and try once more.`);
+    } catch (err: unknown) {
       console.error(err);
       toast('Could not evaluate revised answer. Please try again.');
     } finally {
@@ -200,30 +288,61 @@ function AnalysisContent() {
   });
   const mins = Math.round(interview.duration / 60);
 
+  const metricRecord = interview.metrics as unknown as Record<string, number>;
+  const metricValue = (primary: string, fallback: string) => {
+    const value = metricRecord[primary] ?? metricRecord[fallback] ?? 0;
+    return Number.isFinite(value) ? value : 0;
+  };
   const metrics = [
-    { label: 'Communication', value: interview.metrics.communication },
-    { label: 'Confidence', value: interview.metrics.confidence },
-    { label: 'Clarity', value: interview.metrics.clarity },
-    { label: 'Body language', value: interview.metrics.bodyLanguage },
-    { label: 'Eye contact', value: interview.metrics.eyeContact },
-    { label: 'Appearance', value: interview.metrics.appearance },
-    { label: 'Posture', value: interview.metrics.posture },
-    { label: 'Technical knowledge', value: interview.metrics.technicalKnowledge },
-    { label: 'Problem solving', value: interview.metrics.problemSolving },
-    { label: 'Leadership', value: interview.metrics.leadership },
+    { key: 'communication', label: 'Communication', value: metricValue('communication', 'communication') },
+    { key: 'answerStructure', label: 'Answer structure', value: metricValue('answerStructure', 'clarity') },
+    { key: 'roleKnowledge', label: 'Role knowledge', value: metricValue('roleKnowledge', 'technicalKnowledge') },
+    { key: 'problemSolving', label: 'Problem solving', value: metricValue('problemSolving', 'problemSolving') },
+    { key: 'evidenceQuality', label: 'Evidence quality', value: metricValue('evidenceQuality', 'technicalKnowledge') },
+    { key: 'roleFit', label: 'Role fit', value: metricValue('roleFit', 'leadership') },
   ];
 
-  const perQuestion = Array.isArray(interview.perQuestion) ? interview.perQuestion : [];
-  const highlights = interview.highlights;
+  const perQuestion = (Array.isArray(interview.perQuestion) ? interview.perQuestion : []) as ExtendedQuestionFeedback[];
+  const highlights = interview.highlights as ExtendedHighlights | undefined;
   const challengeMoments = highlights?.challengeMoments || [];
   const contradictions = highlights?.contradictions || [];
   const practiceAreas = highlights?.practiceAreas || [];
+  const reportMoments = highlights?.moments || [];
+  const verificationItems = highlights?.verificationItems || [];
+  const topStrengths = highlights?.topStrengths || [];
+  const topImprovements = highlights?.topImprovements || [];
+  const sevenDayPlan = highlights?.sevenDayPlan || [];
+  const answeredPairs = pairTranscript(interview.transcript);
+  const performance = interview.performance;
+  const priorAttempt = [...history]
+    .filter((item) => item.id !== interview.id && item.role.toLowerCase() === interview.role.toLowerCase() && new Date(item.date).getTime() < new Date(interview.date).getTime())
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
+  const priorDelta = priorAttempt ? interview.score - priorAttempt.score : null;
+  const challengeTimestamp = (followUp: string, stored?: string) => {
+    if (stored) return stored;
+    const message = interview.transcript.find((item) => item.who === 'ai' && item.text === followUp);
+    return formatTimestamp(message?.timestampSeconds);
+  };
 
-  const tagLabel = interview.score >= 80
-    ? 'Top 15% of candidates'
+  const jumpToTranscript = (index: number) => {
+    transcriptRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    setFocusedTranscriptIndex(index);
+    window.setTimeout(() => transcriptItemRefs.current[index]?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 250);
+    window.setTimeout(() => setFocusedTranscriptIndex((current) => current === index ? null : current), 2400);
+  };
+
+  const submitProductFeedback = (kind: 'usefulness' | 'wrti', value: string) => {
+    if (kind === 'usefulness') setUsefulness(value as 'helpful' | 'not_helpful');
+    else setTrainingPreference(value as 'here' | 'usual' | 'unsure');
+    recordProductEvent(kind === 'usefulness' ? 'report_usefulness' : 'would_rather_train_here', interview.id, { value });
+    toast('Thanks - your feedback was recorded.');
+  };
+
+  const tagLabel = highlights?.readiness?.label || (interview.score >= 80
+    ? 'Strong practice performance'
     : interview.score >= 65
-      ? 'Above average'
-      : 'Practice recommended';
+      ? 'Nearly ready'
+      : 'Practice recommended');
 
   const tagColor = interview.score >= 80 ? 'green' : interview.score >= 65 ? 'amber' : 'red';
 
@@ -399,10 +518,22 @@ function AnalysisContent() {
         }
         .qb-chip.on { border-color: rgba(34,197,94,.4); background: rgba(34,197,94,.12); color: #22C55E; }
 
+        .mri-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: .85rem; }
+        .mri-card { border: 1px solid var(--line); border-radius: 12px; padding: 1rem; background: var(--surface-2, rgba(148,163,184,.05)); }
+        .moment-card { display: flex; justify-content: space-between; gap: 1rem; border: 1px solid var(--line); border-left-width: 4px; border-radius: 0 12px 12px 0; padding: .9rem 1rem; margin-top: .7rem; }
+        .moment-card.strong { border-left-color: #22C55E; }
+        .moment-card.improve { border-left-color: #F59E0B; }
+        .moment-card.critical { border-left-color: #EF4444; }
+        .plan-row { display: grid; grid-template-columns: 54px 1fr; gap: .8rem; padding: .85rem 0; border-bottom: 1px solid var(--line); }
+        .plan-row:last-child { border-bottom: 0; }
+        .feedback-choice { border: 1px solid var(--line); background: transparent; color: var(--text-2); border-radius: 999px; padding: .4rem .75rem; cursor: pointer; }
+        .feedback-choice.selected { border-color: var(--blue); color: var(--blue); background: rgba(59,130,246,.1); }
+
         @media (max-width: 768px) {
           .feature-banner-grid { grid-template-columns: 1fr; }
           .challenge-flow { grid-template-columns: 1fr; }
           .qb-cols { grid-template-columns: 1fr; }
+          .moment-card { flex-direction: column; }
         }
       ` }} />
 
@@ -442,8 +573,26 @@ function AnalysisContent() {
             const lines: string[] = [];
             lines.push('=== InterviewAce AI - Intelligent Evaluation Report ===');
             lines.push(`Role: ${interview.role} | Score: ${interview.score}/100`);
+            if (highlights?.rubric) lines.push(`Rubric: ${highlights.rubric.id} v${highlights.rubric.version}`);
+            if (highlights?.readiness) lines.push(`Readiness: ${highlights.readiness.label} - ${highlights.readiness.explanation}`);
+            if (highlights?.uncertainty) lines.push(`Uncertainty: ${highlights.uncertainty.level} - ${highlights.uncertainty.explanation}`);
             if (highlights?.quotedStrength) lines.push(`Biggest Strength: ${highlights.quotedStrength}`);
             if (highlights?.quotedWeakness) lines.push(`Biggest Weakness: ${highlights.quotedWeakness}`);
+            if (interview.performance?.averageResponseLatencyMs) {
+              lines.push(`Average Response Latency: ${(interview.performance.averageResponseLatencyMs / 1000).toFixed(1)} seconds`);
+            }
+            challengeMoments.forEach((moment, index) => {
+              lines.push(`Challenged #${index + 1}: ${moment.followUp} | Missing: ${moment.whatWasMissing}`);
+            });
+            contradictions.forEach((item, index) => {
+              lines.push(`Contradiction #${index + 1}: ${item.earlierStatement} <> ${item.laterStatement}`);
+            });
+            practiceAreas.forEach((area, index) => {
+              lines.push(`Practice ${index + 1}: ${area.title} — ${area.actionItem}`);
+            });
+            topStrengths.forEach((item, index) => lines.push(`Top Strength ${index + 1}: ${item.title} | ${item.evidence}`));
+            topImprovements.forEach((item, index) => lines.push(`Top Improvement ${index + 1}: ${item.title} | ${item.action}`));
+            sevenDayPlan.forEach((item) => lines.push(`Day ${item.day}: ${item.focus} | ${item.exercise} | Success: ${item.successMeasure}`));
             downloadFile(lines.join('\n'), `interview-report-${new Date(interview.date).toISOString().slice(0, 10)}.txt`);
             toast('Report downloaded');
           }}>
@@ -489,6 +638,87 @@ function AnalysisContent() {
         </div>
       </div>
 
+      {(highlights?.readiness || highlights?.rubric || highlights?.uncertainty) && (
+        <div className="widget" style={{ marginBottom: '1.25rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+            <ShieldCheck size={18} color="var(--blue)" />
+            <h4 style={{ margin: 0 }}>Readiness, Evidence &amp; Limits</h4>
+          </div>
+          <div className="mri-grid">
+            {highlights.readiness && (
+              <div className="mri-card">
+                <b style={{ display: 'block', marginBottom: 5 }}>{highlights.readiness.label}</b>
+                <p style={{ margin: '0 0 7px', color: 'var(--text-2)', fontSize: '.88rem', lineHeight: 1.5 }}>{highlights.readiness.explanation}</p>
+                <small style={{ color: 'var(--text-3)' }}>{highlights.readiness.evidenceBasis}</small>
+              </div>
+            )}
+            {highlights.uncertainty && (
+              <div className="mri-card">
+                <b style={{ display: 'block', marginBottom: 5 }}>Assessment uncertainty: {highlights.uncertainty.level}</b>
+                <p style={{ margin: 0, color: 'var(--text-2)', fontSize: '.88rem', lineHeight: 1.5 }}>{highlights.uncertainty.explanation}</p>
+              </div>
+            )}
+            {highlights.rubric && (
+              <div className="mri-card">
+                <b style={{ display: 'block', marginBottom: 5 }}>Role-specific rubric v{highlights.rubric.version}</b>
+                <p style={{ margin: '0 0 7px', color: 'var(--text-2)', fontSize: '.88rem' }}>{highlights.rubric.role} &middot; {highlights.rubric.difficulty}</p>
+                <small style={{ color: 'var(--text-3)' }}>Not scored: personality, face, emotion, eye contact, appearance, posture or accent.</small>
+              </div>
+            )}
+          </div>
+          {highlights.readiness?.limitation && (
+            <p style={{ margin: '10px 0 0', color: 'var(--text-3)', fontSize: '.78rem' }}>{highlights.readiness.limitation}</p>
+          )}
+        </div>
+      )}
+
+      {priorAttempt && (
+        <div className="widget" style={{ marginBottom: '1.25rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <BarChart3 size={18} color="var(--blue)" />
+            <h4 style={{ margin: 0 }}>Compared with Your Prior {interview.role} Attempt</h4>
+          </div>
+          <p style={{ margin: 0, color: 'var(--text-2)', lineHeight: 1.5 }}>
+            Previous: <strong>{priorAttempt.score}/100</strong> on {new Date(priorAttempt.date).toLocaleDateString()} &middot; Current: <strong>{interview.score}/100</strong> &middot;{' '}
+            <strong style={{ color: priorDelta !== null && priorDelta > 0 ? '#22C55E' : priorDelta !== null && priorDelta < 0 ? '#EF4444' : '#F59E0B' }}>
+              {priorDelta !== null && priorDelta > 0 ? '+' : ''}{priorDelta} points ({priorDelta !== null && priorDelta > 2 ? 'improving' : priorDelta !== null && priorDelta < -2 ? 'needs review' : 'stable'})
+            </strong>
+          </p>
+          <small style={{ color: 'var(--text-3)' }}>This compares attempts for the same role; it is not a comparison with other candidates.</small>
+        </div>
+      )}
+
+      {performance && (
+        <div className="widget" style={{ marginBottom: '1.25rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+            <Timer size={18} color="var(--blue)" />
+            <h4 style={{ margin: 0, fontSize: '1.05rem' }}>Conversation Responsiveness</h4>
+          </div>
+          <div className="metric-grid">
+            <div className="m-card">
+              <div className="v up">
+                {performance.averageResponseLatencyMs > 0
+                  ? `${(performance.averageResponseLatencyMs / 1000).toFixed(1)}s`
+                  : '—'}
+              </div>
+              <div className="l">Average answer-to-voice latency</div>
+            </div>
+            <div className="m-card">
+              <div className="v" style={{ color: 'var(--blue)' }}>{performance.responseLatenciesMs.length}</div>
+              <div className="l">Responses measured</div>
+            </div>
+            <div className="m-card">
+              <div className="v" style={{ color: 'var(--blue)' }}>{performance.candidateInterruptions}</div>
+              <div className="l">Interruptions recovered</div>
+            </div>
+            <div className="m-card">
+              <div className="v" style={{ color: 'var(--blue)' }}>{performance.interviewerRedirects}</div>
+              <div className="l">Long answers redirected</div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Score hero */}
       <div className="widget" style={{ marginBottom: '1.25rem' }}>
         <div className="score-hero">
@@ -504,7 +734,7 @@ function AnalysisContent() {
 
           <div>
             <h3 style={{ fontSize: '1.18rem', marginBottom: '.4rem' }}>
-              {interview.score >= 80 ? 'Exceptional Performance' : interview.score >= 65 ? 'Competitive Candidate' : 'Coaching Recommended'}
+              {highlights?.readiness?.label || (interview.score >= 80 ? 'Strong Practice Performance' : interview.score >= 65 ? 'Nearly Ready' : 'Coaching Recommended')}
             </h3>
             <p style={{ color: 'var(--text-2)', fontSize: '.92rem', marginBottom: '.6rem', lineHeight: 1.5 }}>
               {interview.feedback.nextStep}
@@ -522,11 +752,110 @@ function AnalysisContent() {
                   {m.value.toFixed(1)}
                 </div>
                 <div className="l">{m.label}</div>
+                {highlights?.rubric?.dimensions.find((dimension) => dimension.key === m.key) && (
+                  <small style={{ color: 'var(--text-3)' }}>
+                    {Math.round((highlights.rubric.dimensions.find((dimension) => dimension.key === m.key)?.weight || 0) * 100)}% weight
+                  </small>
+                )}
               </div>
             );
           })}
         </div>
       </div>
+
+      {reportMoments.length > 0 && (
+        <div className="widget" style={{ marginBottom: '1.25rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Timer size={18} color="var(--blue)" />
+            <h4 style={{ margin: 0 }}>Interview MRI: Key Moments</h4>
+          </div>
+          <p style={{ color: 'var(--text-3)', fontSize: '.86rem', margin: '.3rem 0 .7rem' }}>
+            Strong, Improve and Critical moments are anchored to the candidate transcript. Select a time to jump to the evidence.
+          </p>
+          {reportMoments.map((moment, index) => (
+            <div className={`moment-card ${moment.level}`} key={`${moment.transcriptIndex}-${index}`}>
+              <div>
+                <b style={{ textTransform: 'capitalize' }}>{moment.title}</b>
+                <p style={{ margin: '.25rem 0', color: 'var(--text-2)', fontSize: '.87rem', lineHeight: 1.5 }}>{moment.summary}</p>
+                <small style={{ color: 'var(--text-3)' }}>&ldquo;{moment.evidence}&rdquo;</small>
+              </div>
+              <button className="btn btn-ghost btn-sm" onClick={() => jumpToTranscript(moment.transcriptIndex)} style={{ whiteSpace: 'nowrap', alignSelf: 'start' }}>
+                {formatTimestamp(moment.timestampSeconds) || 'Transcript'}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {(topStrengths.length > 0 || topImprovements.length > 0) && (
+        <div className="feature-banner-grid">
+          <div className="widget">
+            <h4 style={{ margin: '0 0 .8rem' }}>Top 3 Strengths</h4>
+            {topStrengths.slice(0, 3).map((item, index) => (
+              <div key={`${item.title}-${index}`} style={{ marginBottom: '.8rem' }}>
+                <b style={{ color: '#22C55E', fontSize: '.88rem' }}>{index + 1}. {item.title}</b>
+                <p style={{ margin: '.2rem 0', color: 'var(--text-2)', fontSize: '.84rem' }}>{item.whyItMatters}</p>
+                <small style={{ color: 'var(--text-3)' }}>{item.evidence}</small>
+              </div>
+            ))}
+          </div>
+          <div className="widget">
+            <h4 style={{ margin: '0 0 .8rem' }}>Top 3 Highest-Impact Improvements</h4>
+            {topImprovements.slice(0, 3).map((item, index) => (
+              <div key={`${item.title}-${index}`} style={{ marginBottom: '.8rem' }}>
+                <b style={{ color: '#F59E0B', fontSize: '.88rem' }}>{index + 1}. {item.title}</b>
+                <p style={{ margin: '.2rem 0', color: 'var(--text-2)', fontSize: '.84rem' }}>{item.action}</p>
+                <small style={{ color: 'var(--text-3)' }}>{item.evidence}</small>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {verificationItems.length > 0 && (
+        <div className="widget" style={{ marginBottom: '1.25rem', borderColor: 'rgba(245,158,11,.35)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <AlertTriangle size={18} color="#F59E0B" />
+            <h4 style={{ margin: 0 }}>Items to Verify</h4>
+          </div>
+          <p style={{ color: 'var(--text-3)', fontSize: '.86rem', margin: '.3rem 0 .8rem' }}>
+            These are unsupported or inconsistent transcript claims to clarify, not accusations.
+          </p>
+          {verificationItems.map((item, index) => (
+            <div className="mri-card" key={`${item.label}-${index}`} style={{ marginTop: '.65rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+                <b>{item.label}</b>
+                <button className="btn btn-ghost btn-sm" onClick={() => jumpToTranscript(item.transcriptIndex)}>
+                  {formatTimestamp(item.timestampSeconds) || 'View evidence'}
+                </button>
+              </div>
+              <p style={{ margin: '.35rem 0', color: 'var(--text-2)', fontSize: '.86rem' }}>&ldquo;{item.evidence}&rdquo;</p>
+              <small style={{ color: 'var(--text-3)' }}>{item.guidance}</small>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {sevenDayPlan.length > 0 && (
+        <div className="widget" style={{ marginBottom: '1.25rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <CalendarDays size={18} color="var(--blue)" />
+            <h4 style={{ margin: 0 }}>Your Personalized 7-Day Plan</h4>
+          </div>
+          <p style={{ color: 'var(--text-3)', fontSize: '.86rem', margin: '.3rem 0 .6rem' }}>Built from your three lowest rubric dimensions and weak questions.</p>
+          {sevenDayPlan.map((item) => (
+            <div className="plan-row" key={item.day}>
+              <div className="practice-num">Day {item.day}</div>
+              <div>
+                <b>{item.focus}</b>
+                <p style={{ margin: '.2rem 0', color: 'var(--text-2)', fontSize: '.86rem' }}>{item.exercise}</p>
+                {item.practiceQuestion && <small style={{ display: 'block', color: 'var(--blue)', marginBottom: 3 }}>Practice: {item.practiceQuestion}</small>}
+                <small style={{ color: 'var(--text-3)' }}>Success: {item.successMeasure}</small>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* ── Section: Where You Were Challenged ── */}
       {challengeMoments.length > 0 && (
@@ -544,6 +873,11 @@ function AnalysisContent() {
               <div className="challenge-card" key={idx}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                   <b style={{ fontSize: '0.92rem', color: 'var(--text)' }}>Probe #{idx + 1}: {cm.question}</b>
+                  {challengeTimestamp(cm.followUp, cm.timestamp) && (
+                    <span style={{ fontSize: '0.78rem', color: 'var(--blue)', fontWeight: 700 }}>
+                      {challengeTimestamp(cm.followUp, cm.timestamp)}
+                    </span>
+                  )}
                 </div>
                 <div className="challenge-flow">
                   <div className="flow-box">
@@ -571,10 +905,10 @@ function AnalysisContent() {
         <div className="widget" style={{ marginBottom: '1.25rem', borderColor: 'rgba(239,68,68,0.3)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
             <AlertTriangle size={18} color="#EF4444" />
-            <h4 style={{ margin: 0, fontSize: '1.05rem', color: '#EF4444' }}>Contradictions Detected</h4>
+            <h4 style={{ margin: 0, fontSize: '1.05rem', color: '#EF4444' }}>Statements to Reconcile</h4>
           </div>
           <p style={{ color: 'var(--text-3)', fontSize: '0.86rem', margin: '0 0 0.8rem' }}>
-            Statements that conflicted across different parts of the conversation.
+            Possible differences in scope or timeframe to verify before drawing a conclusion.
           </p>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
@@ -669,12 +1003,23 @@ function AnalysisContent() {
                         }}
                       >
                         <RefreshCw size={13} style={{ marginRight: 4 }} />
-                        {isRetakeOpen ? 'Close Practice' : 'Practice This Again'}
+                        {isRetakeOpen ? 'Close Practice' : pq.verdict === 'weak' ? 'Practice This Weak Area' : 'Practice This Again'}
                       </button>
                     </div>
                   </div>
 
                   {pq.answerSummary && <p className="qb-summary">{pq.answerSummary}</p>}
+                  {(pq.evidence || pq.uncertainty) && (
+                    <div style={{ fontSize: '.8rem', color: 'var(--text-3)', marginBottom: '.75rem' }}>
+                      {pq.evidence && <span>Evidence: &ldquo;{pq.evidence}&rdquo;</span>}
+                      {pq.uncertainty && <span style={{ display: 'block', marginTop: 3 }}>{pq.uncertainty}</span>}
+                      {typeof pq.transcriptIndex === 'number' && (
+                        <button className="feedback-choice" onClick={() => jumpToTranscript(pq.transcriptIndex!)} style={{ marginTop: 6 }}>
+                          Jump to {formatTimestamp(pq.timestampSeconds) || 'transcript'}
+                        </button>
+                      )}
+                    </div>
+                  )}
 
                   <div className="qb-cols">
                     {pq.whatWorked && (
@@ -693,8 +1038,9 @@ function AnalysisContent() {
 
                   {pq.betterAnswer && (
                     <div className="qb-better">
-                      <b>Stronger Model Answer</b>
+                      <b>Honest Answer Framework</b>
                       <p>{pq.betterAnswer}</p>
+                      <small style={{ display: 'block', marginTop: 5, color: 'var(--text-3)' }}>Use only real details you can defend; placeholders are intentional.</small>
                     </div>
                   )}
 
@@ -737,7 +1083,7 @@ function AnalysisContent() {
                         <button
                           className="btn btn-primary btn-sm"
                           disabled={isLoading}
-                          onClick={() => handleRetakeSubmit(i, pq.question, pq.answerSummary, itemScore)}
+                          onClick={() => handleRetakeSubmit(i, pq.question, answeredPairs[i]?.answer || pq.answerSummary, itemScore)}
                           style={{ minWidth: 160 }}
                         >
                           {isLoading ? (
@@ -753,8 +1099,8 @@ function AnalysisContent() {
                       {retakeOut && (
                         <div className="retake-result-banner">
                           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-                            <strong style={{ color: '#22C55E', fontSize: '0.94rem' }}>
-                              🎉 Score Progression: {retakeOut.previousScore}/100 → {retakeOut.newScore}/100 (+{retakeOut.scoreDelta} pts)
+                            <strong style={{ color: retakeOut.scoreDelta > 0 ? '#22C55E' : '#F59E0B', fontSize: '0.94rem' }}>
+                              {retakeOut.scoreDelta > 0 ? '🎉 Score Progression' : 'Keep Practicing'}: {retakeOut.previousScore}/100 → {retakeOut.newScore}/100 ({retakeOut.scoreDelta > 0 ? '+' : ''}{retakeOut.scoreDelta} pts)
                             </strong>
                             <span className="qb-badge" style={{ background: verdictStyle(retakeOut.verdict).bg, color: verdictStyle(retakeOut.verdict).fg }}>
                               {verdictStyle(retakeOut.verdict).label}
@@ -768,6 +1114,22 @@ function AnalysisContent() {
                               💡 <em>Next Polish:</em> {retakeOut.whatStillNeedsWork}
                             </p>
                           )}
+                          {retakeOut.comparison && (
+                            <p style={{ fontSize: '0.82rem', color: 'var(--text-3)', margin: '5px 0 0' }}>
+                              <strong>Compared with prior answer:</strong> {retakeOut.comparison.explanation}
+                            </p>
+                          )}
+                          {retakeOut.frameworkAssessment && (
+                            <p style={{ fontSize: '0.82rem', color: 'var(--text-3)', margin: '5px 0 0' }}>
+                              <strong>Truth check:</strong> {retakeOut.frameworkAssessment.guidance}
+                              {retakeOut.frameworkAssessment.placeholdersNeeded.length > 0 ? ` Still add: ${retakeOut.frameworkAssessment.placeholdersNeeded.join(', ')}.` : ''}
+                            </p>
+                          )}
+                          {retakeOut.nextPracticeQuestion && (
+                            <p style={{ fontSize: '0.82rem', color: 'var(--blue)', margin: '5px 0 0' }}>
+                              <strong>Next variation:</strong> {retakeOut.nextPracticeQuestion}
+                            </p>
+                          )}
                         </div>
                       )}
                     </div>
@@ -779,17 +1141,54 @@ function AnalysisContent() {
         </div>
       )}
 
+      <div className="widget" style={{ marginTop: '1.25rem' }}>
+        <h4 style={{ margin: '0 0 .3rem' }}>Was this report useful?</h4>
+        <p style={{ color: 'var(--text-3)', fontSize: '.84rem', margin: '0 0 .7rem' }}>This lightweight feedback helps improve report usefulness and the training loop.</p>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: '1rem' }}>
+          <button className={`feedback-choice${usefulness === 'helpful' ? ' selected' : ''}`} onClick={() => submitProductFeedback('usefulness', 'helpful')}>
+            <ThumbsUp size={13} style={{ marginRight: 5 }} /> Helpful
+          </button>
+          <button className={`feedback-choice${usefulness === 'not_helpful' ? ' selected' : ''}`} onClick={() => submitProductFeedback('usefulness', 'not_helpful')}>
+            <ThumbsDown size={13} style={{ marginRight: 5 }} /> Not yet
+          </button>
+        </div>
+        <h4 style={{ margin: '0 0 .5rem', fontSize: '.94rem' }}>Would you rather train here than with your usual practice method?</h4>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {([['here', 'Yes, here'], ['usual', 'My usual method'], ['unsure', 'Not sure yet']] as const).map(([value, label]) => (
+            <button key={value} className={`feedback-choice${trainingPreference === value ? ' selected' : ''}`} onClick={() => submitProductFeedback('wrti', value)}>{label}</button>
+          ))}
+        </div>
+        <small style={{ display: 'block', color: 'var(--text-3)', marginTop: 8 }}>Only your selection, report ID and time are stored locally; transcript content is not included.</small>
+      </div>
+
       {/* Transcript section */}
       {interview.transcript.length > 0 && (
         <div className="widget" style={{ marginTop: '1.25rem' }} ref={transcriptRef}>
           <h4>Full Conversation Transcript</h4>
           <div style={{ maxHeight: '380px', overflowY: 'auto', fontSize: '.88rem', marginTop: '0.8rem', paddingRight: '0.5rem' }}>
             {interview.transcript.map((msg, i) => (
-              <div key={i} style={{ marginBottom: '.75rem', padding: '0.6rem 0.8rem', borderRadius: 8, background: msg.who === 'ai' ? 'rgba(59,130,246,0.06)' : 'rgba(255,255,255,0.02)' }}>
+              <div
+                key={i}
+                ref={(element) => { transcriptItemRefs.current[i] = element; }}
+                style={{
+                  marginBottom: '.75rem',
+                  padding: '0.6rem 0.8rem',
+                  borderRadius: 8,
+                  background: focusedTranscriptIndex === i ? 'rgba(245,158,11,.16)' : msg.who === 'ai' ? 'rgba(59,130,246,0.06)' : 'rgba(255,255,255,0.02)',
+                  border: focusedTranscriptIndex === i ? '1px solid rgba(245,158,11,.65)' : '1px solid transparent',
+                  transition: 'background .25s, border-color .25s',
+                }}
+              >
                 <b style={{ color: msg.who === 'ai' ? 'var(--blue)' : 'var(--accent)', display: 'block', marginBottom: 2 }}>
-                  {msg.who === 'ai' ? 'Interviewer' : 'You'}:
+                  {msg.who === 'ai' ? 'Interviewer' : 'You'}
+                  {formatTimestamp(msg.timestampSeconds) ? ` · ${formatTimestamp(msg.timestampSeconds)}` : ''}:
                 </b>{' '}
                 <span style={{ color: 'var(--text)', lineHeight: 1.5 }}>{msg.text}</span>
+                {msg.who === 'ai' && msg.decision && (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 6, fontSize: '0.72rem', color: 'var(--text-3)' }}>
+                    <MessageCircleMore size={12} /> {msg.decision.replace('_', ' ')}
+                  </span>
+                )}
               </div>
             ))}
           </div>

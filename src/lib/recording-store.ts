@@ -63,3 +63,18 @@ export async function deleteRecording(id: string): Promise<void> {
     // ignore
   }
 }
+
+export async function clearRecordings(): Promise<void> {
+  try {
+    const db = await openDB();
+    await new Promise<void>((resolve) => {
+      const tx = db.transaction(STORE, 'readwrite');
+      tx.objectStore(STORE).clear();
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+    });
+    db.close();
+  } catch {
+    // Privacy cleanup is best-effort when IndexedDB is unavailable.
+  }
+}

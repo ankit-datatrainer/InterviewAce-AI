@@ -34,8 +34,25 @@ export interface ResumeRecord {
 
 const STORAGE_KEY = 'interviewace_resumes';
 
-function mapResume(r: any): ResumeRecord {
-  const analysis = typeof r.analysis === 'string' ? JSON.parse(r.analysis) : r.analysis;
+interface DatabaseResumeRow {
+  id: string;
+  file_name: string;
+  file_url?: string;
+  created_at: string;
+  target_role: string;
+  ats_score: number;
+  analysis: string | {
+    breakdown: ResumeRecord['breakdown'];
+    missingKeywords: string[];
+    presentKeywords: string[];
+    suggestions: ResumeRecord['suggestions'];
+    extractedData?: ResumeRecord['extractedData'];
+  };
+  extracted_data?: ResumeRecord['extractedData'];
+}
+
+function mapResume(r: DatabaseResumeRow): ResumeRecord {
+  const analysis = (typeof r.analysis === 'string' ? JSON.parse(r.analysis) : r.analysis) as Exclude<DatabaseResumeRow['analysis'], string>;
   return {
     id: r.id,
     dbId: r.id,
@@ -169,6 +186,10 @@ export function getLatestResume(): ResumeRecord | null {
 export function clearResumes(): void {
   if (typeof window !== 'undefined') {
     localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem('interview_resume_text');
+    void fetch('/api/privacy/data?scope=resumes', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+    }).catch(() => undefined);
   }
 }
-

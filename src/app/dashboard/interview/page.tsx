@@ -13,7 +13,6 @@ import {
   Zap,
   Flame,
   Mic,
-  MicOff,
   Camera,
   CameraOff,
   SkipForward,
@@ -26,8 +25,28 @@ import {
 import { saveInterview } from '@/lib/interview-store';
 import { saveRecording } from '@/lib/recording-store';
 import type { InterviewRecord } from '@/lib/interview-store';
+import type { InterviewDecision, InterviewTranscriptMessage } from '@/lib/interview-decision';
 import { FaceDetector, FilesetResolver } from '@mediapipe/tasks-vision';
 import { LiveAvatarSession, SessionEvent, AgentEventsEnum } from '@heygen/liveavatar-web-sdk';
+
+type BrowserWindow = Window & typeof globalThis & {
+  webkitAudioContext?: typeof AudioContext;
+};
+
+type InterruptionReason = 'rambling' | 'avoiding_question' | 'time_pressure' | 'contradiction' | 'direct_answer';
+
+type InterruptionTrace = {
+  timestampSeconds: number;
+  reason: InterruptionReason | 'candidate_barge_in';
+  detail: string;
+};
+
+type DecisionTrace = {
+  timestampSeconds: number;
+  decision: InterviewDecision;
+  reason: string;
+  modelVersion: string;
+};
 
 const TypewriterText = ({ text }: { text: string }) => {
   const [displayed, setDisplayed] = useState('');
@@ -43,16 +62,6 @@ const TypewriterText = ({ text }: { text: string }) => {
   }, [text]);
   return <>{displayed}</>;
 };
-
-const questions = [
-  'Tell me about yourself and why you chose this role.',
-  'Walk me through a time you handled a tight deadline. What was the result?',
-  'Describe a conflict in a team project and how you resolved it.',
-  "What's your biggest weakness, and what are you doing about it?",
-  'Why should we hire you over other candidates with similar profiles?',
-  'Where do you see yourself in five years?',
-  'Do you have any questions for me?',
-];
 
 const interviewTypes = [
   { id: 'hr', label: 'HR Round', icon: MessageSquare, sub: 'Soft skills & fit' },
@@ -75,10 +84,46 @@ function pad(n: number) {
   return n.toString().padStart(2, '0');
 }
 
-// How long to wait after the candidate stops talking before Alex responds.
-// Kept short so the conversation feels natural and responsive (not an 8s lag),
-// but long enough to allow a brief thinking pause mid-answer.
-const SILENCE_TIMEOUT_MS = 2200;
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, Math.min(i + chunkSize, bytes.length)));
+  }
+  return window.btoa(binary);
+}
+
+// Turn-taking is deliberately more patient than a basic VAD endpoint. The
+// extra pause for short/unpunctuated answers prevents the interviewer from
+// jumping into a normal thinking pause while keeping completed turns fast.
+const SILENCE_TIMEOUT_MS = 1500;
+const THINKING_PAUSE_TIMEOUT_MS = 2200;
+const RAMBLE_LIMIT_MS = 90000;
+const INTERVIEW_DURATION_SECONDS = 30 * 60;
+const NEAR_END_SECONDS = 24 * 60;
+const CANDIDATE_QUESTION_SECONDS = 28 * 60;
+const MAX_INTERVIEWER_INTERRUPTS = 3;
+const INTERRUPTION_COOLDOWN_MS = 4 * 60 * 1000;
+const MAX_QUESTIONS = 18;
+const SESSION_MODELS = {
+  clientOrchestrator: 'interview-ux-2026-08-24',
+  stt: 'deepgram-nova-3',
+  decisionAndLlm: 'server-selected:deepseek-v4-flash|llama-3.3-70b-instruct|deterministic-fallback',
+  tts: 'server-selected:deepgram-aura-orion-en-default',
+  avatar: 'liveavatar-lite-web-sdk@0.0.18',
+} as const;
+
+function average(values: number[]): number {
+  return values.length > 0
+    ? Math.round(values.reduce((sum, value) => sum + value, 0) / values.length)
+    : 0;
+}
+
+function quoteClaim(value: string): string {
+  const clean = value.replace(/\s+/g, ' ').trim();
+  return clean.length > 120 ? `${clean.slice(0, 117)}...` : clean;
+}
 
 export default function InterviewPage() {
   const router = useRouter();
@@ -104,7 +149,7 @@ export default function InterviewPage() {
   const [seconds, setSeconds] = useState(0);
   const [questionIdx, setQuestionIdx] = useState(0);
   const [strikes, setStrikes] = useState(0);
-  const [transcript, setTranscript] = useState<{ who: 'ai' | 'me'; text: string }[]>([]);
+  const [transcript, setTranscript] = useState<InterviewTranscriptMessage[]>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
 
@@ -139,6 +184,7 @@ export default function InterviewPage() {
 
   const [showSetup, setShowSetup] = useState(false);
   const [setupError, setSetupError] = useState('');
+  const [consentGiven, setConsentGiven] = useState(false);
   const [tabWarning, setTabWarning] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -149,9 +195,10 @@ export default function InterviewPage() {
   const [cameraOn, setCameraOn] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
+  const [isFinalizing, setIsFinalizing] = useState(false);
+  const [sessionNotice, setSessionNotice] = useState('');
 
   // HeyGen state
-  const [heygenSessionId, setHeygenSessionId] = useState<string | null>(null);
   const [heygenReady, setHeygenReady] = useState(false);
   // True when the LiveAvatar session can't start (e.g. insufficient credits).
   const [avatarError, setAvatarError] = useState(false);
@@ -167,6 +214,31 @@ export default function InterviewPage() {
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const rambleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sttFinalSegmentsRef = useRef<string[]>([]);
+  const processingAnswerRef = useRef(false);
+  const conversationStartedRef = useRef(false);
+  const candidateStoppedAtRef = useRef<number | null>(null);
+  const pendingResponseStartedAtRef = useRef<number | null>(null);
+  const responseLatenciesRef = useRef<number[]>([]);
+  const sttLatenciesRef = useRef<number[]>([]);
+  const orchestrationLatenciesRef = useRef<number[]>([]);
+  const modelLatenciesRef = useRef<number[]>([]);
+  const ttsLatenciesRef = useRef<number[]>([]);
+  const avatarRenderLatenciesRef = useRef<number[]>([]);
+  const pendingAvatarRenderAtRef = useRef<number | null>(null);
+  const candidateInterruptionsRef = useRef(0);
+  const interviewerRedirectsRef = useRef(0);
+  const interviewerInterruptionsRef = useRef(0);
+  const lastInterruptionAtRef = useRef(0);
+  const pendingInterruptionReasonRef = useRef<InterruptionReason | null>(null);
+  const interruptionTraceRef = useRef<InterruptionTrace[]>([]);
+  const decisionTraceRef = useRef<DecisionTrace[]>([]);
+  const unresolvedAreasRef = useRef<string[]>([]);
+  const unresolvedRevisitDoneRef = useRef(false);
+  const closingStageRef = useRef<'none' | 'candidate_questions' | 'complete'>('none');
+  const sessionTraceIdRef = useRef('');
+  const pendingAutoEndRef = useRef(false);
   const heygenVideoRef = useRef<HTMLVideoElement>(null);
   const cameraStreamRef = useRef<MediaStream | null>(null);
   const cameraVideoRef = useRef<HTMLVideoElement>(null);
@@ -190,6 +262,7 @@ export default function InterviewPage() {
   const interviewerRef = useRef(interviewerId);
   const resumeTextRef = useRef(resumeText);
   const speakQuestionRef = useRef<((t: string) => Promise<void>) | null>(null);
+  const processCandidateAnswerRef = useRef<((answer: string, forceMoveOn?: boolean) => Promise<void>) | null>(null);
   // LiveAvatar keep-alive heartbeat + session-duration guard timers.
   const keepAliveTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const sessionEndTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -197,8 +270,8 @@ export default function InterviewPage() {
   const endInterviewCleanupRef = useRef<(() => void) | null>(null);
   // Guards against the end flow running twice (double-click / auto-end race).
   const endingRef = useRef(false);
-  // The per-interview LiveAvatar context id (for cleanup when the interview ends).
-  const liveContextIdRef = useRef<string | null>(null);
+  const timeWarningShownRef = useRef(false);
+  const closingReminderShownRef = useRef(false);
 
   // Keep refs in sync
   useEffect(() => { questionIdxRef.current = questionIdx; }, [questionIdx]);
@@ -240,43 +313,134 @@ export default function InterviewPage() {
     }, 100);
   });
 
-  // ─── LiveAvatar speech (FULL mode) ───
-  // The avatar speaks the text in its OWN voice and lip-syncs natively via
-  // repeat(). All audio comes from LiveAvatar — no external TTS on this path.
+  const recordResponseStart = useCallback(() => {
+    if (pendingAvatarRenderAtRef.current !== null) {
+      avatarRenderLatenciesRef.current.push(Math.max(0, Date.now() - pendingAvatarRenderAtRef.current));
+      pendingAvatarRenderAtRef.current = null;
+    }
+    if (pendingResponseStartedAtRef.current === null) return;
+    responseLatenciesRef.current.push(Date.now() - pendingResponseStartedAtRef.current);
+    pendingResponseStartedAtRef.current = null;
+  }, []);
+
+  const requestInterviewerInterruption = useCallback((reason: InterruptionReason, detail: string) => {
+    const now = Date.now();
+    if (
+      interviewerInterruptionsRef.current >= MAX_INTERVIEWER_INTERRUPTS
+      || now - lastInterruptionAtRef.current < INTERRUPTION_COOLDOWN_MS
+    ) {
+      return false;
+    }
+    interviewerInterruptionsRef.current += 1;
+    interviewerRedirectsRef.current += 1;
+    lastInterruptionAtRef.current = now;
+    pendingInterruptionReasonRef.current = reason;
+    interruptionTraceRef.current.push({ timestampSeconds: secondsRef.current, reason, detail });
+    return true;
+  }, []);
+
+  const playFallbackAudio = useCallback(async (text: string) => {
+    try {
+      const ttsStartedAt = Date.now();
+      const response = await fetch('/api/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!response.ok) return false;
+      const blob = await response.blob();
+      ttsLatenciesRef.current.push(Date.now() - ttsStartedAt);
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audioRef.current = audio;
+      pendingAvatarRenderAtRef.current = Date.now();
+      audio.onplaying = () => {
+        avatarSpeakStartedRef.current = true;
+        setAriaSpeaking(true);
+        setSessionNotice('Audio-only mode is active; the interview is continuing normally.');
+        recordResponseStart();
+      };
+      audio.onended = () => {
+        avatarSpeakStartedRef.current = false;
+        setAriaSpeaking(false);
+        URL.revokeObjectURL(url);
+        if (audioRef.current === audio) audioRef.current = null;
+        if (pendingAutoEndRef.current) {
+          pendingAutoEndRef.current = false;
+          setTimeout(() => endInterviewCleanupRef.current?.(), 900);
+        }
+      };
+      await audio.play();
+      return true;
+    } catch (error) {
+      console.warn('Fallback interview audio failed.', error);
+      return false;
+    }
+  }, [recordResponseStart]);
+
+  // In LITE mode InterviewAce owns the voice pipeline. Deepgram produces
+  // 24kHz PCM and LiveAvatar renders it with synchronized lip movement.
   const speakWithHeygen = useCallback(async (text: string) => {
     if (!avatarRef.current || !heygenReady) return false;
     try {
+      const ttsStartedAt = Date.now();
+      const ttsResponse = await fetch('/api/tts?format=pcm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!ttsResponse.ok) return false;
+      const pcm = await ttsResponse.arrayBuffer();
+      ttsLatenciesRef.current.push(Date.now() - ttsStartedAt);
       avatarSpeakStartedRef.current = false;
-      avatarRef.current.repeat(text);
+      pendingAvatarRenderAtRef.current = Date.now();
+      avatarRef.current.repeatAudio(arrayBufferToBase64(pcm));
     } catch (e) {
-      console.warn('Avatar repeat() failed.', e);
+      console.warn('Avatar audio playback failed.', e);
       return false;
     }
-    // FULL-mode TTS takes ~1-3s to begin; confirm the avatar actually started.
-    return await waitAvatarStarted(4000);
+    return await waitAvatarStarted(3500);
   }, [heygenReady]);
 
-  // Speech is AVATAR-ONLY. We never use any external TTS. If the avatar isn't
-  // loaded yet, the line is queued and spoken the moment the avatar connects, so
-  // the candidate never hears a voice while the interviewer is still connecting.
   const speakQuestion = useCallback(async (text: string) => {
+    let spoke = false;
     if (heygenReady && avatarRef.current) {
-      await speakWithHeygen(text);
+      spoke = await speakWithHeygen(text);
+      if (!spoke) {
+        pendingAvatarRenderAtRef.current = null;
+        spoke = await playFallbackAudio(text);
+      }
+    } else if (avatarError) {
+      spoke = await playFallbackAudio(text);
     } else {
       pendingSpeechRef.current = text;
+      return;
     }
-  }, [heygenReady, speakWithHeygen]);
+    if (!spoke) {
+      pendingAvatarRenderAtRef.current = null;
+      setSessionNotice('Voice playback is temporarily unavailable. Follow the live transcript while the interview continues.');
+      recordResponseStart();
+      if (pendingAutoEndRef.current) {
+        pendingAutoEndRef.current = false;
+        setTimeout(() => endInterviewCleanupRef.current?.(), 1200);
+      }
+    }
+  }, [avatarError, heygenReady, playFallbackAudio, recordResponseStart, speakWithHeygen]);
 
   useEffect(() => { speakQuestionRef.current = speakQuestion; }, [speakQuestion]);
 
-  // Flush any queued line once the avatar is live.
+  // Flush any queued line once the avatar is live, or continue audio-only if
+  // the avatar provider is temporarily unavailable.
   useEffect(() => {
-    if (heygenReady && pendingSpeechRef.current) {
+    if ((heygenReady || avatarError) && pendingSpeechRef.current) {
       const text = pendingSpeechRef.current;
       pendingSpeechRef.current = null;
-      speakWithHeygen(text);
+      if (heygenReady) speakWithHeygen(text).then((ok) => { if (!ok) playFallbackAudio(text); });
+      else playFallbackAudio(text);
     }
-  }, [heygenReady, speakWithHeygen]);
+  }, [avatarError, heygenReady, playFallbackAudio, speakWithHeygen]);
 
   // The LiveAvatar SDK emits benign unhandled rejections from its internal
   // keep-alive polling (e.g. a transient "Session not found"). These are NOT
@@ -286,7 +450,7 @@ export default function InterviewPage() {
   // and the start() catch instead.
   useEffect(() => {
     const handler = (e: PromiseRejectionEvent) => {
-      const msg = String((e.reason && ((e.reason as any).message || e.reason)) || '');
+      const msg = e.reason instanceof Error ? e.reason.message : String(e.reason || '');
       if (/Session not found|Insufficient credits|session token|credits|LiveKit|participant/i.test(msg)) {
         e.preventDefault();
       }
@@ -299,8 +463,8 @@ export default function InterviewPage() {
   const initHeygen = useCallback(async (): Promise<void> => {
     setAvatarError(false);
     try {
-      // Ask the server for a FULL-mode session bound to a fresh interviewer
-      // Context (system prompt + greeting) built from this interview's setup.
+      // LITE mode keeps the avatar as the synchronized video layer while this
+      // application owns listening, memory and next-question decisions.
       const diffLabel = difficulties.find((d) => d.id === selectedDiffRef.current)?.label || 'Intermediate';
       const res = await fetch('/api/liveavatar/token', {
         method: 'POST',
@@ -325,11 +489,7 @@ export default function InterviewPage() {
         setAvatarError(true);
         return;
       }
-      liveContextIdRef.current = data.contextId || null;
-
-      // voiceChat: true publishes the candidate's mic so LiveAvatar's built-in
-      // agent can hear them and drive the whole conversation (VAD→STT→LLM→TTS).
-      const session = new LiveAvatarSession(data.token, { voiceChat: true });
+      const session = new LiveAvatarSession(data.token, { voiceChat: false });
       avatarRef.current = session;
 
       // Attach the avatar's media to the <video> element and flip to "ready"
@@ -346,18 +506,11 @@ export default function InterviewPage() {
         }
       };
 
-      const hasAvatarVideo = () => {
-        const ms = heygenVideoRef.current?.srcObject as MediaStream | null;
-        return !!ms && ms.getVideoTracks().length > 0;
-      };
-
       session.on(SessionEvent.SESSION_STREAM_READY, tryAttach);
       session.on(SessionEvent.SESSION_DISCONNECTED, () => {
-        // Only treat as fatal if the avatar never actually came up.
-        if (!hasAvatarVideo()) {
-          setHeygenReady(false);
-          setAvatarError(true);
-        }
+        setHeygenReady(false);
+        setAvatarError(true);
+        setSessionNotice('The avatar video disconnected. Audio and transcript mode will continue your interview.');
         if (avatarAttachPollRef.current) { clearInterval(avatarAttachPollRef.current); avatarAttachPollRef.current = null; }
       });
 
@@ -365,28 +518,16 @@ export default function InterviewPage() {
       session.on(AgentEventsEnum.AVATAR_SPEAK_STARTED, () => {
         avatarSpeakStartedRef.current = true;
         setAriaSpeaking(true);
+        setSessionNotice('');
+        recordResponseStart();
       });
       session.on(AgentEventsEnum.AVATAR_SPEAK_ENDED, () => {
+        avatarSpeakStartedRef.current = false;
         setAriaSpeaking(false);
-      });
-
-      // ── Live transcript comes straight from LiveAvatar's agent ──
-      // The candidate's speech (agent STT) and Alex's generated replies both
-      // arrive as events — no external STT/LLM involved.
-      session.on(AgentEventsEnum.USER_SPEAK_STARTED, () => setUserSpeaking(true));
-      session.on(AgentEventsEnum.USER_SPEAK_ENDED, () => setUserSpeaking(false));
-      session.on(AgentEventsEnum.USER_TRANSCRIPTION, (e: any) => {
-        const text = (e?.text || '').trim();
-        if (!text) return;
-        setTranscript((t) => [...t, { who: 'me', text }]);
-        setLiveTranscript('');
-      });
-      session.on(AgentEventsEnum.AVATAR_TRANSCRIPTION, (e: any) => {
-        const text = (e?.text || '').trim();
-        if (!text) return;
-        setTranscript((t) => [...t, { who: 'ai', text }]);
-        setQuestionIdx((q) => q + 1);
-        setLiveTranscript('');
+        if (pendingAutoEndRef.current) {
+          pendingAutoEndRef.current = false;
+          setTimeout(() => endInterviewCleanupRef.current?.(), 900);
+        }
       });
 
       // Start poll-attaching immediately so the avatar shows the instant its
@@ -403,8 +544,6 @@ export default function InterviewPage() {
       }, 700);
 
       await session.start();
-      setHeygenSessionId(session.sessionId || 'active');
-
       // Keep-alive heartbeat: the SDK does NOT ping automatically, so without
       // this the session can drop mid-interview (the earlier "Session not found"
       // disconnects). Ping every 25s while the session is live.
@@ -413,22 +552,25 @@ export default function InterviewPage() {
         try { session.keepAlive?.(); } catch { /* transient, ignore */ }
       }, 25000);
 
-      // Plan session cap (Starter = 5 min). Read the real limit and gracefully
-      // wrap the interview ~15s before the hard server cutoff so the candidate
-      // is never cut off mid-sentence with a broken avatar.
+      // The avatar provider may have a shorter plan limit than the interview.
+      // Treat that as a video-layer limit, never as the interview's time limit:
+      // warn, stop the avatar cleanly, and continue through audio + transcript.
       const maxSecs = session.maxSessionDuration;
       if (typeof maxSecs === 'number' && maxSecs > 30) {
         if (sessionWarnTimerRef.current) clearTimeout(sessionWarnTimerRef.current);
         if (sessionEndTimerRef.current) clearTimeout(sessionEndTimerRef.current);
         sessionWarnTimerRef.current = setTimeout(() => {
-          if (inRoomRef.current) toast('Heads up — about 30 seconds left in this session. Wrapping up soon.');
+          if (inRoomRef.current) toast('Avatar video will switch to audio-only mode soon. Your interview will continue.');
         }, Math.max(0, (maxSecs - 30) * 1000));
         sessionEndTimerRef.current = setTimeout(() => {
           if (inRoomRef.current) {
-            toast('Session time reached its limit — finishing your interview.');
-            endInterviewCleanupRef.current?.();
+            setSessionNotice('Avatar time limit reached. Continuing in audio and transcript mode.');
+            setHeygenReady(false);
+            setAvatarError(true);
+            void session.stop().catch(() => { /* audio fallback remains available */ });
+            avatarRef.current = null;
           }
-        }, Math.max(0, (maxSecs - 15) * 1000));
+        }, Math.max(0, (maxSecs - 5) * 1000));
       }
     } catch (err) {
       console.warn('LiveAvatar session start reported an error.', err);
@@ -441,8 +583,7 @@ export default function InterviewPage() {
       setHeygenReady(false);
       setAvatarError(true);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [recordResponseStart, toast]);
 
   // ─── HeyGen: stop session ───
   const stopHeygen = useCallback(async () => {
@@ -456,23 +597,355 @@ export default function InterviewPage() {
         avatarRef.current = null;
       }
     } catch {}
-    setHeygenSessionId(null);
     setHeygenReady(false);
     if (heygenVideoRef.current) {
       heygenVideoRef.current.srcObject = null;
     }
-    // Best-effort: delete the per-interview LiveAvatar context so they don't pile up.
-    if (liveContextIdRef.current) {
-      const cid = liveContextIdRef.current;
-      liveContextIdRef.current = null;
-      fetch(`/api/liveavatar/token?contextId=${encodeURIComponent(cid)}`, { method: 'DELETE' }).catch(() => {});
+  }, []);
+
+  // Conversation decisions are generated by InterviewAce and then rendered by
+  // the avatar, so transcript, memory, testing and live behavior stay aligned.
+
+  const processCandidateAnswer = useCallback(async (rawAnswer: string, forceMoveOn = false) => {
+    const answer = rawAnswer.replace(/\s+/g, ' ').trim();
+    if (!answer || processingAnswerRef.current || endingRef.current) return;
+
+    processingAnswerRef.current = true;
+    setIsThinking(true);
+    setUserSpeaking(false);
+    setLiveTranscript('');
+    const candidateStoppedAt = candidateStoppedAtRef.current ?? Date.now();
+    pendingResponseStartedAtRef.current = candidateStoppedAt;
+    sttLatenciesRef.current.push(Math.max(0, Date.now() - candidateStoppedAt));
+    candidateStoppedAtRef.current = null;
+
+    const candidateMessage: InterviewTranscriptMessage = {
+      who: 'me',
+      text: answer,
+      timestampSeconds: secondsRef.current,
+    };
+    const nextTranscript = [...transcriptRef2.current, candidateMessage];
+    transcriptRef2.current = nextTranscript;
+    setTranscript(nextTranscript);
+    const interruptionReason = pendingInterruptionReasonRef.current;
+    pendingInterruptionReasonRef.current = null;
+    const withInterruptionPhrase = (text: string) => {
+      if (!interruptionReason) return text;
+      const phrase = interruptionReason === 'time_pressure'
+        ? 'Sorry to interrupt—we are close to time, so I need a direct answer.'
+        : interruptionReason === 'rambling'
+          ? 'Sorry to interrupt—let me bring us back to the question.'
+          : 'Sorry to interrupt—what specifically was your responsibility?';
+      return `${phrase} ${text}`;
+    };
+
+    try {
+      // The candidate-question turn is part of the interview, not an abrupt
+      // timer redirect. Their answer receives a short, realistic closing.
+      if (closingStageRef.current === 'candidate_questions') {
+        const closing = `Thank you for your questions and for the thoughtful conversation today. That concludes our interview for the ${selectedRoleRef.current} role. We appreciate your time.`;
+        const closingMessage: InterviewTranscriptMessage = {
+          who: 'ai',
+          text: closing,
+          decision: 'MOVE_ON',
+          timestampSeconds: secondsRef.current,
+        };
+        const completedTranscript = [...nextTranscript, closingMessage];
+        closingStageRef.current = 'complete';
+        pendingAutoEndRef.current = true;
+        transcriptRef2.current = completedTranscript;
+        setTranscript(completedTranscript);
+        await speakQuestionRef.current?.(closing);
+        return;
+      }
+
+      // In the final six minutes, deliberately revisit one high-value area
+      // that earlier probing left unresolved before beginning the close.
+      if (
+        secondsRef.current >= NEAR_END_SECONDS
+        && !unresolvedRevisitDoneRef.current
+        && unresolvedAreasRef.current.length > 0
+      ) {
+        unresolvedRevisitDoneRef.current = true;
+        const unresolved = unresolvedAreasRef.current.shift() as string;
+        const revisit = withInterruptionPhrase(`Before we wrap up, I want to return to something you mentioned earlier: “${quoteClaim(unresolved)}” What concrete evidence or personal contribution best supports that claim?`);
+        const revisitMessage: InterviewTranscriptMessage = {
+          who: 'ai', text: revisit, decision: 'EVIDENCE', timestampSeconds: secondsRef.current,
+        };
+        decisionTraceRef.current.push({
+          timestampSeconds: secondsRef.current,
+          decision: 'EVIDENCE',
+          reason: 'Near-end reprioritization of a high-value unresolved claim.',
+          modelVersion: SESSION_MODELS.clientOrchestrator,
+        });
+        const completedTranscript = [...nextTranscript, revisitMessage];
+        transcriptRef2.current = completedTranscript;
+        setTranscript(completedTranscript);
+        setQuestionIdx((count) => count + 1);
+        await speakQuestionRef.current?.(revisit);
+        return;
+      }
+
+      // Reserve the final two minutes for the candidate, as a real interviewer
+      // would, even if the dynamic question engine has reached its question cap.
+      if (secondsRef.current >= CANDIDATE_QUESTION_SECONDS) {
+        const candidateQuestion = withInterruptionPhrase('Before we finish, what questions would you like to ask about the role, the team, or the work itself?');
+        const candidateQuestionMessage: InterviewTranscriptMessage = {
+          who: 'ai', text: candidateQuestion, decision: 'MOVE_ON', timestampSeconds: secondsRef.current,
+        };
+        decisionTraceRef.current.push({
+          timestampSeconds: secondsRef.current,
+          decision: 'MOVE_ON',
+          reason: 'Reserved the final interview section for candidate questions.',
+          modelVersion: SESSION_MODELS.clientOrchestrator,
+        });
+        const completedTranscript = [...nextTranscript, candidateQuestionMessage];
+        closingStageRef.current = 'candidate_questions';
+        transcriptRef2.current = completedTranscript;
+        setTranscript(completedTranscript);
+        setQuestionIdx((count) => count + 1);
+        await speakQuestionRef.current?.(candidateQuestion);
+        return;
+      }
+
+      const diffLabel = difficulties.find((d) => d.id === selectedDiffRef.current)?.label || 'Intermediate';
+      const typeLabel = interviewTypes.find((t) => t.id === selectedTypeRef.current)?.label || 'Mixed';
+      const apiStartedAt = Date.now();
+      const response = await fetch('/api/interview/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          transcript: nextTranscript,
+          role: selectedRoleRef.current,
+          difficulty: diffLabel,
+          interviewType: typeLabel,
+          customJD: customJDRef.current,
+          resumeText: resumeTextRef.current,
+          forceMoveOn,
+          maxQuestions: MAX_QUESTIONS,
+          sessionTraceId: sessionTraceIdRef.current,
+          elapsedSeconds: secondsRef.current,
+          remainingSeconds: Math.max(0, INTERVIEW_DURATION_SECONDS - secondsRef.current),
+          unresolvedAreas: unresolvedAreasRef.current.slice(0, 4),
+        }),
+        signal: AbortSignal.timeout(15000),
+      });
+      if (!response.ok) throw new Error(`Interview response failed (${response.status})`);
+      const data = await response.json();
+      const totalDecisionLatency = typeof data?.latencyMs === 'number'
+        ? data.latencyMs
+        : Date.now() - apiStartedAt;
+      const modelLatency = typeof data?.modelLatencyMs === 'number' ? data.modelLatencyMs : 0;
+      orchestrationLatenciesRef.current.push(Math.max(0, totalDecisionLatency - modelLatency));
+      if (modelLatency > 0) modelLatenciesRef.current.push(modelLatency);
+
+      let reply = typeof data?.reply === 'string' && data.reply.trim()
+        ? data.reply.trim()
+        : 'Thank you. Tell me about another project that best demonstrates your fit for this role.';
+
+      const claims = Array.isArray(data?.claims)
+        ? data.claims.filter((claim: unknown): claim is string => typeof claim === 'string')
+        : [];
+      if (claims.length > 0) candidateMessage.claims = claims;
+
+      const decision = (data?.decision || 'MOVE_ON') as InterviewDecision;
+      decisionTraceRef.current.push({
+        timestampSeconds: secondsRef.current,
+        decision,
+        reason: typeof data?.reason === 'string' ? data.reason : 'Dynamic interview decision.',
+        modelVersion: typeof data?.modelVersion === 'string'
+          ? data.modelVersion
+          : data?.usedFallback === true
+            ? 'deterministic-decision-layer'
+            : 'server-configured-llm',
+      });
+      if (['PROBE', 'CLARIFY', 'CHALLENGE', 'COUNTER', 'EVIDENCE', 'CONTRADICTION'].includes(decision)) {
+        const unresolved = claims[0] || answer;
+        if (unresolved && !unresolvedAreasRef.current.includes(unresolved)) {
+          unresolvedAreasRef.current = [...unresolvedAreasRef.current.slice(-4), unresolved];
+        }
+      } else if (decision === 'MOVE_ON' && unresolvedAreasRef.current.length > 1) {
+        unresolvedAreasRef.current.shift();
+      }
+
+      reply = withInterruptionPhrase(reply);
+
+      if (forceMoveOn || (data?.decision === 'MOVE_ON' && answer.split(/\s+/).length > 250)) {
+        interviewerRedirectsRef.current += 1;
+      }
+
+      if (data?.complete === true) {
+        reply = 'Before we finish, what questions would you like to ask about the role, the team, or the work itself?';
+        closingStageRef.current = 'candidate_questions';
+      }
+
+      const aiMessage: InterviewTranscriptMessage = {
+        who: 'ai',
+        text: reply,
+        decision,
+        latencyMs: totalDecisionLatency,
+        timestampSeconds: secondsRef.current,
+      };
+      const completedTranscript = [...nextTranscript, aiMessage];
+      transcriptRef2.current = completedTranscript;
+      setTranscript(completedTranscript);
+      setQuestionIdx((count) => count + 1);
+      await speakQuestionRef.current?.(reply);
+    } catch (error) {
+      console.warn('Could not generate the next interview turn.', error);
+      const fallback = 'Thank you. Tell me about another project that best demonstrates your fit for this role.';
+      const completedTranscript: InterviewTranscriptMessage[] = [
+        ...nextTranscript,
+        { who: 'ai', text: fallback, decision: 'MOVE_ON', timestampSeconds: secondsRef.current },
+      ];
+      transcriptRef2.current = completedTranscript;
+      setTranscript(completedTranscript);
+      setQuestionIdx((count) => count + 1);
+      await speakQuestionRef.current?.(fallback);
+    } finally {
+      processingAnswerRef.current = false;
+      setIsThinking(false);
+      if (sttFinalSegmentsRef.current.length > 0 && !silenceTimerRef.current) {
+        silenceTimerRef.current = setTimeout(() => {
+          silenceTimerRef.current = null;
+          const queued = sttFinalSegmentsRef.current.join(' ').trim();
+          sttFinalSegmentsRef.current = [];
+          if (queued) processCandidateAnswerRef.current?.(queued);
+        }, 500);
+      }
     }
   }, []);
 
-  // NOTE: The interview conversation is now driven entirely by LiveAvatar's
-  // built-in FULL-mode agent (see initHeygen). We no longer call an external LLM
-  // to generate questions — Alex listens and responds on his own, and his turns
-  // arrive via the AVATAR_TRANSCRIPTION event.
+  useEffect(() => { processCandidateAnswerRef.current = processCandidateAnswer; }, [processCandidateAnswer]);
+
+  const startConversation = useCallback(async () => {
+    if (conversationStartedRef.current || endingRef.current) return;
+    conversationStartedRef.current = true;
+    setIsThinking(true);
+    if (!sessionTraceIdRef.current) sessionTraceIdRef.current = crypto.randomUUID();
+    try {
+      const diffLabel = difficulties.find((d) => d.id === selectedDiffRef.current)?.label || 'Intermediate';
+      const typeLabel = interviewTypes.find((t) => t.id === selectedTypeRef.current)?.label || 'Mixed';
+      const apiStartedAt = Date.now();
+      const response = await fetch('/api/interview/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          transcript: [],
+          role: selectedRoleRef.current,
+          difficulty: diffLabel,
+          interviewType: typeLabel,
+          customJD: customJDRef.current,
+          resumeText: resumeTextRef.current,
+          maxQuestions: MAX_QUESTIONS,
+          sessionTraceId: sessionTraceIdRef.current,
+          elapsedSeconds: secondsRef.current,
+          remainingSeconds: INTERVIEW_DURATION_SECONDS,
+        }),
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!response.ok) throw new Error('Opening question failed');
+      const data = await response.json();
+      const totalDecisionLatency = typeof data?.latencyMs === 'number' ? data.latencyMs : Date.now() - apiStartedAt;
+      const modelLatency = typeof data?.modelLatencyMs === 'number' ? data.modelLatencyMs : 0;
+      orchestrationLatenciesRef.current.push(Math.max(0, totalDecisionLatency - modelLatency));
+      if (modelLatency > 0) modelLatenciesRef.current.push(modelLatency);
+      const resumeContext = resumeTextRef.current
+        ? 'I’ve reviewed the background you shared, so I may return to specific projects or claims as we talk.'
+        : 'We’ll focus on your experience and how you would approach the role.';
+      const opening = `Thanks for joining me. I’m ${getInterviewer(interviewerRef.current).name}. We’ll have a roughly 30-minute ${typeLabel.toLowerCase()} conversation for the ${selectedRoleRef.current} role. ${resumeContext} Take your time, and feel free to ask me to repeat a question. ${data.reply}`;
+      decisionTraceRef.current.push({
+        timestampSeconds: secondsRef.current,
+        decision: 'MOVE_ON',
+        reason: typeof data?.reason === 'string' ? data.reason : 'Contextual interview opening.',
+        modelVersion: typeof data?.modelVersion === 'string' ? data.modelVersion : 'deterministic-decision-layer',
+      });
+      const firstMessage: InterviewTranscriptMessage = {
+        who: 'ai',
+        text: opening,
+        decision: 'MOVE_ON',
+        latencyMs: totalDecisionLatency,
+        timestampSeconds: secondsRef.current,
+      };
+      transcriptRef2.current = [firstMessage];
+      setTranscript([firstMessage]);
+      setQuestionIdx(1);
+      await speakQuestionRef.current?.(opening);
+    } catch (error) {
+      console.warn('Could not start the interview conversation.', error);
+      const opening = `Thanks for joining me. I’m ${getInterviewer(interviewerRef.current).name}. We’ll spend about 30 minutes discussing your fit for the ${selectedRoleRef.current} role. To begin, walk me through the experience that best prepared you for this opportunity.`;
+      const firstMessage: InterviewTranscriptMessage = { who: 'ai', text: opening, decision: 'MOVE_ON' };
+      transcriptRef2.current = [firstMessage];
+      setTranscript([firstMessage]);
+      setQuestionIdx(1);
+      await speakQuestionRef.current?.(opening);
+    } finally {
+      setIsThinking(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (inRoom) startConversation();
+  }, [inRoom, startConversation]);
+
+  const offerCandidateQuestions = useCallback(async () => {
+    if (closingStageRef.current !== 'none' || processingAnswerRef.current || endingRef.current) return;
+    const text = 'We’re nearing the end of our time. Before we finish, what questions would you like to ask about the role, the team, or the work itself?';
+    const message: InterviewTranscriptMessage = {
+      who: 'ai', text, decision: 'MOVE_ON', timestampSeconds: secondsRef.current,
+    };
+    const completedTranscript = [...transcriptRef2.current, message];
+    closingStageRef.current = 'candidate_questions';
+    transcriptRef2.current = completedTranscript;
+    setTranscript(completedTranscript);
+    setQuestionIdx((count) => count + 1);
+    await speakQuestionRef.current?.(text);
+  }, []);
+
+  const closeAtTimeLimit = useCallback(async () => {
+    if (closingStageRef.current === 'complete' || endingRef.current || processingAnswerRef.current) return;
+    const text = 'We’re at the end of our scheduled time, so I’ll close us there. Thank you for the conversation and for sharing your experience today.';
+    const message: InterviewTranscriptMessage = {
+      who: 'ai', text, decision: 'MOVE_ON', timestampSeconds: secondsRef.current,
+    };
+    const completedTranscript = [...transcriptRef2.current, message];
+    closingStageRef.current = 'complete';
+    pendingAutoEndRef.current = true;
+    transcriptRef2.current = completedTranscript;
+    setTranscript(completedTranscript);
+    await speakQuestionRef.current?.(text);
+  }, []);
+
+  useEffect(() => {
+    if (!inRoom || endingRef.current) return;
+    if (seconds >= 25 * 60 && !timeWarningShownRef.current) {
+      timeWarningShownRef.current = true;
+      toast('About five minutes remain. The interviewer will prioritize unresolved areas and then wrap up.');
+    }
+    if (seconds >= CANDIDATE_QUESTION_SECONDS && !closingReminderShownRef.current) {
+      closingReminderShownRef.current = true;
+      setSessionNotice('Final section: resolving the highest-value open area and making space for your questions.');
+    }
+    if (
+      seconds >= 29 * 60 + 20
+      && closingStageRef.current === 'none'
+      && !userSpeaking
+      && !ariaSpeaking
+      && !isThinking
+    ) {
+      void offerCandidateQuestions();
+    }
+    // Allow the current answer/closing question to finish, but do not let the
+    // session drift indefinitely beyond its 30-minute budget.
+    if (
+      seconds >= INTERVIEW_DURATION_SECONDS + 15
+      && !userSpeaking
+      && !ariaSpeaking
+      && !isThinking
+    ) {
+      void closeAtTimeLimit();
+    }
+  }, [ariaSpeaking, closeAtTimeLimit, inRoom, isThinking, offerCandidateQuestions, seconds, toast, userSpeaking]);
 
   // ─── Combined recording: composite avatar + candidate onto a canvas ───
   const startCombinedRecording = useCallback(() => {
@@ -512,7 +985,8 @@ export default function InterviewPage() {
       const canvasStream = canvas.captureStream(30);
 
       // Mix candidate mic + avatar audio into a single track.
-      const AC = window.AudioContext || (window as any).webkitAudioContext;
+      const AC = window.AudioContext || (window as BrowserWindow).webkitAudioContext;
+      if (!AC) return;
       const actx: AudioContext = new AC();
       recordAudioCtxRef.current = actx;
       const dest = actx.createMediaStreamDestination();
@@ -568,11 +1042,13 @@ export default function InterviewPage() {
     if (endingRef.current) return;
     endingRef.current = true;
     // Immediate visual feedback so the red button feels responsive.
+    setIsFinalizing(true);
     setIsThinking(true);
 
     // Stop timer
     if (timerRef.current) clearInterval(timerRef.current);
     if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+    if (rambleTimerRef.current) clearTimeout(rambleTimerRef.current);
     if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
     if (dgSocketRef.current && dgSocketRef.current.readyState === WebSocket.OPEN) dgSocketRef.current.close();
     dgSocketRef.current = null;
@@ -587,9 +1063,17 @@ export default function InterviewPage() {
     if (cameraStreamRef.current) { cameraStreamRef.current.getTracks().forEach((track) => track.stop()); }
     cameraStreamRef.current = null;
 
-    try { stopHeygen(); } catch (e) { console.warn('stopHeygen failed', e); }
+    try { await stopHeygen(); } catch (e) { console.warn('stopHeygen failed', e); }
 
-    const currentTranscript = transcriptRef2.current;
+    let currentTranscript = transcriptRef2.current;
+    const pendingCandidateText = sttFinalSegmentsRef.current.join(' ').replace(/\s+/g, ' ').trim();
+    sttFinalSegmentsRef.current = [];
+    if (pendingCandidateText) {
+      currentTranscript = [
+        ...currentTranscript,
+        { who: 'me', text: pendingCandidateText, timestampSeconds: secondsRef.current },
+      ];
+    }
     const currentSeconds = secondsRef.current;
     const currentQuestionIdx = questionIdxRef.current;
     const currentType = selectedTypeRef.current;
@@ -598,7 +1082,7 @@ export default function InterviewPage() {
 
     const typeLabel = interviewTypes.find((t) => t.id === currentType)?.label ?? 'HR Round';
     const diffLabel = difficulties.find((d) => d.id === currentDiff)?.label ?? 'Intermediate';
-    const questionsAsked = currentQuestionIdx + 1;
+    const questionsAsked = currentQuestionIdx;
 
     // Conservative defaults used only if the AI evaluation fails to return.
     let score = 55;
@@ -644,6 +1128,36 @@ export default function InterviewPage() {
     }
 
     const interviewId = `iv_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const responseLatencies = responseLatenciesRef.current;
+    const modelLatencies = modelLatenciesRef.current;
+    const pipelineTelemetry = {
+      traceId: sessionTraceIdRef.current || interviewId,
+      models: SESSION_MODELS,
+      sttLatenciesMs: sttLatenciesRef.current,
+      averageSttLatencyMs: average(sttLatenciesRef.current),
+      orchestrationLatenciesMs: orchestrationLatenciesRef.current,
+      averageOrchestrationLatencyMs: average(orchestrationLatenciesRef.current),
+      llmLatenciesMs: modelLatencies,
+      averageLlmLatencyMs: average(modelLatencies),
+      ttsLatenciesMs: ttsLatenciesRef.current,
+      averageTtsLatencyMs: average(ttsLatenciesRef.current),
+      avatarRenderLatenciesMs: avatarRenderLatenciesRef.current,
+      averageAvatarRenderLatencyMs: average(avatarRenderLatenciesRef.current),
+      interviewerInterruptions: interviewerInterruptionsRef.current,
+      interruptionTrace: interruptionTraceRef.current,
+      decisionTrace: decisionTraceRef.current,
+      unresolvedAreasAtClose: unresolvedAreasRef.current,
+      targetDurationSeconds: INTERVIEW_DURATION_SECONDS,
+    };
+    const performance: NonNullable<InterviewRecord['performance']> & { pipeline: typeof pipelineTelemetry } = {
+      responseLatenciesMs: responseLatencies,
+      averageResponseLatencyMs: average(responseLatencies),
+      modelLatenciesMs: modelLatencies,
+      averageModelLatencyMs: average(modelLatencies),
+      candidateInterruptions: candidateInterruptionsRef.current,
+      interviewerRedirects: interviewerRedirectsRef.current,
+      pipeline: pipelineTelemetry,
+    };
     const record: InterviewRecord = {
       id: interviewId,
       type: typeLabel,
@@ -658,6 +1172,7 @@ export default function InterviewPage() {
       feedback,
       perQuestion,
       highlights,
+      performance,
     };
 
     try { saveInterview(record); } catch (e) { console.warn('saveInterview failed', e); }
@@ -670,10 +1185,33 @@ export default function InterviewPage() {
   // Expose the latest cleanup to the session-cap timer set up inside initHeygen.
   useEffect(() => { endInterviewCleanupRef.current = endInterviewCleanup; }, [endInterviewCleanup]);
 
-  // ─── Candidate mic: local waveform only ───
-  // STT/transcription is handled by LiveAvatar's built-in agent — this only
-  // grabs the mic for the on-screen "Speaking" waveform and the combined
-  // recording. (LiveAvatar publishes its own copy of the mic via voiceChat.)
+  // ─── Candidate mic + streaming transcription ───
+  const handleCandidateBargeIn = useCallback(() => {
+    const aiWasSpeaking = avatarSpeakStartedRef.current
+      || (!!audioRef.current && !audioRef.current.paused && !audioRef.current.ended);
+    if (!aiWasSpeaking) return;
+
+    candidateInterruptionsRef.current += 1;
+    interruptionTraceRef.current.push({
+      timestampSeconds: secondsRef.current,
+      reason: 'candidate_barge_in',
+      detail: 'Candidate began speaking while interviewer audio was active; playback stopped and context was preserved.',
+    });
+    try { avatarRef.current?.interrupt(); } catch { /* avatar may already be idle */ }
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
+    avatarSpeakStartedRef.current = false;
+    pendingAvatarRenderAtRef.current = null;
+    setAriaSpeaking(false);
+    setSessionNotice('You interrupted naturally. I stopped speaking and kept the question context.');
+    if (pendingAutoEndRef.current) {
+      pendingAutoEndRef.current = false;
+      closingStageRef.current = 'candidate_questions';
+    }
+  }, []);
+
   const initDeepgram = useCallback(async () => {
     try {
       let stream = mediaStreamRef.current;
@@ -682,7 +1220,252 @@ export default function InterviewPage() {
         mediaStreamRef.current = stream;
       }
 
-      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      const startServerTranscription = () => {
+        const preferredMime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+          ? 'audio/webm;codecs=opus'
+          : '';
+        let chunks: BlobPart[] = [];
+        let fallbackRecorder: MediaRecorder | null = null;
+
+        const startRecorder = () => {
+          if (!inRoomRef.current || endingRef.current) return;
+          fallbackRecorder = preferredMime
+            ? new MediaRecorder(stream, { mimeType: preferredMime })
+            : new MediaRecorder(stream);
+          fallbackRecorder.ondataavailable = (event) => {
+            if (event.data.size > 0 && micActiveRef.current) chunks.push(event.data);
+          };
+          fallbackRecorder.start(250);
+          mediaRecorderRef.current = fallbackRecorder;
+        };
+
+        const transcribeUtterance = () => {
+          if (!fallbackRecorder || fallbackRecorder.state === 'inactive') return;
+          fallbackRecorder.onstop = async () => {
+            const utteranceChunks = chunks;
+            chunks = [];
+            const contentType = preferredMime || fallbackRecorder?.mimeType || 'audio/webm';
+            startRecorder();
+            if (utteranceChunks.length === 0 || endingRef.current) return;
+
+            try {
+              setLiveTranscript('Transcribing…');
+              const audio = new Blob(utteranceChunks, { type: contentType });
+              const response = await fetch('/api/stt', {
+                method: 'POST',
+                headers: { 'Content-Type': contentType },
+                body: audio,
+                signal: AbortSignal.timeout(25_000),
+              });
+              if (!response.ok) throw new Error('Server transcription failed');
+              const data = await response.json();
+              const answer = String(data.transcript || '').replace(/\s+/g, ' ').trim();
+              setLiveTranscript('');
+              if (!answer) return;
+              if (processingAnswerRef.current) {
+                sttFinalSegmentsRef.current.push(answer);
+              } else {
+                processCandidateAnswerRef.current?.(answer);
+              }
+            } catch (error) {
+              console.warn('Server transcription failed.', error);
+              setLiveTranscript('');
+              toast('Speech recognition missed that answer. Please try speaking again.');
+            }
+          };
+          fallbackRecorder.stop();
+        };
+
+        const scheduleServerTurn = () => {
+          if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+          silenceTimerRef.current = setTimeout(() => {
+            silenceTimerRef.current = null;
+            transcribeUtterance();
+          }, THINKING_PAUSE_TIMEOUT_MS);
+        };
+
+        startRecorder();
+
+        const AudioContextClass = window.AudioContext || (window as BrowserWindow).webkitAudioContext;
+        if (!AudioContextClass) return;
+        const audioCtx = new AudioContextClass();
+        const analyser = audioCtx.createAnalyser();
+        const source = audioCtx.createMediaStreamSource(stream);
+        source.connect(analyser);
+        analyser.fftSize = 256;
+        const levels = new Uint8Array(analyser.frequencyBinCount);
+        let wasSpeaking = false;
+
+        const checkFallbackVolume = () => {
+          if (!inRoomRef.current || endingRef.current) {
+            audioCtx.close().catch(() => undefined);
+            return;
+          }
+
+          analyser.getByteFrequencyData(levels);
+          let total = 0;
+          for (let index = 0; index < levels.length; index += 1) total += levels[index];
+          const speaking = micActiveRef.current && total / levels.length > 5;
+
+          if (speaking && !wasSpeaking) {
+            candidateStoppedAtRef.current = null;
+            setUserSpeaking(true);
+            setLiveTranscript('Listening…');
+            if (silenceTimerRef.current) {
+              clearTimeout(silenceTimerRef.current);
+              silenceTimerRef.current = null;
+            }
+
+            handleCandidateBargeIn();
+
+            if (rambleTimerRef.current) clearTimeout(rambleTimerRef.current);
+            rambleTimerRef.current = setTimeout(() => {
+              const reason: InterruptionReason = secondsRef.current >= CANDIDATE_QUESTION_SECONDS
+                ? 'time_pressure'
+                : 'rambling';
+              if (requestInterviewerInterruption(reason, 'Candidate answer exceeded the calibrated continuous-speech threshold.')) {
+                candidateStoppedAtRef.current = Date.now();
+                transcribeUtterance();
+              }
+            }, RAMBLE_LIMIT_MS);
+          } else if (!speaking && wasSpeaking) {
+            candidateStoppedAtRef.current = Date.now();
+            setUserSpeaking(false);
+            if (rambleTimerRef.current) {
+              clearTimeout(rambleTimerRef.current);
+              rambleTimerRef.current = null;
+            }
+            scheduleServerTurn();
+          }
+
+          wasSpeaking = speaking;
+          requestAnimationFrame(checkFallbackVolume);
+        };
+        checkFallbackVolume();
+      };
+
+      const tokenResponse = await fetch('/api/stt/token', { cache: 'no-store' });
+      if (!tokenResponse.ok) {
+        console.info('Using secure server-side speech transcription.');
+        startServerTranscription();
+        return;
+      }
+      const { token } = await tokenResponse.json();
+      if (!token) {
+        startServerTranscription();
+        return;
+      }
+
+      const params = new URLSearchParams({
+        model: 'nova-3',
+        language: 'en-US',
+        smart_format: 'true',
+        punctuate: 'true',
+        numerals: 'true',
+        interim_results: 'true',
+        endpointing: '650',
+        utterance_end_ms: '1500',
+        vad_events: 'true',
+      });
+      const socket = new WebSocket(`wss://api.deepgram.com/v1/listen?${params.toString()}`, ['bearer', token]);
+      dgSocketRef.current = socket;
+
+      const scheduleCandidateTurn = () => {
+        if (candidateStoppedAtRef.current === null) {
+          candidateStoppedAtRef.current = Date.now() - 650;
+        }
+        if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+        const currentText = sttFinalSegmentsRef.current.join(' ').trim();
+        const wordCount = currentText ? currentText.split(/\s+/).length : 0;
+        const pauseMs = wordCount > 0 && (wordCount < 6 || !/[.!?]$/.test(currentText))
+          ? THINKING_PAUSE_TIMEOUT_MS
+          : SILENCE_TIMEOUT_MS;
+        silenceTimerRef.current = setTimeout(() => {
+          silenceTimerRef.current = null;
+          if (processingAnswerRef.current) {
+            scheduleCandidateTurn();
+            return;
+          }
+          const finalAnswer = sttFinalSegmentsRef.current.join(' ').replace(/\s+/g, ' ').trim();
+          sttFinalSegmentsRef.current = [];
+          setLiveTranscript('');
+          if (finalAnswer) processCandidateAnswerRef.current?.(finalAnswer);
+        }, pauseMs);
+      };
+
+      socket.onopen = () => {
+        const preferredMime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+          ? 'audio/webm;codecs=opus'
+          : '';
+        const recorder = preferredMime
+          ? new MediaRecorder(stream, { mimeType: preferredMime })
+          : new MediaRecorder(stream);
+        recorder.ondataavailable = (event) => {
+          if (event.data.size > 0 && socket.readyState === WebSocket.OPEN && micActiveRef.current) {
+            socket.send(event.data);
+          }
+        };
+        recorder.start(250);
+        mediaRecorderRef.current = recorder;
+      };
+
+      socket.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === 'SpeechStarted') {
+            candidateStoppedAtRef.current = null;
+            setUserSpeaking(true);
+            if (silenceTimerRef.current) {
+              clearTimeout(silenceTimerRef.current);
+              silenceTimerRef.current = null;
+            }
+
+            handleCandidateBargeIn();
+
+            if (rambleTimerRef.current) clearTimeout(rambleTimerRef.current);
+            rambleTimerRef.current = setTimeout(() => {
+              const reason: InterruptionReason = secondsRef.current >= CANDIDATE_QUESTION_SECONDS
+                ? 'time_pressure'
+                : 'rambling';
+              if (requestInterviewerInterruption(reason, 'Candidate answer exceeded the calibrated continuous-speech threshold.')) {
+                if (socket.readyState === WebSocket.OPEN) {
+                  socket.send(JSON.stringify({ type: 'Finalize' }));
+                }
+                scheduleCandidateTurn();
+              }
+            }, RAMBLE_LIMIT_MS);
+            return;
+          }
+
+          if (data.type === 'Results') {
+            const text = String(data?.channel?.alternatives?.[0]?.transcript || '').trim();
+            if (data.is_final && text) {
+              const last = sttFinalSegmentsRef.current[sttFinalSegmentsRef.current.length - 1];
+              if (last !== text) sttFinalSegmentsRef.current.push(text);
+            }
+            const preview = [...sttFinalSegmentsRef.current, data.is_final ? '' : text]
+              .filter(Boolean)
+              .join(' ')
+              .trim();
+            setLiveTranscript(preview);
+            if (data.speech_final) scheduleCandidateTurn();
+            return;
+          }
+
+          if (data.type === 'UtteranceEnd') scheduleCandidateTurn();
+        } catch {
+          // Ignore malformed provider events and keep the interview running.
+        }
+      };
+
+      socket.onerror = () => {
+        toast('Live speech recognition had a connection issue. Please continue speaking while it reconnects.');
+      };
+      socket.onclose = () => {
+        if (mediaRecorderRef.current?.state !== 'inactive') mediaRecorderRef.current?.stop();
+      };
+
+      const AudioContextClass = window.AudioContext || (window as BrowserWindow).webkitAudioContext;
       if (!AudioContextClass) return;
       const audioCtx = new AudioContextClass();
       const analyser = audioCtx.createAnalyser();
@@ -707,14 +1490,10 @@ export default function InterviewPage() {
       };
       checkVolume();
     } catch (err) {
-      toast('Could not access microphone. Please check permissions.');
+      console.warn('Live transcription could not start.', err);
+      toast('Could not start live speech recognition. Please check microphone access and speech-service settings.');
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [toast]);
-
-
-  // The opening greeting is spoken automatically by LiveAvatar from the
-  // Context's opening_text when the session starts — nothing to push here.
+  }, [handleCandidateBargeIn, requestInterviewerInterruption, toast]);
 
   // Reveal the candidate camera only after the interviewer is ready (better UX),
   // with a safety timeout so the user is never stuck if the avatar can't load.
@@ -817,7 +1596,7 @@ export default function InterviewPage() {
     }, 2000);
   };
 
-  // Initialize Deepgram when entering room
+  // Initialize live transcription when entering the room.
   useEffect(() => {
     if (inRoom) {
       initDeepgram();
@@ -826,13 +1605,15 @@ export default function InterviewPage() {
   }, [inRoom]);
 
   // ─── Skip / next question ───
-  // Nudge LiveAvatar's agent to move on. message() = "generate an LLM response
-  // to this input, then speak it", so we ask Alex to advance the interview.
   const advanceQuestion = useCallback(() => {
-    const s = avatarRef.current;
-    if (s && typeof s.message === 'function') {
-      try { s.message("Let's move on to the next question, please."); } catch { /* ignore */ }
+    try { avatarRef.current?.interrupt(); } catch { /* already idle */ }
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
     }
+    avatarSpeakStartedRef.current = false;
+    setAriaSpeaking(false);
+    processCandidateAnswerRef.current?.("I'd prefer to skip this question and move on.", true);
   }, []);
 
 
@@ -857,6 +1638,7 @@ export default function InterviewPage() {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
       if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+      if (rambleTimerRef.current) clearTimeout(rambleTimerRef.current);
       if (keepAliveTimerRef.current) clearInterval(keepAliveTimerRef.current);
       if (sessionWarnTimerRef.current) clearTimeout(sessionWarnTimerRef.current);
       if (sessionEndTimerRef.current) clearTimeout(sessionEndTimerRef.current);
@@ -864,7 +1646,7 @@ export default function InterviewPage() {
         audioRef.current.pause();
         audioRef.current = null;
       }
-      if (dgSocketRef.current && dgSocketRef.current.readyState === WebSocket.OPEN) {
+      if (dgSocketRef.current && dgSocketRef.current.readyState <= WebSocket.OPEN) {
         dgSocketRef.current.close();
       }
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
@@ -880,53 +1662,11 @@ export default function InterviewPage() {
       if (combinedRecorderRef.current && combinedRecorderRef.current.state !== 'inactive') {
         combinedRecorderRef.current.stop();
       }
+      avatarRef.current?.stop().catch(() => {});
+      avatarRef.current = null;
       try { recordAudioCtxRef.current?.close(); } catch { /* ignore */ }
     };
   }, []);
-
-  // ─── Mic toggle ───
-  const toggleMic = useCallback(() => {
-    if (inRoom) {
-      toast("Microphone cannot be turned off during the interview. Strike added.");
-      setStrikes((s) => s + 1);
-      return;
-    }
-    setMicActive((prev) => {
-      const next = !prev;
-      if (mediaStreamRef.current) {
-        mediaStreamRef.current.getAudioTracks().forEach((track) => {
-          track.enabled = next;
-        });
-      }
-      if (!next) {
-        setLiveTranscript('');
-      }
-      return next;
-    });
-  }, [inRoom, toast]);
-  // ─── Camera button ───
-  const handleCameraClick = async () => {
-    if (inRoom) {
-      toast("Camera cannot be turned off during the interview. Strike added.");
-      setStrikes((s) => s + 1);
-      return;
-    }
-    if (cameraOn) {
-      if (cameraStreamRef.current) {
-        cameraStreamRef.current.getTracks().forEach(t => t.stop());
-      }
-      cameraStreamRef.current = null;
-      setCameraOn(false);
-    } else {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-        cameraStreamRef.current = stream;
-        setCameraOn(true);
-      } catch {
-        toast('Camera access denied');
-      }
-    }
-  };
 
   const handleDemoStrike = () => {
     setDemoStrikes((s) => (s + 1) % 4);
@@ -938,6 +1678,7 @@ export default function InterviewPage() {
     if (!inRoom) return;
 
     const pauseAI = () => {
+      avatarSpeakStartedRef.current = false;
       setAriaSpeaking(false);
       if (audioRef.current) {
         audioRef.current.pause();
@@ -978,10 +1719,6 @@ export default function InterviewPage() {
       window.removeEventListener("blur", handleBlur);
     };
   }, [inRoom]);
-
-  // Barge-in / interruption and turn-taking are handled natively by LiveAvatar's
-  // FULL-mode agent (its VAD stops Alex when the candidate starts talking), so no
-  // manual interrupt logic is needed here.
 
   // ─── Face Detection Initialization ───
   useEffect(() => {
@@ -1059,11 +1796,43 @@ export default function InterviewPage() {
   }, [strikes]);
 
   const formattedTime = `${pad(Math.floor(seconds / 60))}:${pad(seconds % 60)}`;
+  const remainingSeconds = Math.max(0, INTERVIEW_DURATION_SECONDS - seconds);
+  const formattedRemaining = `${pad(Math.floor(remainingSeconds / 60))}:${pad(remainingSeconds % 60)}`;
+  const conversationStatus = ariaSpeaking
+    ? `${getInterviewer(interviewerId).name} is speaking`
+    : userSpeaking
+      ? 'Listening to you'
+      : isThinking
+        ? 'Preparing the next question'
+        : micActive
+          ? 'Listening - speak when you are ready'
+          : 'Microphone unavailable';
 
   // ─── SETUP MODAL ───
   const requestPermissions = async () => {
     try {
       setSetupError('');
+      if (!consentGiven) {
+        setSetupError('Please confirm the recording and transcript disclosure before continuing.');
+        return;
+      }
+
+      sessionTraceIdRef.current = crypto.randomUUID();
+      responseLatenciesRef.current = [];
+      sttLatenciesRef.current = [];
+      orchestrationLatenciesRef.current = [];
+      modelLatenciesRef.current = [];
+      ttsLatenciesRef.current = [];
+      avatarRenderLatenciesRef.current = [];
+      interruptionTraceRef.current = [];
+      decisionTraceRef.current = [];
+      unresolvedAreasRef.current = [];
+      unresolvedRevisitDoneRef.current = false;
+      closingStageRef.current = 'none';
+      interviewerInterruptionsRef.current = 0;
+      lastInterruptionAtRef.current = 0;
+      timeWarningShownRef.current = false;
+      closingReminderShownRef.current = false;
 
       // Unlock audio context for TTS
       const unlockAudio = new Audio('data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA');
@@ -1085,7 +1854,7 @@ export default function InterviewPage() {
       setTimeout(() => {
         handleJoinAfterSetup();
       }, 500);
-    } catch (err) {
+    } catch {
       setSetupError('Please allow camera and microphone access to continue.');
     }
   };
@@ -1119,12 +1888,23 @@ export default function InterviewPage() {
         <>
           {showSetup && (
             <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <div style={{ background: 'var(--surface-solid)', padding: '2rem', borderRadius: 'var(--r-lg)', border: '1px solid var(--line)', maxWidth: 400, width: '100%', textAlign: 'center' }}>
-                <h3 style={{ marginBottom: '1rem' }}>Device Setup</h3>
-                <p style={{ color: 'var(--text-2)', marginBottom: '1.5rem', fontSize: '0.9rem' }}>We need access to your camera and microphone to conduct the interview.</p>
+              <div style={{ background: 'var(--surface-solid)', padding: '2rem', borderRadius: 'var(--r-lg)', border: '1px solid var(--line)', maxWidth: 520, width: 'calc(100% - 2rem)', textAlign: 'left' }}>
+                <h3 style={{ marginBottom: '.65rem' }}>Before your interview</h3>
+                <p style={{ color: 'var(--text-2)', marginBottom: '1rem', fontSize: '0.9rem', lineHeight: 1.55 }}>
+                  This 30-minute practice session uses your camera and microphone. With your consent, InterviewAce records the combined session, creates a timestamped transcript, and analyzes both to prepare your private feedback report. Session data is stored with your account and used for your interview history and practice features.
+                </p>
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: '.7rem', padding: '.85rem', border: '1px solid var(--line)', borderRadius: 'var(--r-md)', background: 'var(--card)', marginBottom: '1rem', cursor: 'pointer', fontSize: '.86rem', lineHeight: 1.45 }}>
+                  <input
+                    type="checkbox"
+                    checked={consentGiven}
+                    onChange={(event) => setConsentGiven(event.target.checked)}
+                    style={{ marginTop: '.2rem', flexShrink: 0 }}
+                  />
+                  <span>I understand and consent to camera/microphone access, session recording, transcription, and AI analysis for this mock interview.</span>
+                </label>
                 {setupError && <div style={{ color: 'var(--error-text)', marginBottom: '1rem', fontSize: '0.85rem' }}>{setupError}</div>}
-                <button className="btn btn-primary" onClick={requestPermissions} style={{ width: '100%', justifyContent: 'center' }}>
-                  Enable Camera & Mic
+                <button className="btn btn-primary" onClick={requestPermissions} disabled={!consentGiven} style={{ width: '100%', justifyContent: 'center', opacity: consentGiven ? 1 : .55 }}>
+                  Consent and enable devices
                 </button>
                 <button className="btn btn-ghost" onClick={() => setShowSetup(false)} style={{ width: '100%', justifyContent: 'center', marginTop: '0.5rem' }}>
                   Cancel
@@ -1250,14 +2030,14 @@ export default function InterviewPage() {
                 <>
                   <input
                     type="file"
-                    accept="application/pdf"
+                    accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
                     onChange={handleResumeUpload}
                     disabled={isUploadingResume}
                     style={{ padding: '0.8rem', background: 'var(--card)', borderRadius: 'var(--r-md)', border: '1px solid var(--line)', opacity: isUploadingResume ? 0.6 : 1, cursor: isUploadingResume ? 'not-allowed' : 'pointer' }}
                   />
                   {isUploadingResume && <small style={{ display: 'block', marginTop: '0.4rem', color: 'var(--accent)' }}>Uploading and analyzing your résumé... Please wait.</small>}
                   <small style={{ display: 'block', marginTop: '0.4rem', color: 'var(--text-2)' }}>
-                    Optional — upload a résumé and the AI tailors its questions to your actual experience. Skip it and you&apos;ll be interviewed on the target role alone.
+                    Optional — upload a PDF, DOCX, or plain-text résumé and the AI will tailor questions to your actual experience. Skip it and you&apos;ll be interviewed on the target role alone.
                   </small>
                   {hasSavedResume && replaceResume && (
                     <button type="button" className="btn btn-ghost btn-sm" style={{ marginTop: '0.5rem' }} onClick={() => { setReplaceResume(false); setResumeFile(null); }}>Keep saved résumé</button>
@@ -1288,11 +2068,11 @@ export default function InterviewPage() {
               </div>
               <div className="rule">
                 <span className="ic"><Clock size={16} /></span>
-                <span>You have 15 seconds to begin answering each question.</span>
+                <span>The interview is planned for about 30 minutes, including time for your questions.</span>
               </div>
               <div className="rule">
                 <span className="ic"><Target size={16} /></span>
-                <span>Stay on topic &mdash; off-topic answers earn a strike.</span>
+                <span>Speak naturally. Brief thinking pauses are expected; no push-to-talk control is needed.</span>
               </div>
               <div className="rule">
                 <span className="ic"><XCircle size={16} /></span>
@@ -1329,7 +2109,7 @@ export default function InterviewPage() {
         </>
       ) : (
         <>
-        {isThinking && (
+        {isFinalizing && (
           <div style={{
             position: 'fixed', inset: 0, zIndex: 2000,
             background: 'rgba(4,7,18,0.82)', backdropFilter: 'blur(8px)',
@@ -1360,7 +2140,9 @@ export default function InterviewPage() {
           </p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-          <span className="timer">{formattedTime}</span>
+          <div style={{ textAlign: 'right' }}>
+            <span className="timer" title={`Elapsed ${formattedTime}`}>{formattedRemaining} remaining</span>
+          </div>
           <div className="strikes">
             {[0, 1, 2].map((i) => (
               <div key={i} className={`strike${i < strikes ? ' hit' : ''}`}>
@@ -1369,6 +2151,22 @@ export default function InterviewPage() {
             ))}
           </div>
         </div>
+      </div>
+
+      <div
+        aria-live="polite"
+        role="status"
+        style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem',
+          padding: '.65rem .9rem', marginBottom: '.8rem', borderRadius: 'var(--r-md)',
+          border: '1px solid var(--line)', background: 'var(--surface-solid)', fontSize: '.85rem',
+        }}
+      >
+        <span style={{ display: 'flex', alignItems: 'center', gap: '.55rem', fontWeight: 650 }}>
+          <span style={{ width: 9, height: 9, borderRadius: '50%', background: ariaSpeaking ? '#8b5cf6' : userSpeaking ? '#22c55e' : isThinking ? '#f59e0b' : '#3b82f6', boxShadow: '0 0 0 4px rgba(59,130,246,.12)' }} />
+          {conversationStatus}
+        </span>
+        {sessionNotice && <span style={{ color: 'var(--text-2)', textAlign: 'right' }}>{sessionNotice}</span>}
       </div>
 
       <div className="room-layout">
@@ -1396,9 +2194,9 @@ export default function InterviewPage() {
                   {avatarError ? (
                     <>
                       <XCircle size={38} style={{ color: 'var(--error-text, #ef4444)' }} />
-                      <div style={{ fontWeight: 600 }}>Interviewer unavailable</div>
+                      <div style={{ fontWeight: 600 }}>Audio interview mode</div>
                       <div style={{ fontSize: '.85rem', maxWidth: 320 }}>
-                        The AI avatar couldn&apos;t start (LiveAvatar session/credits). Please try again later.
+                        The avatar video is unavailable, but voice and transcript mode are continuing normally.
                       </div>
                     </>
                   ) : (
@@ -1415,7 +2213,7 @@ export default function InterviewPage() {
               </div>
               <small>
                 {getInterviewer(interviewerId).name} &middot; AI Interviewer &middot;{' '}
-                {avatarError ? 'Unavailable' : heygenReady ? (ariaSpeaking ? 'Speaking' : 'Live') : 'Connecting'}
+                {avatarError ? (ariaSpeaking ? 'Speaking in audio mode' : 'Listening in audio mode') : heygenReady ? (ariaSpeaking ? 'Speaking' : userSpeaking ? 'Listening' : 'Ready') : 'Connecting'}
               </small>
               <div className="wave" style={{ opacity: ariaSpeaking ? 1 : 0.3, transition: 'opacity 0.3s' }}>
                 <i /><i /><i /><i /><i />
@@ -1448,7 +2246,7 @@ export default function InterviewPage() {
               </div>
               <small>
                 You &middot; Candidate &middot;{' '}
-                {micActive ? (userSpeaking ? 'Speaking' : 'Listening') : 'Muted'}
+                {micActive ? (userSpeaking ? 'Speaking' : ariaSpeaking ? 'Listening' : isThinking ? 'Waiting' : 'Ready') : 'Microphone unavailable'}
               </small>
               <div className="wave" style={{ opacity: userSpeaking ? 1 : 0.3, transition: 'opacity 0.3s' }}>
                 <i /><i /><i /><i /><i />
@@ -1457,30 +2255,13 @@ export default function InterviewPage() {
           </div>
 
           <div className="room-controls" style={{ marginTop: 'auto' }}>
-            <button
-              className={`ctrl${micActive ? ' active' : ''}`}
-              title={micActive ? 'Mute mic' : 'Unmute mic'}
-              onClick={toggleMic}
-              style={{
-                background: micActive ? 'var(--accent)' : '#e53e3e',
-                color: '#fff',
-              }}
-            >
-              {micActive ? <Mic size={20} /> : <MicOff size={20} />}
-            </button>
-            <button className="ctrl" title="Toggle camera" onClick={handleCameraClick}
-              style={{
-                background: cameraOn ? 'var(--accent)' : undefined,
-                color: cameraOn ? '#fff' : undefined,
-              }}
-            >
-              {cameraOn ? <Camera size={20} /> : <CameraOff size={20} />}
-            </button>
-            <button className="ctrl" title="Next question" onClick={advanceQuestion}>
+            <button className="ctrl" title="Skip this question" onClick={advanceQuestion} style={{ width: 'auto', padding: '0 .85rem', gap: '.45rem' }}>
               <SkipForward size={20} />
+              <span style={{ fontSize: '.78rem', fontWeight: 650 }}>Skip question</span>
             </button>
-            <button className="ctrl end" title="End interview" onClick={endInterview}>
+            <button className="ctrl end" title="End interview" onClick={endInterview} style={{ width: 'auto', padding: '0 .85rem', gap: '.45rem' }}>
               <Square size={20} />
+              <span style={{ fontSize: '.78rem', fontWeight: 650 }}>End interview</span>
             </button>
           </div>
         </div>
@@ -1508,10 +2289,14 @@ export default function InterviewPage() {
             ) : (
               <div className="bubble ai">
                 <span className="who">{getInterviewer(interviewerId).name}</span>
-                {micActive ? (
-                  <>Listening...<span className="caret" /></>
+                {ariaSpeaking ? (
+                  <>Speaking…</>
+                ) : isThinking ? (
+                  <>Considering your answer…<span className="caret" /></>
+                ) : micActive ? (
+                  <>Listening — speak naturally when ready<span className="caret" /></>
                 ) : (
-                  <>Mic muted &mdash; unmute to answer</>
+                  <>Microphone unavailable</>
                 )}
               </div>
             )}
