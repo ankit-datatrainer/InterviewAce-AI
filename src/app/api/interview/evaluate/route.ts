@@ -9,6 +9,7 @@ interface PerQuestionFeedback {
   question: string;
   answerSummary: string;
   verdict: Verdict;
+  score?: number;
   whatWorked: string;
   whatWasMissing: string;
   betterAnswer: string;
@@ -21,6 +22,9 @@ interface EvaluationHighlights {
   fillerWords: { count: number; examples: string[] };
   vagueClaims: string[];
   missingKeywords: string[];
+  challengeMoments?: { question: string; candidateAnswer: string; followUp: string; whatWasMissing: string }[];
+  contradictions?: { earlierStatement: string; laterStatement: string; explanation: string }[];
+  practiceAreas?: { title: string; description: string; actionItem: string }[];
 }
 
 export async function POST(req: NextRequest) {
@@ -34,41 +38,38 @@ export async function POST(req: NextRequest) {
     const totalAnswerChars = candidateAnswers.reduce((s, m) => s + (m?.text?.length || 0), 0);
     const pairs = pairQuestionsWithAnswers(transcript);
 
-    const prompt = `You are a STRICT, honest technical recruiter scoring a mock interview for a candidate applying for "${role}" at a "${difficulty}" level. Do NOT be generous. Most real candidates score 50-75. Only award 85+ for genuinely excellent, detailed, structured answers with concrete examples.
+    const prompt = `You are a STRICT, honest executive recruiter scoring a mock interview for "${role}" at a "${difficulty}" level. Do NOT give boilerplate feedback or inflated praise. Give the candidate an exact diagnostic of how they interview.
 
 Transcript:
 ${transcript.map((m) => `${m.who === 'ai' ? 'Interviewer' : 'Candidate'}: ${m.text}`).join('\n')}
 
-Scoring rules (follow exactly):
-- The candidate gave ${candidateAnswers.length} answer(s), totalling ${totalAnswerChars} characters.
-- If there are fewer than 3 substantive answers, OR answers are one-liners / off-topic / empty (e.g. only greetings like "I'm good"), the overall score MUST be LOW (20-45) and the per-skill scores must mostly be 2-5. Do NOT inflate.
-- Base communication, confidence, clarity, technicalKnowledge, problemSolving, and leadership ONLY on actual evidence in the candidate's answers. No evidence = low score.
-- IMPORTANT: This is audio/transcript only — you CANNOT actually observe video. For the visual metrics (bodyLanguage, eyeContact, appearance, posture) do NOT invent high scores; set them roughly equal to the communication score (a neutral proxy), never higher.
-- overall "score" must be consistent with the metrics (roughly the average * 10), not arbitrary.
+Scoring rules:
+- Candidate gave ${candidateAnswers.length} answer(s), totalling ${totalAnswerChars} characters.
+- Short or low-effort answers (<3 substantive answers or one-liners) MUST get an overall score of 20-45.
+- Base metrics strictly on evidence in candidate speech.
+- Visual metrics (bodyLanguage, eyeContact, appearance, posture) should equal the communication score.
 
-EVIDENCE RULES (these are mandatory — feedback that ignores them is wrong):
-- Every claim you make about the candidate MUST be grounded in their actual words. Quote a short verbatim fragment (3-12 words, in "double quotes") or closely paraphrase what they really said.
-- NEVER invent achievements, employers, projects, numbers or skills the candidate did not mention. If they never said it, it did not happen.
-- If the candidate said almost nothing, say that plainly and quote the thin answer rather than manufacturing praise.
-- No generic filler advice ("be more confident", "use STAR"). Every improvement must point at a specific answer and what was missing from it.
+EVIDENCE & DIAGNOSTIC RULES:
+- "quotedStrength": ONE verbatim quote from the candidate (in "double quotes") — followed by why it was persuasive.
+- "quotedWeakness": ONE verbatim quote from the candidate (in "double quotes") — followed by what was missing or why it failed.
+- "challengeMoments": List any moment where the interviewer probed, challenged a claim, or asked for details. Include:
+  * "question": The original topic
+  * "candidateAnswer": What the candidate said initially
+  * "followUp": The interviewer's counter-question or probe
+  * "whatWasMissing": What the candidate missed or how they handled the challenge
+- "contradictions": If the candidate said something that conflicted with an earlier statement, list it with "earlierStatement", "laterStatement", and "explanation". (Empty array if none found).
+- "practiceAreas": Exactly 3 prioritized coaching areas (e.g. 1. STAR structure, 2. Quantifying metrics, 3. Differentiating personal 'I' vs team 'we'), each with "title", "description", and "actionItem".
+- "perQuestion": For every answered question, include:
+  * "question": The interviewer's question
+  * "answerSummary": 1 sentence summary of candidate response
+  * "verdict": "strong" | "adequate" | "weak"
+  * "score": 0 to 100 for this answer
+  * "whatWorked": Concrete praise grounded in their actual words
+  * "whatWasMissing": The specific metric, detail or structure missing
+  * "betterAnswer": A 2-3 sentence first-person rewrite of their own answer, showing how they should have answered
+  * "starCoverage": { "situation": boolean, "task": boolean, "action": boolean, "result": boolean }
 
-PER-QUESTION RULES:
-- Produce one "perQuestion" entry for every interviewer question the candidate actually answered (${pairs.length} question/answer pair(s) were detected). Skip greetings/pleasantries that were not real questions. Never return an empty array when the candidate answered at least once.
-- "answerSummary": 1 sentence describing what THEY actually said.
-- "verdict": "strong" only for a structured, specific, results-backed answer; "adequate" for on-topic but thin/unquantified; "weak" for vague, off-topic, one-line or non-answers.
-- "whatWorked": the concrete thing in their wording that helped (or state plainly that little worked).
-- "whatWasMissing": the specific detail, metric, structure or example absent from THEIR answer.
-- "betterAnswer": a 2-3 sentence REWRITE of their own answer in first person, keeping their real content and role context, improved with structure and the specifics they omitted. It must read like an upgraded version of what they said, not generic advice. Only use placeholders like [X%] where they genuinely gave no number.
-- "starCoverage": booleans for whether their answer covered Situation, Task, Action, Result (use for behavioural/experience questions; omit for pure factual questions).
-
-HIGHLIGHTS RULES:
-- "quotedStrength": one actual short quote from the candidate in double quotes, followed by — and why it worked.
-- "quotedWeakness": one actual short quote in double quotes, followed by — and why it fell short.
-- "fillerWords": count of filler words actually present (um, uh, like, you know, basically, actually, sort of, kind of, I mean) and up to 5 example fillers used.
-- "vagueClaims": up to 5 statements they made that lack evidence, numbers or specifics (quote or paraphrase them).
-- "missingKeywords": up to 8 terms/skills/concepts a strong "${role}" candidate would be expected to mention that never appeared in this transcript.
-
-Return EXACTLY this JSON (no markdown, no text outside JSON). All metric values are out of 10, "score" is out of 100:
+Return EXACTLY this JSON structure (no markdown, no extra keys):
 {
   "score": 0,
   "metrics": { "communication": 0, "confidence": 0, "clarity": 0, "bodyLanguage": 0, "eyeContact": 0, "appearance": 0, "posture": 0, "technicalKnowledge": 0, "problemSolving": 0, "leadership": 0 },
@@ -78,6 +79,7 @@ Return EXACTLY this JSON (no markdown, no text outside JSON). All metric values 
       "question": "...",
       "answerSummary": "...",
       "verdict": "strong|adequate|weak",
+      "score": 0,
       "whatWorked": "...",
       "whatWasMissing": "...",
       "betterAnswer": "...",
@@ -89,7 +91,21 @@ Return EXACTLY this JSON (no markdown, no text outside JSON). All metric values 
     "quotedWeakness": "...",
     "fillerWords": { "count": 0, "examples": ["..."] },
     "vagueClaims": ["..."],
-    "missingKeywords": ["..."]
+    "missingKeywords": ["..."],
+    "challengeMoments": [
+      {
+        "question": "...",
+        "candidateAnswer": "...",
+        "followUp": "...",
+        "whatWasMissing": "..."
+      }
+    ],
+    "contradictions": [],
+    "practiceAreas": [
+      { "title": "...", "description": "...", "actionItem": "..." },
+      { "title": "...", "description": "...", "actionItem": "..." },
+      { "title": "...", "description": "...", "actionItem": "..." }
+    ]
   }
 }`;
 
@@ -102,11 +118,11 @@ Return EXACTLY this JSON (no markdown, no text outside JSON). All metric values 
             {
               role: 'system',
               content:
-                'You are a strict, evidence-based interview evaluator that returns only the requested JSON. You never inflate scores, you never invent achievements the candidate did not mention, you quote the candidate\'s own words, and you penalise short or low-effort interviews.',
+                'You are a strict, evidence-based interview evaluator that returns only valid JSON. You never invent achievements, you quote the candidate\'s real words, and you highlight challenges and practice areas.',
             },
             { role: 'user', content: prompt },
           ],
-          { temperature: 0.2, maxTokens: 2600, json: true, timeoutMs: 40000 },
+          { temperature: 0.2, maxTokens: 3000, json: true, timeoutMs: 40000 },
         );
         result = parseJsonFromModel(content);
       } catch (aiErr) {
@@ -115,14 +131,10 @@ Return EXACTLY this JSON (no markdown, no text outside JSON). All metric values 
       }
     }
 
-    // Guaranteed fallback: compute an evidence-based score locally so the report
-    // ALWAYS has a meaningful result even when the AI is slow/unavailable.
     const local = localEvaluation(candidateAnswers, totalAnswerChars, pairs, role);
     if (!result || typeof result.score !== 'number' || !result.metrics) {
       result = local;
     } else {
-      // The model answered, but may have omitted or mangled the new sections —
-      // repair them from the deterministic analysis so the UI is never empty.
       result.perQuestion = sanitizePerQuestion(result.perQuestion, local.perQuestion);
       result.highlights = sanitizeHighlights(result.highlights, local.highlights);
       if (!result.feedback || typeof result.feedback !== 'object') result.feedback = local.feedback;
@@ -267,6 +279,11 @@ function localPerQuestion(pairs: { question: string; answer: string }[]): PerQue
     else if (len >= 110 && (specific || starCount >= 2)) verdict = 'adequate';
     else if (len >= 200) verdict = 'adequate';
 
+    let itemScore = 50;
+    if (verdict === 'strong') itemScore = Math.min(95, 80 + Math.round(Math.min(20, (len - 260) / 15)));
+    else if (verdict === 'adequate') itemScore = Math.min(78, 60 + Math.round(Math.min(18, (len - 110) / 10)));
+    else itemScore = Math.max(25, 30 + Math.round(Math.min(25, len / 10)));
+
     const whatWorked =
       verdict === 'weak'
         ? `Little to build on here — you replied with roughly ${answer.split(/\s+/).length} word(s) ("${shortQuote(answer, 60)}"), which does not give the interviewer anything to assess.`
@@ -291,6 +308,7 @@ function localPerQuestion(pairs: { question: string; answer: string }[]): PerQue
       question: question || 'Interviewer question',
       answerSummary: `You said: "${shortQuote(answer, 120)}" (${answer.split(/\s+/).filter(Boolean).length} words).`,
       verdict,
+      score: itemScore,
       whatWorked,
       whatWasMissing,
       betterAnswer,
@@ -311,7 +329,7 @@ function buildBetterAnswer(question: string, answer: string, specific: boolean):
   return `${s1} ${s2} ${s3}`;
 }
 
-function localHighlights(answers: string[], role: string): EvaluationHighlights {
+function localHighlights(answers: string[], role: string, pairs: { question: string; answer: string }[] = []): EvaluationHighlights {
   const joined = answers.join(' ');
   const sorted = [...answers].sort((a, b) => b.length - a.length);
   const best = sorted[0] || '';
@@ -325,18 +343,62 @@ function localHighlights(answers: string[], role: string): EvaluationHighlights 
     ? `"${shortQuote(worst, 100)}" — too thin to score: it gives no context, no action and no result.`
     : 'No candidate speech was captured, so there is nothing to assess.';
 
+  const vagueClaims = findVagueClaims(answers);
+  const missingKeywords = findMissingKeywords(role, joined);
+
+  const challengeMoments = [];
+  for (let i = 1; i < pairs.length; i++) {
+    const q = pairs[i].question;
+    const prevA = pairs[i - 1]?.answer || '';
+    const isProbe = /\b(you mentioned|why did you|what specifically|can you walk me through|how did you measure|when you say|what alternatives|biggest challenge|your specific role)\b/i.test(q);
+    if (isProbe && prevA) {
+      challengeMoments.push({
+        question: pairs[i - 1].question,
+        candidateAnswer: shortQuote(prevA, 140),
+        followUp: q,
+        whatWasMissing: pairs[i - 1].answer.length < 120 ? 'Initial answer lacked specific metrics or methodology.' : 'Interviewer probed to verify technical decision or direct personal attribution.',
+      });
+      if (challengeMoments.length >= 3) break;
+    }
+  }
+
+  const practiceAreas = [
+    {
+      title: 'STAR Answer Structure',
+      description: 'Structure behavioral answers with clear Situation, Task, Action, and Result.',
+      actionItem: 'Dedicate majority of your response to actions YOU personally took, ending with a measured outcome.',
+    },
+    {
+      title: 'Quantifying Achievements with Metrics',
+      description: vagueClaims.length > 0
+        ? `Replace vague claims like "${shortQuote(vagueClaims[0], 60)}" with concrete numbers or percentages.`
+        : 'State specific baseline vs final metrics for every project mentioned.',
+      actionItem: 'Use exact formulas: "Accomplished [X] as measured by [Y] by doing [Z]".',
+    },
+    {
+      title: missingKeywords.length > 0 ? 'Domain & Technical Terminology' : 'Clarifying Personal Ownership ("I" vs "We")',
+      description: missingKeywords.length > 0
+        ? `Incorporate expected domain keywords: ${missingKeywords.slice(0, 4).join(', ')}.`
+        : 'Specify exactly what you owned versus what the broader team delivered.',
+      actionItem: missingKeywords.length > 0
+        ? `Demonstrate familiarity with ${missingKeywords.slice(0, 3).join(', ')} in your project walk-throughs.`
+        : 'Clearly distinguish your individual technical/strategic decisions from group efforts.',
+    },
+  ];
+
   return {
     quotedStrength,
     quotedWeakness,
     fillerWords: countFillers(joined),
-    vagueClaims: findVagueClaims(answers),
-    missingKeywords: findMissingKeywords(role, joined),
+    vagueClaims,
+    missingKeywords,
+    challengeMoments,
+    contradictions: [],
+    practiceAreas,
   };
 }
 
 // Evidence-based heuristic scoring used when the AI evaluator is unavailable.
-// Rewards more answers, longer/detailed responses, and concrete specifics
-// (numbers, metrics, tech terms) — and penalises one-liners / greetings-only.
 function localEvaluation(
   candidateAnswers: TranscriptMsg[],
   totalChars: number,
@@ -349,16 +411,14 @@ function localEvaluation(
   const joined = answers.join(' ');
   const specifics = /\d+%|\d+\s*(years|months|users|apps|projects|people|k\b)|\$\d|increased|reduced|improved|led|built|designed|launched|managed/i.test(joined);
 
-  // Depth score 0..10 from answer count and average length.
   let depth = 0;
-  depth += Math.min(4, n);                    // up to 4 for answering 4+ questions
+  depth += Math.min(4, n);
   if (avg > 60) depth += 2;
   if (avg > 140) depth += 2;
   if (avg > 260) depth += 1;
   if (specifics) depth += 1;
   depth = Math.max(1, Math.min(10, depth));
 
-  // Very short / greeting-only interviews are penalised hard.
   const base = n < 2 || totalChars < 80 ? Math.min(depth, 3) : depth;
 
   const communication = base;
@@ -367,7 +427,6 @@ function localEvaluation(
   const technicalKnowledge = specifics ? Math.min(10, base + 1) : Math.max(1, base - 1);
   const problemSolving = Math.max(1, base - (specifics ? 0 : 1));
   const leadership = /\b(led|managed|mentored|owned|team)\b/i.test(joined) ? Math.min(10, base + 1) : Math.max(1, base - 2);
-  // Visual metrics can't be observed from transcript — use communication as a neutral proxy.
   const visual = communication;
 
   const metrics = {
@@ -379,7 +438,7 @@ function localEvaluation(
   const score = Math.round(avgMetric * 10);
 
   const perQuestion = localPerQuestion(pairs);
-  const highlights = localHighlights(answers, role);
+  const highlights = localHighlights(answers, role, pairs);
   const weakCount = perQuestion.filter((p) => p.verdict === 'weak').length;
 
   const longest = [...answers].sort((a, b) => b.length - a.length)[0] || '';
@@ -401,7 +460,8 @@ function localEvaluation(
 function sanitizePerQuestion(raw: any, fallback: PerQuestionFeedback[]): PerQuestionFeedback[] {
   if (!Array.isArray(raw)) return fallback;
   const cleaned: PerQuestionFeedback[] = [];
-  for (const item of raw) {
+  for (let i = 0; i < raw.length; i++) {
+    const item = raw[i];
     if (!item || typeof item !== 'object') continue;
     const question = typeof item.question === 'string' ? item.question : '';
     const betterAnswer = typeof item.betterAnswer === 'string' ? item.betterAnswer : '';
@@ -409,10 +469,14 @@ function sanitizePerQuestion(raw: any, fallback: PerQuestionFeedback[]): PerQues
     const v = String(item.verdict || '').toLowerCase();
     const verdict: Verdict = v === 'strong' || v === 'adequate' || v === 'weak' ? v : 'adequate';
     const star = item.starCoverage;
+    const fbScore = fallback[i]?.score || (verdict === 'strong' ? 85 : verdict === 'adequate' ? 68 : 42);
+    const score = typeof item.score === 'number' ? Math.max(0, Math.min(100, item.score)) : fbScore;
+
     cleaned.push({
       question: question || 'Interviewer question',
       answerSummary: typeof item.answerSummary === 'string' ? item.answerSummary : '',
       verdict,
+      score,
       whatWorked: typeof item.whatWorked === 'string' ? item.whatWorked : '',
       whatWasMissing: typeof item.whatWasMissing === 'string' ? item.whatWasMissing : '',
       betterAnswer,
@@ -436,6 +500,32 @@ function sanitizeHighlights(raw: any, fallback: EvaluationHighlights): Evaluatio
   const strArr = (v: any, fb: string[]): string[] =>
     Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x.trim().length > 0).slice(0, 8) : fb;
   const fw = raw.fillerWords;
+
+  const challengeMoments = Array.isArray(raw.challengeMoments) && raw.challengeMoments.length > 0
+    ? raw.challengeMoments.map((cm: any) => ({
+        question: typeof cm.question === 'string' ? cm.question : 'Topic',
+        candidateAnswer: typeof cm.candidateAnswer === 'string' ? cm.candidateAnswer : '',
+        followUp: typeof cm.followUp === 'string' ? cm.followUp : 'Interviewer follow-up',
+        whatWasMissing: typeof cm.whatWasMissing === 'string' ? cm.whatWasMissing : '',
+      }))
+    : fallback.challengeMoments || [];
+
+  const contradictions = Array.isArray(raw.contradictions) && raw.contradictions.length > 0
+    ? raw.contradictions.map((ct: any) => ({
+        earlierStatement: typeof ct.earlierStatement === 'string' ? ct.earlierStatement : '',
+        laterStatement: typeof ct.laterStatement === 'string' ? ct.laterStatement : '',
+        explanation: typeof ct.explanation === 'string' ? ct.explanation : '',
+      }))
+    : fallback.contradictions || [];
+
+  const practiceAreas = Array.isArray(raw.practiceAreas) && raw.practiceAreas.length > 0
+    ? raw.practiceAreas.map((pa: any) => ({
+        title: typeof pa.title === 'string' ? pa.title : 'Practice Area',
+        description: typeof pa.description === 'string' ? pa.description : '',
+        actionItem: typeof pa.actionItem === 'string' ? pa.actionItem : '',
+      }))
+    : fallback.practiceAreas || [];
+
   return {
     quotedStrength: typeof raw.quotedStrength === 'string' && raw.quotedStrength.trim() ? raw.quotedStrength : fallback.quotedStrength,
     quotedWeakness: typeof raw.quotedWeakness === 'string' && raw.quotedWeakness.trim() ? raw.quotedWeakness : fallback.quotedWeakness,
@@ -445,5 +535,8 @@ function sanitizeHighlights(raw: any, fallback: EvaluationHighlights): Evaluatio
         : fallback.fillerWords,
     vagueClaims: strArr(raw.vagueClaims, fallback.vagueClaims),
     missingKeywords: strArr(raw.missingKeywords, fallback.missingKeywords),
+    challengeMoments,
+    contradictions,
+    practiceAreas,
   };
 }

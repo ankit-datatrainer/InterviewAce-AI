@@ -97,11 +97,15 @@ export async function nimChat(messages: ChatMessage[], options: NimOptions = {})
   }
 
   const data = await res.json();
-  const content = data?.choices?.[0]?.message?.content;
+  let content = data?.choices?.[0]?.message?.content;
   if (typeof content !== 'string') {
     throw new Error('LLM returned an empty response');
   }
-  return content.trim();
+
+  // Strip <think>...</think> if the model emits Chain of Thought tokens in content
+  content = content.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+
+  return content;
 }
 
 /**

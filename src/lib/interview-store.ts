@@ -9,6 +9,35 @@ export interface StarCoverage {
   result: boolean;
 }
 
+export interface ChallengeMoment {
+  question: string;
+  candidateAnswer: string;
+  followUp: string;
+  whatWasMissing: string;
+  timestamp?: string;
+}
+
+export interface ContradictionPoint {
+  earlierStatement: string;
+  laterStatement: string;
+  explanation: string;
+}
+
+export interface PracticeArea {
+  title: string;
+  description: string;
+  actionItem: string;
+}
+
+export interface RetakeResult {
+  question: string;
+  previousScore: number;
+  newScore: number;
+  date: string;
+  feedback: string;
+  improvedKeywords?: string[];
+}
+
 /** Evidence-based feedback for a single interviewer question the candidate answered. */
 export interface PerQuestionFeedback {
   question: string;
@@ -19,6 +48,8 @@ export interface PerQuestionFeedback {
   /** A concrete rewrite of THEIR answer, not generic advice. */
   betterAnswer: string;
   starCoverage?: StarCoverage;
+  score?: number; // 0-100 for this specific answer
+  retakes?: RetakeResult[];
 }
 
 /** Concrete, quotable specifics pulled from the candidate's own words. */
@@ -28,6 +59,9 @@ export interface InterviewHighlights {
   fillerWords: { count: number; examples: string[] };
   vagueClaims: string[];
   missingKeywords: string[];
+  challengeMoments?: ChallengeMoment[];
+  contradictions?: ContradictionPoint[];
+  practiceAreas?: PracticeArea[];
 }
 
 export interface InterviewRecord {
@@ -61,6 +95,7 @@ export interface InterviewRecord {
   perQuestion?: PerQuestionFeedback[];
   /** Optional for the same backwards-compatibility reason. */
   highlights?: InterviewHighlights;
+  retakes?: RetakeResult[];
   dbId?: string; // Supabase interviews.id once synced (for cross-device)
 }
 
@@ -172,10 +207,16 @@ export function deriveInsightsFromTranscript(
     if (!star.result) missing.push('the result and what changed because of you');
     if (answer.length < 110) missing.push('depth — this needs 60-90 seconds of speech');
 
+    let itemScore = 50;
+    if (verdict === 'strong') itemScore = Math.min(95, 80 + Math.round(Math.min(20, (answer.length - 260) / 15)));
+    else if (verdict === 'adequate') itemScore = Math.min(78, 60 + Math.round(Math.min(18, (answer.length - 110) / 10)));
+    else itemScore = Math.max(25, 30 + Math.round(Math.min(25, answer.length / 10)));
+
     return {
       question: question || 'Interviewer question',
       answerSummary: `You said: "${clip(answer, 120)}" (${words} words).`,
       verdict,
+      score: itemScore,
       whatWorked: verdict === 'weak'
         ? `Very little — "${clip(answer, 60)}" gives the interviewer nothing to assess.`
         : specific
@@ -220,6 +261,48 @@ export function deriveInsightsFromTranscript(
     if (missingKeywords.length >= 8) break;
   }
 
+  // Derive Challenge Moments (probes where interviewer questioned claims/choices)
+  const challengeMoments: ChallengeMoment[] = [];
+  for (let i = 1; i < pairs.length; i++) {
+    const q = pairs[i].question;
+    const prevA = pairs[i - 1]?.answer || '';
+    const isProbe = /\b(you mentioned|why did you|what specifically|can you walk me through|how did you measure|when you say|what alternatives|biggest challenge|your specific role)\b/i.test(q);
+    if (isProbe && prevA) {
+      challengeMoments.push({
+        question: pairs[i - 1].question,
+        candidateAnswer: clip(prevA, 140),
+        followUp: q,
+        whatWasMissing: pairs[i - 1].answer.length < 120 ? 'Initial answer lacked specific metrics or methodology.' : 'Interviewer probed to verify technical decision or direct personal attribution.',
+      });
+      if (challengeMoments.length >= 3) break;
+    }
+  }
+
+  // 3 Targeted Practice Areas
+  const practiceAreas: PracticeArea[] = [
+    {
+      title: 'STAR Answer Structure',
+      description: 'Format behavioral and experience stories with clear Situation, Task, Action, and Result.',
+      actionItem: 'Spend 70% of answer time describing actions YOU personally took, ending with a quantified result.',
+    },
+    {
+      title: 'Quantifying Achievements & Metrics',
+      description: vagueClaims.length > 0
+        ? `Replace vague claims like "${clip(vagueClaims[0], 60)}" with concrete numbers, percentages, or time savings.`
+        : 'State specific baseline vs final metrics for every project mentioned.',
+      actionItem: 'Use formulas like "Accomplished [X] as measured by [Y] by doing [Z]".',
+    },
+    {
+      title: missingKeywords.length > 0 ? 'Industry & Role Terminology' : 'Clarify Personal Ownership ("I" vs "We")',
+      description: missingKeywords.length > 0
+        ? `Incorporate expected domain keywords: ${missingKeywords.slice(0, 4).join(', ')}.`
+        : 'Specify exactly what you owned versus what the broader team delivered.',
+      actionItem: missingKeywords.length > 0
+        ? `Demonstrate familiarity with ${missingKeywords.slice(0, 3).join(', ')} in your project walk-throughs.`
+        : 'Clearly distinguish your individual technical/strategic decisions from group efforts.',
+    },
+  ];
+
   const sorted = [...answers].sort((a, b) => b.length - a.length);
   const best = sorted[0] || '';
   const worst = sorted.length > 0 ? sorted[sorted.length - 1] : '';
@@ -236,6 +319,8 @@ export function deriveInsightsFromTranscript(
       fillerWords: { count: fillerCount, examples: fillerExamples.slice(0, 6) },
       vagueClaims,
       missingKeywords,
+      challengeMoments,
+      practiceAreas,
     },
   };
 }
@@ -524,6 +609,31 @@ export function getLatestInterview(): InterviewRecord | null {
 export function getInterviewById(id: string): InterviewRecord | null {
   const records = readStore();
   return records.find((r) => r.id === id || r.dbId === id) ?? null;
+}
+
+export function addRetakeResult(interviewId: string, questionIdx: number, retake: RetakeResult): InterviewRecord | null {
+  const records = readStore();
+  const idx = records.findIndex((r) => r.id === interviewId || r.dbId === interviewId);
+  if (idx < 0) return null;
+  const record = records[idx];
+  
+  if (!record.retakes) record.retakes = [];
+  record.retakes.push(retake);
+
+  if (record.perQuestion && record.perQuestion[questionIdx]) {
+    if (!record.perQuestion[questionIdx].retakes) {
+      record.perQuestion[questionIdx].retakes = [];
+    }
+    record.perQuestion[questionIdx].retakes!.push(retake);
+    if (retake.newScore > (record.perQuestion[questionIdx].score || 0)) {
+      record.perQuestion[questionIdx].score = retake.newScore;
+      if (retake.newScore >= 80) record.perQuestion[questionIdx].verdict = 'strong';
+      else if (retake.newScore >= 60) record.perQuestion[questionIdx].verdict = 'adequate';
+    }
+  }
+
+  writeStore(records);
+  return record;
 }
 
 export function clearInterviews(): void {

@@ -72,14 +72,18 @@ export default function DashboardPage() {
     const supabase = createClient();
 
     async function loadUser() {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        const fullName = user.user_metadata?.full_name;
-        if (fullName) {
-          setFirstName(fullName.split(' ')[0]);
-        } else if (user.email) {
-          setFirstName(user.email.split('@')[0]);
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          const fullName = user.user_metadata?.full_name;
+          if (fullName) {
+            setFirstName(fullName.split(' ')[0]);
+          } else if (user.email) {
+            setFirstName(user.email.split('@')[0]);
+          }
         }
+      } catch {
+        // ignore network error
       }
     }
 

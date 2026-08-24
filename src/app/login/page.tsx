@@ -163,6 +163,9 @@ export default function LoginPage() {
     if (lower.includes('too many requests') || lower.includes('rate limit')) {
       return 'Too many attempts. Please wait a moment and try again.'
     }
+    if (lower.includes('failed to fetch') || lower.includes('network') || lower.includes('fetch failed')) {
+      return 'Unable to reach the authentication server. If your Supabase database is paused, please unpause it from your Supabase dashboard.'
+    }
     return msg
   }
 
@@ -190,28 +193,33 @@ export default function LoginPage() {
       // ignore fetch error
     }
 
-    const supabase = createClient()
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    })
+    try {
+      const supabase = createClient()
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      })
 
-    if (error) {
-      const isNotConfirmed = error.message.toLowerCase().includes('email not confirmed')
-      setEmailNotConfirmed(isNotConfirmed)
-      setError(friendlyError(error.message))
+      if (error) {
+        const isNotConfirmed = error.message.toLowerCase().includes('email not confirmed')
+        setEmailNotConfirmed(isNotConfirmed)
+        setError(friendlyError(error.message))
+        setLoading(false)
+        return
+      }
+
+      // Admin status is authoritative on the server (proxy + role check). This
+      // cookie only affects the maintenance banner, so it's safe to derive here.
+      if (ADMIN_EMAILS.includes(email.trim().toLowerCase())) {
+        document.cookie = "isAdmin=true; path=/; max-age=86400";
+        router.push('/admin')
+      } else {
+        document.cookie = "isAdmin=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+        router.push('/dashboard')
+      }
+    } catch (err: any) {
+      setError(friendlyError(err?.message || 'Failed to connect to authentication server.'))
       setLoading(false)
-      return
-    }
-
-    // Admin status is authoritative on the server (proxy + role check). This
-    // cookie only affects the maintenance banner, so it's safe to derive here.
-    if (ADMIN_EMAILS.includes(email.trim().toLowerCase())) {
-      document.cookie = "isAdmin=true; path=/; max-age=86400";
-      router.push('/admin')
-    } else {
-      document.cookie = "isAdmin=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
-      router.push('/dashboard')
     }
   }
 

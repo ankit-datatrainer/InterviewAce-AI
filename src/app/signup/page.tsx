@@ -122,30 +122,37 @@ export default function SignupPage() {
       // network issue → fall back to the default flow below.
     }
 
-    const supabase = createClient()
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        // Land the verification link on our success page (works on any host).
-        emailRedirectTo: `${window.location.origin}/auth/verified`,
-        data: metadata,
-      },
-    })
+    try {
+      const supabase = createClient()
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          // Land the verification link on our success page (works on any host).
+          emailRedirectTo: `${window.location.origin}/auth/verified`,
+          data: metadata,
+        },
+      })
 
-    if (error) {
-      setError(error.message)
+      if (error) {
+        setError(error.message)
+        setLoading(false)
+        return
+      }
+
+      if (data.session) {
+        router.push('/dashboard')
+        return
+      }
+
+      setConfirmationEmail(email)
       setLoading(false)
-      return
+    } catch (err: any) {
+      setError(err?.message?.includes('fetch') 
+        ? 'Cannot connect to authentication server. If your Supabase database is paused, please unpause it from your Supabase dashboard.' 
+        : (err?.message || 'Signup failed'))
+      setLoading(false)
     }
-
-    if (data.session) {
-      router.push('/dashboard')
-      return
-    }
-
-    setConfirmationEmail(email)
-    setLoading(false)
   }
 
   async function handleResend() {

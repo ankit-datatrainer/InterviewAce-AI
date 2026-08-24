@@ -8,10 +8,25 @@ import {
   FileText,
   Plus,
   Video,
+  Sparkles,
+  AlertTriangle,
+  Flame,
+  CheckCircle2,
+  RefreshCw,
+  TrendingUp,
+  HelpCircle,
+  Award,
+  Target,
+  ArrowRight,
 } from 'lucide-react';
 import { useToast } from '@/components/Toast';
-import { getInterviewById, getLatestInterview, hydrateInterviews } from '@/lib/interview-store';
-import type { InterviewRecord } from '@/lib/interview-store';
+import {
+  getInterviewById,
+  getLatestInterview,
+  hydrateInterviews,
+  addRetakeResult,
+} from '@/lib/interview-store';
+import type { InterviewRecord, RetakeResult } from '@/lib/interview-store';
 import { getRecording } from '@/lib/recording-store';
 
 function downloadFile(content: string, filename: string, type = 'text/plain') {
@@ -33,7 +48,7 @@ function colorForValue(v: number): string {
 const VERDICT_STYLES: Record<string, { label: string; bg: string; fg: string; border: string }> = {
   strong: { label: 'Strong', bg: 'rgba(34,197,94,.12)', fg: '#22C55E', border: 'rgba(34,197,94,.35)' },
   adequate: { label: 'Adequate', bg: 'rgba(245,158,11,.12)', fg: '#F59E0B', border: 'rgba(245,158,11,.35)' },
-  weak: { label: 'Weak', bg: 'rgba(239,68,68,.12)', fg: '#EF4444', border: 'rgba(239,68,68,.35)' },
+  weak: { label: 'Needs Polish', bg: 'rgba(239,68,68,.12)', fg: '#EF4444', border: 'rgba(239,68,68,.35)' },
 };
 
 function verdictStyle(v: string | undefined) {
@@ -64,6 +79,12 @@ function AnalysisContent() {
   const transcriptRef = useRef<HTMLDivElement>(null);
   const [hasVideo, setHasVideo] = useState(false);
 
+  // Practice Again state per question index
+  const [activeRetakeIdx, setActiveRetakeIdx] = useState<number | null>(null);
+  const [retakeInputs, setRetakeInputs] = useState<Record<number, string>>({});
+  const [retakeLoading, setRetakeLoading] = useState<Record<number, boolean>>({});
+  const [retakeOutputs, setRetakeOutputs] = useState<Record<number, any>>({});
+
   useEffect(() => {
     const id = searchParams.get('id');
     const loadRecord = (record: InterviewRecord | null) => {
@@ -79,8 +100,6 @@ function AnalysisContent() {
     if (local) {
       loadRecord(local);
     } else {
-      // Not in this browser's cache — pull from the database (cross-device),
-      // then look it up again so the report still opens.
       hydrateInterviews()
         .then((all) => loadRecord(id ? all.find((r) => r.id === id || r.dbId === id) ?? null : all[0] ?? null))
         .catch(() => loadRecord(null));
@@ -103,9 +122,56 @@ function AnalysisContent() {
     toast('Interview video downloaded.');
   }
 
+  async function handleRetakeSubmit(idx: number, questionText: string, prevAnswer: string, prevScore: number) {
+    const revisedText = retakeInputs[idx]?.trim();
+    if (!revisedText) {
+      toast('Please write or paste your improved answer before submitting.');
+      return;
+    }
+    if (!interview) return;
+
+    setRetakeLoading((prev) => ({ ...prev, [idx]: true }));
+    try {
+      const res = await fetch('/api/interview/practice-again', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          question: questionText,
+          previousAnswer: prevAnswer,
+          previousScore: prevScore,
+          revisedAnswer: revisedText,
+          role: interview.role,
+        }),
+      });
+
+      if (!res.ok) throw new Error('Practice evaluation failed');
+      const data = await res.json();
+
+      setRetakeOutputs((prev) => ({ ...prev, [idx]: data }));
+
+      const retakeItem: RetakeResult = {
+        question: questionText,
+        previousScore: prevScore,
+        newScore: data.newScore,
+        date: new Date().toISOString(),
+        feedback: data.whatImproved || 'Answer evaluated.',
+        improvedKeywords: data.improvedKeywords,
+      };
+
+      const updated = addRetakeResult(interview.id, idx, retakeItem);
+      if (updated) setInterview({ ...updated });
+
+      toast(`Score improved: ${prevScore} → ${data.newScore}/100 (+${data.scoreDelta} pts)!`);
+    } catch (err: any) {
+      console.error(err);
+      toast('Could not evaluate revised answer. Please try again.');
+    } finally {
+      setRetakeLoading((prev) => ({ ...prev, [idx]: false }));
+    }
+  }
+
   if (!loaded) return null;
 
-  // Empty state
   if (!interview) {
     return (
       <>
@@ -147,74 +213,118 @@ function AnalysisContent() {
     { label: 'Leadership', value: interview.metrics.leadership },
   ];
 
-  // Build question-level data from transcript
-  const questionEntries: { label: string; value: number }[] = [];
-  let qNum = 0;
-  for (let i = 0; i < interview.transcript.length; i++) {
-    const msg = interview.transcript[i];
-    if (msg.who === 'ai') {
-      qNum++;
-      // Find user answer(s) for this question
-      let answerLength = 0;
-      for (let j = i + 1; j < interview.transcript.length; j++) {
-        if (interview.transcript[j].who === 'ai') break;
-        answerLength += interview.transcript[j].text.length;
-      }
-      // Score based on answer length (simple heuristic)
-      const raw = Math.min(5 + (answerLength / 50) * 2, 10);
-      const score = Math.round(raw * 10) / 10;
-      const shortQ = msg.text.length > 35 ? msg.text.slice(0, 35) + '...' : msg.text;
-      questionEntries.push({ label: `Q${qNum} \u00b7 ${shortQ}`, value: Math.max(score, 4.0) });
-    }
-  }
-
-  // New evidence-based sections. Older records simply don't have these, so we
-  // guard everywhere and omit the sections entirely when absent.
   const perQuestion = Array.isArray(interview.perQuestion) ? interview.perQuestion : [];
   const highlights = interview.highlights;
-  const hasHighlights = !!highlights && (
-    !!highlights.quotedStrength
-    || !!highlights.quotedWeakness
-    || (highlights.fillerWords?.count ?? 0) > 0
-    || (highlights.vagueClaims?.length ?? 0) > 0
-    || (highlights.missingKeywords?.length ?? 0) > 0
-  );
-
-  const feedbackBlocks = [
-    { title: 'What worked', text: interview.feedback.strengths },
-    { title: 'What to fix', text: interview.feedback.improvements },
-    { title: 'Next step', text: interview.feedback.nextStep },
-  ];
-
-  const scoreSummary = interview.score >= 80
-    ? 'Strong performance \u2014 interview ready with minor polish needed'
-    : interview.score >= 65
-      ? 'Solid effort \u2014 a few areas need focused practice'
-      : 'Room for improvement \u2014 review feedback and practice regularly';
-
-  const scoreDescription = interview.score >= 80
-    ? `You communicated with clear structure and genuine confidence. Your answers to ${interview.type.toLowerCase()} questions showed depth. Main growth areas: maintaining consistency across all questions.`
-    : interview.score >= 65
-      ? `You demonstrated understanding of the ${interview.role} role. Some answers could benefit from more specific examples and measurable outcomes.`
-      : `This was a good start. Focus on the STAR method for structuring answers and practice speaking on each question for at least 60 seconds.`;
+  const challengeMoments = highlights?.challengeMoments || [];
+  const contradictions = highlights?.contradictions || [];
+  const practiceAreas = highlights?.practiceAreas || [];
 
   const tagLabel = interview.score >= 80
     ? 'Top 15% of candidates'
     : interview.score >= 65
       ? 'Above average'
-      : 'Keep practicing';
+      : 'Practice recommended';
 
   const tagColor = interview.score >= 80 ? 'green' : interview.score >= 65 ? 'amber' : 'red';
 
   return (
     <>
       <style dangerouslySetInnerHTML={{ __html: `
+        .feature-banner-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 1rem;
+          margin-bottom: 1.25rem;
+        }
+        .feature-card {
+          border-radius: 16px;
+          padding: 1.25rem 1.4rem;
+          border: 1px solid var(--line);
+          background: var(--surface);
+          position: relative;
+          overflow: hidden;
+        }
+        .feature-card.strength {
+          background: linear-gradient(145deg, rgba(34,197,94,0.06) 0%, rgba(34,197,94,0.01) 100%);
+          border-color: rgba(34,197,94,0.3);
+        }
+        .feature-card.weakness {
+          background: linear-gradient(145deg, rgba(239,68,68,0.06) 0%, rgba(239,68,68,0.01) 100%);
+          border-color: rgba(239,68,68,0.3);
+        }
+        .feature-badge {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          font-size: 0.76rem;
+          font-weight: 700;
+          letter-spacing: 0.04em;
+          text-transform: uppercase;
+          padding: 0.25rem 0.65rem;
+          border-radius: 999px;
+          margin-bottom: 0.8rem;
+        }
+        .strength .feature-badge { background: rgba(34,197,94,0.15); color: #22C55E; }
+        .weakness .feature-badge { background: rgba(239,68,68,0.15); color: #EF4444; }
+
+        .challenge-timeline {
+          display: flex;
+          flex-direction: column;
+          gap: 0.9rem;
+          margin-top: 0.8rem;
+        }
+        .challenge-card {
+          background: var(--surface-2, rgba(148,163,184,.05));
+          border: 1px solid var(--line);
+          border-left: 4px solid var(--blue);
+          border-radius: 0 14px 14px 0;
+          padding: 1rem 1.2rem;
+        }
+        .challenge-flow {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 0.9rem;
+          margin-top: 0.6rem;
+          font-size: 0.88rem;
+        }
+        .flow-box {
+          background: rgba(0,0,0,0.15);
+          padding: 0.75rem;
+          border-radius: 8px;
+          border: 1px solid rgba(255,255,255,0.04);
+        }
+        .flow-box b { display: block; font-size: 0.72rem; text-transform: uppercase; color: var(--text-3); margin-bottom: 0.25rem; }
+
+        .practice-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+          gap: 0.9rem;
+          margin-top: 0.8rem;
+        }
+        .practice-card {
+          background: var(--surface-2, rgba(148,163,184,.05));
+          border: 1px solid var(--line);
+          border-radius: 14px;
+          padding: 1.1rem 1.2rem;
+          display: flex;
+          flex-direction: column;
+          justify-content: space-between;
+        }
+        .practice-num {
+          font-size: 0.78rem;
+          font-weight: 800;
+          color: var(--blue);
+          margin-bottom: 0.35rem;
+          text-transform: uppercase;
+        }
+
         .qb-card {
           border: 1px solid var(--border, rgba(148,163,184,.22));
           border-radius: 14px;
-          padding: 1rem 1.1rem;
-          margin-bottom: .9rem;
+          padding: 1.1rem 1.2rem;
+          margin-bottom: 1.1rem;
           background: var(--surface-2, rgba(148,163,184,.05));
+          transition: border-color 0.2s;
         }
         .qb-head {
           display: flex;
@@ -223,20 +333,19 @@ function AnalysisContent() {
           gap: .8rem;
           margin-bottom: .55rem;
         }
-        .qb-q { font-size: .95rem; font-weight: 650; line-height: 1.4; margin: 0; }
+        .qb-q { font-size: 1rem; font-weight: 650; line-height: 1.4; margin: 0; }
         .qb-num { font-size: .72rem; letter-spacing: .06em; text-transform: uppercase; color: var(--text-3); display: block; margin-bottom: .2rem; }
         .qb-badge {
           flex: 0 0 auto;
-          font-size: .7rem;
+          font-size: .72rem;
           font-weight: 700;
-          letter-spacing: .05em;
-          text-transform: uppercase;
-          padding: .22rem .6rem;
+          letter-spacing: .04em;
+          padding: .25rem .65rem;
           border-radius: 999px;
           border: 1px solid transparent;
           white-space: nowrap;
         }
-        .qb-summary { font-size: .85rem; color: var(--text-2); margin: 0 0 .7rem; font-style: italic; }
+        .qb-summary { font-size: .88rem; color: var(--text-2); margin: 0 0 .8rem; font-style: italic; }
         .qb-cols { display: grid; grid-template-columns: 1fr 1fr; gap: .8rem; margin-bottom: .8rem; }
         .qb-col b { display: block; font-size: .72rem; letter-spacing: .06em; text-transform: uppercase; margin-bottom: .25rem; }
         .qb-col p { margin: 0; font-size: .86rem; color: var(--text-2); line-height: 1.5; }
@@ -244,10 +353,42 @@ function AnalysisContent() {
           border-left: 3px solid var(--accent, #6366F1);
           background: rgba(99,102,241,.08);
           border-radius: 0 10px 10px 0;
-          padding: .7rem .9rem;
+          padding: .75rem 1rem;
+          margin-bottom: 0.8rem;
         }
         .qb-better b { display: block; font-size: .72rem; letter-spacing: .06em; text-transform: uppercase; margin-bottom: .3rem; color: var(--accent, #6366F1); }
         .qb-better p { margin: 0; font-size: .88rem; line-height: 1.55; }
+        
+        .retake-drawer {
+          background: var(--surface);
+          border: 1px solid var(--blue);
+          border-radius: 12px;
+          padding: 1.1rem;
+          margin-top: 0.9rem;
+          box-shadow: 0 8px 24px -6px rgba(0,163,255,0.15);
+        }
+        .retake-textarea {
+          width: 100%;
+          min-height: 90px;
+          background: var(--card);
+          border: 1px solid var(--line);
+          border-radius: 10px;
+          padding: 0.75rem 0.9rem;
+          color: var(--text);
+          font-size: 0.9rem;
+          line-height: 1.5;
+          margin: 0.6rem 0;
+          outline: none;
+        }
+        .retake-textarea:focus { border-color: var(--blue); }
+        .retake-result-banner {
+          background: linear-gradient(135deg, rgba(34,197,94,0.12) 0%, rgba(34,197,94,0.04) 100%);
+          border: 1px solid rgba(34,197,94,0.3);
+          border-radius: 10px;
+          padding: 0.8rem 1rem;
+          margin-top: 0.8rem;
+        }
+
         .qb-stars { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .75rem; }
         .qb-chip {
           font-size: .72rem;
@@ -257,40 +398,21 @@ function AnalysisContent() {
           color: var(--text-3);
         }
         .qb-chip.on { border-color: rgba(34,197,94,.4); background: rgba(34,197,94,.12); color: #22C55E; }
-        .hl-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .8rem; }
-        .hl-box {
-          border: 1px solid var(--border, rgba(148,163,184,.22));
-          border-radius: 12px;
-          padding: .85rem 1rem;
-        }
-        .hl-box b { display: block; font-size: .72rem; letter-spacing: .06em; text-transform: uppercase; margin-bottom: .35rem; }
-        .hl-box p { margin: 0; font-size: .86rem; line-height: 1.55; color: var(--text-2); }
-        .hl-list { margin: .3rem 0 0; padding-left: 1.05rem; font-size: .85rem; color: var(--text-2); line-height: 1.55; }
-        .hl-tags { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .35rem; }
-        .hl-tag {
-          font-size: .74rem;
-          padding: .18rem .55rem;
-          border-radius: 999px;
-          background: rgba(148,163,184,.14);
-          border: 1px solid rgba(148,163,184,.25);
-        }
-        @media (max-width: 680px) {
-          .qb-card { padding: .85rem .9rem; }
-          .qb-head { flex-wrap: wrap; }
-          .qb-cols { grid-template-columns: 1fr; gap: .6rem; }
-          .hl-grid { grid-template-columns: 1fr; }
-          .qb-q { font-size: .9rem; }
-          .qb-better p, .qb-col p, .hl-box p { font-size: .84rem; }
+
+        @media (max-width: 768px) {
+          .feature-banner-grid { grid-template-columns: 1fr; }
+          .challenge-flow { grid-template-columns: 1fr; }
+          .qb-cols { grid-template-columns: 1fr; }
         }
       ` }} />
 
       {/* Header */}
       <div className="app-head">
         <div>
-          <h2>Interview analysis</h2>
-          <p>{interview.type} &middot; {interview.role} &middot; {dateStr} &middot; {mins} min</p>
+          <h2>Interview Performance & Learning Report</h2>
+          <p>{interview.type} &middot; {interview.role} &middot; {dateStr} &middot; {mins} min session</p>
         </div>
-        <div style={{ display: 'flex', gap: '.6rem' }}>
+        <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
           <button className="btn btn-ghost btn-sm" onClick={async () => {
             if (!interview) return;
             try {
@@ -313,95 +435,62 @@ function AnalysisContent() {
               toast('Error generating report');
             }
           }}>
-            <Download size={15} /> Download DOCX report
+            <Download size={15} /> Export DOCX
           </button>
           
           <button className="btn btn-ghost btn-sm" onClick={() => {
             const lines: string[] = [];
-            lines.push('=== InterviewAce - Interview Report ===');
-            lines.push('');
-            lines.push(`Type: ${interview.type}`);
-            lines.push(`Role: ${interview.role}`);
-            lines.push(`Difficulty: ${interview.difficulty}`);
-            lines.push(`Date: ${new Date(interview.date).toLocaleDateString()}`);
-            lines.push(`Duration: ${Math.round(interview.duration / 60)} minutes`);
-            lines.push(`Questions: ${interview.questionsCount}`);
-            lines.push(`Overall Score: ${interview.score}/100`);
-            lines.push('');
-            lines.push('--- Metrics ---');
-            lines.push(`Communication: ${interview.metrics.communication.toFixed(1)}/10`);
-            lines.push(`Confidence: ${interview.metrics.confidence.toFixed(1)}/10`);
-            lines.push(`Clarity: ${interview.metrics.clarity.toFixed(1)}/10`);
-            lines.push(`Body Language: ${interview.metrics.bodyLanguage.toFixed(1)}/10`);
-            lines.push(`Eye Contact: ${interview.metrics.eyeContact.toFixed(1)}/10`);
-            lines.push(`Appearance: ${interview.metrics.appearance.toFixed(1)}/10`);
-            lines.push(`Posture: ${interview.metrics.posture.toFixed(1)}/10`);
-            lines.push(`Technical Knowledge: ${interview.metrics.technicalKnowledge.toFixed(1)}/10`);
-            lines.push(`Problem Solving: ${interview.metrics.problemSolving.toFixed(1)}/10`);
-            lines.push(`Leadership: ${interview.metrics.leadership.toFixed(1)}/10`);
-            lines.push('');
-            lines.push('--- Feedback ---');
-            lines.push(`Strengths: ${interview.feedback.strengths}`);
-            lines.push(`Improvements: ${interview.feedback.improvements}`);
-            lines.push(`Next Step: ${interview.feedback.nextStep}`);
-            if (hasHighlights && highlights) {
-              lines.push('');
-              lines.push('--- Highlights ---');
-              if (highlights.quotedStrength) lines.push(`Quoted strength: ${highlights.quotedStrength}`);
-              if (highlights.quotedWeakness) lines.push(`Quoted weakness: ${highlights.quotedWeakness}`);
-              if (highlights.fillerWords) {
-                lines.push(`Filler words: ${highlights.fillerWords.count}${highlights.fillerWords.examples?.length ? ` (${highlights.fillerWords.examples.join(', ')})` : ''}`);
-              }
-              if (highlights.vagueClaims?.length) {
-                lines.push('Vague claims:');
-                highlights.vagueClaims.forEach((c) => lines.push(`  - ${c}`));
-              }
-              if (highlights.missingKeywords?.length) {
-                lines.push(`Missing keywords: ${highlights.missingKeywords.join(', ')}`);
-              }
-            }
-            if (perQuestion.length > 0) {
-              lines.push('');
-              lines.push('--- Question-by-question breakdown ---');
-              perQuestion.forEach((pq, i) => {
-                lines.push('');
-                lines.push(`Q${i + 1}: ${pq.question}`);
-                lines.push(`Verdict: ${verdictStyle(pq.verdict).label}`);
-                if (pq.answerSummary) lines.push(`Your answer: ${pq.answerSummary}`);
-                if (pq.whatWorked) lines.push(`What worked: ${pq.whatWorked}`);
-                if (pq.whatWasMissing) lines.push(`What was missing: ${pq.whatWasMissing}`);
-                if (pq.starCoverage) {
-                  const covered = STAR_LABELS.filter((s) => pq.starCoverage?.[s.key]).map((s) => s.label);
-                  lines.push(`STAR coverage: ${covered.length > 0 ? covered.join(', ') : 'none'}`);
-                }
-                if (pq.betterAnswer) lines.push(`Stronger answer: ${pq.betterAnswer}`);
-              });
-            }
-            lines.push('');
-            lines.push('--- Transcript ---');
-            interview.transcript.forEach((msg) => {
-              lines.push(`${msg.who === 'ai' ? 'Alex' : 'You'}: ${msg.text}`);
-            });
+            lines.push('=== InterviewAce AI - Intelligent Evaluation Report ===');
+            lines.push(`Role: ${interview.role} | Score: ${interview.score}/100`);
+            if (highlights?.quotedStrength) lines.push(`Biggest Strength: ${highlights.quotedStrength}`);
+            if (highlights?.quotedWeakness) lines.push(`Biggest Weakness: ${highlights.quotedWeakness}`);
             downloadFile(lines.join('\n'), `interview-report-${new Date(interview.date).toISOString().slice(0, 10)}.txt`);
             toast('Report downloaded');
           }}>
-            <Download size={15} /> Download report
+            <Download size={15} /> Export TXT
           </button>
           {hasVideo && (
             <button className="btn btn-ghost btn-sm" onClick={handleDownloadVideo}>
-              <Video size={15} /> Download interview video
+              <Video size={15} /> Video Recording
             </button>
           )}
           <button className="btn btn-primary btn-sm" onClick={() => {
             transcriptRef.current?.scrollIntoView({ behavior: 'smooth' });
           }}>
-            <FileText size={15} /> View transcript
+            <FileText size={15} /> View Full Transcript
           </button>
         </div>
       </div>
 
+      {/* ── Key Diagnostic Banners: Biggest Strength & Biggest Weakness ── */}
+      <div className="feature-banner-grid">
+        <div className="feature-card strength">
+          <span className="feature-badge">
+            <Sparkles size={14} /> Your Biggest Strength
+          </span>
+          <p style={{ fontSize: '0.98rem', fontWeight: 600, color: 'var(--text)', margin: '0 0 0.4rem' }}>
+            {highlights?.quotedStrength ? highlights.quotedStrength : interview.feedback.strengths}
+          </p>
+          <span style={{ fontSize: '0.82rem', color: 'var(--text-3)' }}>
+            This demonstrated clear subject knowledge and structured delivery.
+          </span>
+        </div>
+
+        <div className="feature-card weakness">
+          <span className="feature-badge">
+            <AlertTriangle size={14} /> Critical Growth Area
+          </span>
+          <p style={{ fontSize: '0.98rem', fontWeight: 600, color: 'var(--text)', margin: '0 0 0.4rem' }}>
+            {highlights?.quotedWeakness ? highlights.quotedWeakness : interview.feedback.improvements}
+          </p>
+          <span style={{ fontSize: '0.82rem', color: 'var(--text-3)' }}>
+            Lacked quantifiable metrics or took too long to reach the core result.
+          </span>
+        </div>
+      </div>
+
       {/* Score hero */}
-      <div className="widget" style={{ marginBottom: '1rem' }}>
+      <div className="widget" style={{ marginBottom: '1.25rem' }}>
         <div className="score-hero">
           <div
             className="big-ring"
@@ -414,11 +503,11 @@ function AnalysisContent() {
           </div>
 
           <div>
-            <h3 style={{ fontSize: '1.12rem', marginBottom: '.4rem' }}>
-              {scoreSummary}
+            <h3 style={{ fontSize: '1.18rem', marginBottom: '.4rem' }}>
+              {interview.score >= 80 ? 'Exceptional Performance' : interview.score >= 65 ? 'Competitive Candidate' : 'Coaching Recommended'}
             </h3>
-            <p style={{ color: 'var(--text-2)', fontSize: '.9rem', marginBottom: '.6rem' }}>
-              {scoreDescription}
+            <p style={{ color: 'var(--text-2)', fontSize: '.92rem', marginBottom: '.6rem', lineHeight: 1.5 }}>
+              {interview.feedback.nextStep}
             </p>
             <span className={`tag ${tagColor}`}>{tagLabel}</span>
           </div>
@@ -439,187 +528,271 @@ function AnalysisContent() {
         </div>
       </div>
 
-      {/* Two-column: feedback + questions */}
-      <div className="dash-grid-3">
-        {/* AI feedback highlights */}
-        <div className="widget">
-          <h4>AI feedback highlights</h4>
-          {feedbackBlocks.map((fb) => (
-            <div className="fb-block" key={fb.title}>
-              <b>{fb.title}</b>
-              {fb.text}
-            </div>
-          ))}
+      {/* ── Section: Where You Were Challenged ── */}
+      {challengeMoments.length > 0 && (
+        <div className="widget" style={{ marginBottom: '1.25rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+            <Flame size={18} color="var(--blue)" />
+            <h4 style={{ margin: 0, fontSize: '1.05rem' }}>Where You Were Challenged</h4>
+          </div>
+          <p style={{ color: 'var(--text-3)', fontSize: '0.86rem', margin: '0 0 0.8rem' }}>
+            The AI interviewer detected key claims and probed deeper with counter-questions.
+          </p>
 
-          {/* Transcript */}
-          {interview.transcript.length > 0 && (
-            <div ref={transcriptRef}>
-              <h4 style={{ marginTop: '1.2rem' }}>Transcript</h4>
-              <div style={{ maxHeight: '300px', overflowY: 'auto', fontSize: '.85rem' }}>
-                {interview.transcript.map((msg, i) => (
-                  <div key={i} style={{ marginBottom: '.5rem' }}>
-                    <b style={{ color: msg.who === 'ai' ? 'var(--blue)' : 'var(--accent)' }}>
-                      {msg.who === 'ai' ? 'Alex' : 'You'}:
-                    </b>{' '}
-                    {msg.text}
+          <div className="challenge-timeline">
+            {challengeMoments.map((cm, idx) => (
+              <div className="challenge-card" key={idx}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                  <b style={{ fontSize: '0.92rem', color: 'var(--text)' }}>Probe #{idx + 1}: {cm.question}</b>
+                </div>
+                <div className="challenge-flow">
+                  <div className="flow-box">
+                    <b>Your Initial Claim</b>
+                    <p style={{ margin: 0, color: 'var(--text-2)' }}>&ldquo;{cm.candidateAnswer}&rdquo;</p>
                   </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Question-by-question scores */}
-        <div className="widget">
-          <h4>Question-by-question scores</h4>
-          {questionEntries.length > 0 ? (
-            questionEntries.map((q) => {
-              const pct = (q.value / 10) * 100;
-              return (
-                <div className="skill-row" key={q.label}>
-                  <div className="top">
-                    <b>{q.label}</b>
-                    <span>{q.value.toFixed(1)}</span>
-                  </div>
-                  <div className="bar-track">
-                    <div
-                      className="bar-fill"
-                      data-w={pct}
-                      style={{ width: animated ? `${pct}%` : '0%' }}
-                    />
+                  <div className="flow-box" style={{ borderColor: 'rgba(59,130,246,0.3)' }}>
+                    <b style={{ color: 'var(--blue)' }}>Interviewer Follow-Up Question</b>
+                    <p style={{ margin: 0, color: 'var(--text)' }}>&ldquo;{cm.followUp}&rdquo;</p>
                   </div>
                 </div>
-              );
-            })
-          ) : (
-            <p style={{ color: 'var(--text-3)', fontSize: '.9rem' }}>
-              No question data available.
-            </p>
-          )}
-        </div>
-      </div>
-
-      {/* Evidence highlights — only for records evaluated with the newer analysis */}
-      {hasHighlights && highlights && (
-        <div className="widget" style={{ marginTop: '1rem' }}>
-          <h4>Evidence from your answers</h4>
-          <div className="hl-grid" style={{ marginTop: '.6rem' }}>
-            {highlights.quotedStrength && (
-              <div className="hl-box" style={{ borderColor: 'rgba(34,197,94,.35)' }}>
-                <b style={{ color: '#22C55E' }}>What you said well</b>
-                <p>{highlights.quotedStrength}</p>
-              </div>
-            )}
-            {highlights.quotedWeakness && (
-              <div className="hl-box" style={{ borderColor: 'rgba(239,68,68,.35)' }}>
-                <b style={{ color: '#EF4444' }}>What fell short</b>
-                <p>{highlights.quotedWeakness}</p>
-              </div>
-            )}
-            {highlights.fillerWords && (
-              <div className="hl-box">
-                <b>Filler words</b>
-                <p>
-                  {highlights.fillerWords.count} detected
-                  {highlights.fillerWords.count === 0 ? ' — clean delivery.' : ' across your answers.'}
-                </p>
-                {(highlights.fillerWords.examples?.length ?? 0) > 0 && (
-                  <div className="hl-tags">
-                    {highlights.fillerWords.examples.map((ex, i) => (
-                      <span className="hl-tag" key={`${ex}-${i}`}>{ex}</span>
-                    ))}
-                  </div>
+                {cm.whatWasMissing && (
+                  <p style={{ fontSize: '0.82rem', color: 'var(--text-3)', marginTop: 8, marginBottom: 0 }}>
+                    💡 <strong style={{ color: 'var(--text-2)' }}>Key Takeaway:</strong> {cm.whatWasMissing}
+                  </p>
                 )}
               </div>
-            )}
-            {(highlights.missingKeywords?.length ?? 0) > 0 && (
-              <div className="hl-box">
-                <b>Never mentioned</b>
-                <p>Terms a strong {interview.role} candidate would be expected to bring up:</p>
-                <div className="hl-tags">
-                  {highlights.missingKeywords.map((k, i) => (
-                    <span className="hl-tag" key={`${k}-${i}`}>{k}</span>
-                  ))}
-                </div>
-              </div>
-            )}
+            ))}
           </div>
-          {(highlights.vagueClaims?.length ?? 0) > 0 && (
-            <div className="hl-box" style={{ marginTop: '.8rem' }}>
-              <b>Claims without evidence</b>
-              <ul className="hl-list">
-                {highlights.vagueClaims.map((c, i) => (
-                  <li key={`${i}-${c.slice(0, 12)}`}>{c}</li>
-                ))}
-              </ul>
-            </div>
-          )}
         </div>
       )}
 
-      {/* Question-by-question breakdown */}
-      {perQuestion.length > 0 && (
-        <div className="widget" style={{ marginTop: '1rem' }}>
-          <h4>Question-by-question breakdown</h4>
-          <p style={{ color: 'var(--text-3)', fontSize: '.85rem', margin: '.2rem 0 1rem' }}>
-            Each answer you gave, what landed, what was missing, and a stronger version of your own words.
+      {/* ── Section: Contradictions Flagged ── */}
+      {contradictions.length > 0 && (
+        <div className="widget" style={{ marginBottom: '1.25rem', borderColor: 'rgba(239,68,68,0.3)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+            <AlertTriangle size={18} color="#EF4444" />
+            <h4 style={{ margin: 0, fontSize: '1.05rem', color: '#EF4444' }}>Contradictions Detected</h4>
+          </div>
+          <p style={{ color: 'var(--text-3)', fontSize: '0.86rem', margin: '0 0 0.8rem' }}>
+            Statements that conflicted across different parts of the conversation.
           </p>
-          {perQuestion.map((pq, i) => {
-            const vs = verdictStyle(pq.verdict);
-            return (
-              <div className="qb-card" key={`${i}-${pq.question.slice(0, 16)}`}>
-                <div className="qb-head">
-                  <div>
-                    <span className="qb-num">Question {i + 1}</span>
-                    <p className="qb-q">{pq.question}</p>
-                  </div>
-                  <span
-                    className="qb-badge"
-                    style={{ background: vs.bg, color: vs.fg, borderColor: vs.border }}
-                  >
-                    {vs.label}
-                  </span>
-                </div>
 
-                {pq.answerSummary && <p className="qb-summary">{pq.answerSummary}</p>}
-
-                <div className="qb-cols">
-                  {pq.whatWorked && (
-                    <div className="qb-col">
-                      <b style={{ color: '#22C55E' }}>What worked</b>
-                      <p>{pq.whatWorked}</p>
-                    </div>
-                  )}
-                  {pq.whatWasMissing && (
-                    <div className="qb-col">
-                      <b style={{ color: '#F59E0B' }}>What was missing</b>
-                      <p>{pq.whatWasMissing}</p>
-                    </div>
-                  )}
-                </div>
-
-                {pq.betterAnswer && (
-                  <div className="qb-better">
-                    <b>Stronger answer</b>
-                    <p>{pq.betterAnswer}</p>
-                  </div>
-                )}
-
-                {pq.starCoverage && (
-                  <div className="qb-stars">
-                    {STAR_LABELS.map((s) => (
-                      <span
-                        className={`qb-chip${pq.starCoverage?.[s.key] ? ' on' : ''}`}
-                        key={s.key}
-                      >
-                        {pq.starCoverage?.[s.key] ? '✓' : '✗'} {s.label}
-                      </span>
-                    ))}
-                  </div>
-                )}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+            {contradictions.map((ct, idx) => (
+              <div key={idx} style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.2)', padding: '0.85rem 1rem', borderRadius: 10 }}>
+                <p style={{ margin: '0 0 4px', fontSize: '0.86rem', color: 'var(--text)' }}>
+                  <strong>Statement A:</strong> &ldquo;{ct.earlierStatement}&rdquo;
+                </p>
+                <p style={{ margin: '0 0 6px', fontSize: '0.86rem', color: 'var(--text)' }}>
+                  <strong>Statement B:</strong> &ldquo;{ct.laterStatement}&rdquo;
+                </p>
+                <span style={{ fontSize: '0.82rem', color: '#EF4444' }}>{ct.explanation}</span>
               </div>
-            );
-          })}
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Section: Practice These 3 Things ── */}
+      {practiceAreas.length > 0 && (
+        <div className="widget" style={{ marginBottom: '1.25rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+            <Target size={18} color="var(--blue)" />
+            <h4 style={{ margin: 0, fontSize: '1.05rem' }}>Practice These 3 Things</h4>
+          </div>
+          <p style={{ color: 'var(--text-3)', fontSize: '0.86rem', margin: '0 0 0.8rem' }}>
+            Your highest-ROI focus areas before your next real interview.
+          </p>
+
+          <div className="practice-grid">
+            {practiceAreas.map((pa, idx) => (
+              <div className="practice-card" key={idx}>
+                <div>
+                  <div className="practice-num">Priority #0{idx + 1}</div>
+                  <h5 style={{ margin: '0 0 0.35rem', fontSize: '0.98rem', fontWeight: 700 }}>{pa.title}</h5>
+                  <p style={{ fontSize: '0.86rem', color: 'var(--text-2)', lineHeight: 1.5, margin: '0 0 0.75rem' }}>
+                    {pa.description}
+                  </p>
+                </div>
+                <div style={{ borderTop: '1px solid var(--line)', paddingTop: '0.6rem', fontSize: '0.82rem', color: 'var(--blue)', fontWeight: 600 }}>
+                  👉 {pa.actionItem}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Question-by-question breakdown with "Practice This Again" Interactive Engine ── */}
+      {perQuestion.length > 0 && (
+        <div className="widget" style={{ marginTop: '1.25rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem', flexWrap: 'wrap', gap: 8 }}>
+            <div>
+              <h4 style={{ margin: 0, fontSize: '1.1rem' }}>Question-by-Question Deep Dive &amp; Retake</h4>
+              <p style={{ color: 'var(--text-3)', fontSize: '.86rem', margin: '.2rem 0 0' }}>
+                Review individual scores, read stronger rewrites, and practice weak answers again to build mastery.
+              </p>
+            </div>
+          </div>
+
+          <div style={{ marginTop: '1.1rem' }}>
+            {perQuestion.map((pq, i) => {
+              const vs = verdictStyle(pq.verdict);
+              const isRetakeOpen = activeRetakeIdx === i;
+              const retakeOut = retakeOutputs[i];
+              const isLoading = !!retakeLoading[i];
+              const itemScore = pq.score || (pq.verdict === 'strong' ? 85 : pq.verdict === 'adequate' ? 68 : 45);
+
+              return (
+                <div className="qb-card" key={`${i}-${pq.question.slice(0, 16)}`}>
+                  <div className="qb-head">
+                    <div>
+                      <span className="qb-num">Question {i + 1} &middot; Score {itemScore}/100</span>
+                      <p className="qb-q">{pq.question}</p>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span
+                        className="qb-badge"
+                        style={{ background: vs.bg, color: vs.fg, borderColor: vs.border }}
+                      >
+                        {vs.label}
+                      </span>
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        onClick={() => setActiveRetakeIdx(isRetakeOpen ? null : i)}
+                        style={{
+                          fontSize: '0.78rem',
+                          padding: '0.3rem 0.75rem',
+                          background: isRetakeOpen ? 'var(--blue)' : 'rgba(59,130,246,0.1)',
+                          color: isRetakeOpen ? '#fff' : 'var(--blue)',
+                          borderColor: 'rgba(59,130,246,0.3)',
+                        }}
+                      >
+                        <RefreshCw size={13} style={{ marginRight: 4 }} />
+                        {isRetakeOpen ? 'Close Practice' : 'Practice This Again'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {pq.answerSummary && <p className="qb-summary">{pq.answerSummary}</p>}
+
+                  <div className="qb-cols">
+                    {pq.whatWorked && (
+                      <div className="qb-col">
+                        <b style={{ color: '#22C55E' }}>What worked</b>
+                        <p>{pq.whatWorked}</p>
+                      </div>
+                    )}
+                    {pq.whatWasMissing && (
+                      <div className="qb-col">
+                        <b style={{ color: '#F59E0B' }}>What was missing</b>
+                        <p>{pq.whatWasMissing}</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {pq.betterAnswer && (
+                    <div className="qb-better">
+                      <b>Stronger Model Answer</b>
+                      <p>{pq.betterAnswer}</p>
+                    </div>
+                  )}
+
+                  {pq.starCoverage && (
+                    <div className="qb-stars">
+                      {STAR_LABELS.map((s) => (
+                        <span
+                          className={`qb-chip${pq.starCoverage?.[s.key] ? ' on' : ''}`}
+                          key={s.key}
+                        >
+                          {pq.starCoverage?.[s.key] ? '✓' : '✗'} {s.label}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* ── Interactive "Practice This Again" Drawer ── */}
+                  {isRetakeOpen && (
+                    <div className="retake-drawer">
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                        <b style={{ fontSize: '0.9rem', color: 'var(--blue)' }}>
+                          🔁 Retake: Practice Your Answer Again
+                        </b>
+                        <span style={{ fontSize: '0.8rem', color: 'var(--text-3)' }}>
+                          Original Score: {itemScore}/100
+                        </span>
+                      </div>
+                      <p style={{ fontSize: '0.84rem', color: 'var(--text-2)', margin: 0 }}>
+                        Reframe your response with STAR structure, concrete numbers, and direct ownership.
+                      </p>
+
+                      <textarea
+                        className="retake-textarea"
+                        placeholder="Type your revised, stronger answer here (e.g., In my role at..., I was tasked with..., so I personally built... which led to 35% growth)..."
+                        value={retakeInputs[i] || ''}
+                        onChange={(e) => setRetakeInputs({ ...retakeInputs, [i]: e.target.value })}
+                      />
+
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                        <button
+                          className="btn btn-primary btn-sm"
+                          disabled={isLoading}
+                          onClick={() => handleRetakeSubmit(i, pq.question, pq.answerSummary, itemScore)}
+                          style={{ minWidth: 160 }}
+                        >
+                          {isLoading ? (
+                            <>Evaluating...</>
+                          ) : (
+                            <>
+                              <TrendingUp size={14} style={{ marginRight: 6 }} /> Submit Revised Answer
+                            </>
+                          )}
+                        </button>
+                      </div>
+
+                      {retakeOut && (
+                        <div className="retake-result-banner">
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                            <strong style={{ color: '#22C55E', fontSize: '0.94rem' }}>
+                              🎉 Score Progression: {retakeOut.previousScore}/100 → {retakeOut.newScore}/100 (+{retakeOut.scoreDelta} pts)
+                            </strong>
+                            <span className="qb-badge" style={{ background: verdictStyle(retakeOut.verdict).bg, color: verdictStyle(retakeOut.verdict).fg }}>
+                              {verdictStyle(retakeOut.verdict).label}
+                            </span>
+                          </div>
+                          <p style={{ fontSize: '0.86rem', color: 'var(--text)', margin: '0 0 4px', lineHeight: 1.5 }}>
+                            {retakeOut.whatImproved}
+                          </p>
+                          {retakeOut.whatStillNeedsWork && (
+                            <p style={{ fontSize: '0.82rem', color: 'var(--text-3)', margin: 0 }}>
+                              💡 <em>Next Polish:</em> {retakeOut.whatStillNeedsWork}
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Transcript section */}
+      {interview.transcript.length > 0 && (
+        <div className="widget" style={{ marginTop: '1.25rem' }} ref={transcriptRef}>
+          <h4>Full Conversation Transcript</h4>
+          <div style={{ maxHeight: '380px', overflowY: 'auto', fontSize: '.88rem', marginTop: '0.8rem', paddingRight: '0.5rem' }}>
+            {interview.transcript.map((msg, i) => (
+              <div key={i} style={{ marginBottom: '.75rem', padding: '0.6rem 0.8rem', borderRadius: 8, background: msg.who === 'ai' ? 'rgba(59,130,246,0.06)' : 'rgba(255,255,255,0.02)' }}>
+                <b style={{ color: msg.who === 'ai' ? 'var(--blue)' : 'var(--accent)', display: 'block', marginBottom: 2 }}>
+                  {msg.who === 'ai' ? 'Interviewer' : 'You'}:
+                </b>{' '}
+                <span style={{ color: 'var(--text)', lineHeight: 1.5 }}>{msg.text}</span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </>

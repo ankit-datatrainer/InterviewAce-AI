@@ -30,6 +30,8 @@ export default function Navbar() {
     // Check current session on mount
     supabase.auth.getUser().then(({ data: { user } }) => {
       setIsAuthenticated(!!user);
+    }).catch(() => {
+      setIsAuthenticated(false);
     });
 
     // Listen for auth state changes
