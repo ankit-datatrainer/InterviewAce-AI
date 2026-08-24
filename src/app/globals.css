@@ -838,9 +838,9 @@ footer {
   display: flex; justify-content: space-between; align-items: center;
 }
 .widget h4 a { font-size: .78rem; color: var(--blue); font-weight: 600; }
-.dash-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1rem; }
+.dash-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1rem; }
 .dash-grid-2 { display: grid; grid-template-columns: 1.4fr 1fr; gap: 1rem; margin-bottom: 1rem; }
-.dash-grid-3 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+.dash-grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem; }
 .kpi { display: flex; flex-direction: column; gap: .2rem; }
 .kpi .v { font-family: var(--font-display); font-size: 1.7rem; font-weight: 800; }
 .kpi .l { font-size: .8rem; color: var(--text-2); }
@@ -2107,12 +2107,13 @@ table.adm tr:hover td { background: var(--chip); }
 }
 
 .duo-hud-card {
-  background: var(--surface-solid);
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--r-md);
   padding: 0.9rem 1.1rem;
   display: flex;
   justify-content: center;
+  backdrop-filter: blur(10px);
 }
 
 /* Duolingo Unit Banners */
@@ -2232,10 +2233,11 @@ table.adm tr:hover td { background: var(--chip); }
 
 /* Duolingo Leaderboard Card */
 .duo-leaderboard-card {
-  background: var(--surface-solid);
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--r-md);
   padding: 1.1rem;
+  backdrop-filter: blur(10px);
 }
 .duo-leaderboard-head {
   display: flex;
@@ -2326,10 +2328,11 @@ table.adm tr:hover td { background: var(--chip); }
 
 /* Duolingo Power-Up Shop Card */
 .duo-shop-card {
-  background: var(--surface-solid);
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--r-md);
   padding: 1.1rem;
+  backdrop-filter: blur(10px);
 }
 .duo-shop-head {
   display: flex;
@@ -2384,10 +2387,12 @@ table.adm tr:hover td { background: var(--chip); }
 
 /* Career Quest Path Container */
 .career-quest-container {
-  background: var(--surface-solid);
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--r-lg);
   padding: 1.5rem;
+  backdrop-filter: blur(10px);
+  overflow: hidden;
 }
 
 .duo-path-node-wrapper {
