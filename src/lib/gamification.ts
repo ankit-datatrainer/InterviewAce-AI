@@ -325,16 +325,38 @@ export function toggleSound(): boolean {
   return current.soundEnabled;
 }
 
+let sharedAudioCtx: AudioContext | null = null;
+
+function getSharedAudioContext(): AudioContext | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    if (!sharedAudioCtx) {
+      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      if (AudioCtx) sharedAudioCtx = new AudioCtx();
+    }
+    if (sharedAudioCtx && sharedAudioCtx.state === 'suspended') {
+      sharedAudioCtx.resume().catch(() => {});
+    }
+    return sharedAudioCtx;
+  } catch {
+    return null;
+  }
+}
+
 // ─── Web Audio API Sound Synthesizer (Duolingo-like feedback) ───
-export function playDuoSound(type: 'correct' | 'wrong' | 'levelup' | 'streak' | 'pop' | 'chest'): void {
+export function playDuoSound(type: 'correct' | 'wrong' | 'levelup' | 'streak' | 'pop' | 'chest' | 'type', key?: string): void {
   if (typeof window === 'undefined') return;
   const state = getGamificationState();
   if (!state.soundEnabled) return;
 
+  if (type === 'type') {
+    playTypeSound(key);
+    return;
+  }
+
   try {
-    const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-    if (!AudioCtx) return;
-    const ctx = new AudioCtx();
+    const ctx = getSharedAudioContext();
+    if (!ctx) return;
 
     if (type === 'correct') {
       // Crisp 2-tone major chime (C5 -> G5)
@@ -440,5 +462,84 @@ export function playDuoSound(type: 'correct' | 'wrong' | 'levelup' | 'streak' | 
     }
   } catch {
     // Audio context not allowed before user gesture
+  }
+}
+
+// ─── High-Performance Mechanical Typing Sound Synthesizer ───
+export function playTypeSound(key?: string): void {
+  if (typeof window === 'undefined') return;
+  const state = getGamificationState();
+  if (!state.soundEnabled) return;
+
+  try {
+    const ctx = getSharedAudioContext();
+    if (!ctx) return;
+
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    if (key === 'Enter') {
+      // Deeper tactile return / confirmation click
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(480, now);
+      osc.frequency.exponentialRampToValueAtTime(160, now + 0.045);
+
+      gain.gain.setValueAtTime(0.12, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.045);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start(now);
+      osc.stop(now + 0.045);
+    } else if (key === ' ' || key === 'Space') {
+      // Satisfying spacebar mechanical thud
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(620, now);
+      osc.frequency.exponentialRampToValueAtTime(220, now + 0.04);
+
+      gain.gain.setValueAtTime(0.10, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.04);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start(now);
+      osc.stop(now + 0.04);
+    } else if (key === 'Backspace' || key === 'Delete') {
+      // Woodblock back-pop
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(780, now);
+      osc.frequency.exponentialRampToValueAtTime(290, now + 0.035);
+
+      gain.gain.setValueAtTime(0.09, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.035);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start(now);
+      osc.stop(now + 0.035);
+    } else {
+      // Standard crisp mechanical switch click with organic pitch jitter
+      const jitter = (Math.random() - 0.5) * 160;
+      const baseFreq = 1900 + jitter;
+
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(baseFreq, now);
+      osc.frequency.exponentialRampToValueAtTime(320, now + 0.028);
+
+      gain.gain.setValueAtTime(0.075, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.028);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start(now);
+      osc.stop(now + 0.028);
+    }
+  } catch {
+    // Audio context not ready
   }
 }

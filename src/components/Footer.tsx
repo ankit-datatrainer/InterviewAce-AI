@@ -5,6 +5,32 @@ export default function Footer() {
   return (
     <footer>
       <div className="container">
+        {/* Award-Level Showcase Banner */}
+        <div className="award-footer-showcase">
+          <div className="award-footer-left">
+            <div className="award-footer-trophy-box">🏆</div>
+            <div>
+              <div className="award-footer-title">
+                <span>Global EdTech Excellence Award 2026</span>
+                <span className="winner-tag">Level 10 Diamond</span>
+              </div>
+              <p className="award-footer-desc">
+                Ranked #1 AI Career Practice Arena &middot; Over 500,000+ candidate practice loops completed worldwide.
+              </p>
+            </div>
+          </div>
+          <div className="award-footer-badges">
+            <div className="award-laurel-badge">
+              <span>🌟</span>
+              <span>Awwwards EdTech Winner</span>
+            </div>
+            <div className="award-laurel-badge" style={{ animationDelay: '1.2s' }}>
+              <span>🎖️</span>
+              <span>4.98/5 Contender Rating</span>
+            </div>
+          </div>
+        </div>
+
         <div className="foot-grid">
           <div>
             <Link href="/" className="logo" style={{ marginBottom: '1rem', display: 'flex' }}>
@@ -21,7 +47,6 @@ export default function Footer() {
             <Link href="/dashboard/interview">Mock interviews</Link>
             <Link href="/dashboard/ats">Resume analyzer</Link>
             <Link href="/dashboard/coaching">Coaching</Link>
-            <Link href="/#pricing">Pricing</Link>
           </div>
 
           <div>

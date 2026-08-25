@@ -1,8 +1,11 @@
 import type { Metadata } from 'next';
 import { Inter, Plus_Jakarta_Sans } from 'next/font/google';
 import './globals.css';
+import './gamification.css';
 import Navbar from '@/components/Navbar';
 import ChatWidget from '@/components/ChatWidget';
+import BackToTop from '@/components/BackToTop';
+import GlobalSoundEffects from '@/components/GlobalSoundEffects';
 import ToastProvider from '@/components/Toast';
 import fs from 'fs';
 import path from 'path';
@@ -62,6 +65,8 @@ export default async function RootLayout({
             <Navbar />
             <main>{children}</main>
             <ChatWidget />
+            <BackToTop />
+            <GlobalSoundEffects />
           </MaintenanceClientWrapper>
         </ToastProvider>
       </body>

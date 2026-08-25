@@ -300,8 +300,8 @@ export default function BlogPage() {
                     style={{ textAlign: 'center' }}
                   />
                 </div>
-                <button type="submit" className="btn btn-primary">
-                  <Send size={15} /> Subscribe
+                <button type="submit" className="btn-duo btn-duo-green">
+                  <Send size={15} /> Subscribe &middot; +10 XP
                 </button>
               </form>
             </div>

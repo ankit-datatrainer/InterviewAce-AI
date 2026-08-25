@@ -301,11 +301,11 @@ export default function AboutPage() {
               Your first mock interview is completely free — no credit card, no catch.
             </p>
             <div style={{ display: 'flex', gap: '.9rem', justifyContent: 'center', flexWrap: 'wrap' }}>
-              <Link href="/dashboard/interview" className="btn btn-primary">
-                <Mic size={18} /> Start free mock interview <ArrowRight size={16} />
+              <Link href="/dashboard/interview" className="btn-duo btn-duo-green btn-duo-lg">
+                <Mic size={18} /> Start Free Mock Round &middot; +60 XP <ArrowRight size={16} />
               </Link>
-              <Link href="/dashboard/ats" className="btn btn-ghost">
-                <FileText size={18} /> Analyze my resume
+              <Link href="/dashboard/ats" className="btn-duo btn-duo-ghost btn-duo-lg">
+                <FileText size={18} /> Scan My Resume &middot; +25 XP
               </Link>
             </div>
           </div>

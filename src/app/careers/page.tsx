@@ -304,7 +304,7 @@ export default function CareersPage() {
             </p>
             <Link
               href="mailto:careers@interviewace.ai"
-              className="btn btn-primary"
+              className="btn-duo btn-duo-green btn-duo-lg"
               style={{ margin: '0 auto' }}
             >
               <Mail size={18} /> careers@interviewace.ai

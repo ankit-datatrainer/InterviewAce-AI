@@ -23,7 +23,17 @@ import {
   GraduationCap,
   BarChart3,
   Send,
+  Flame,
+  Award,
+  Sparkles,
+  Shield,
+  Gift,
+  X,
+  Play,
+  Lock,
+  CheckCircle,
 } from 'lucide-react';
+import { addGems, addXP, playDuoSound } from '@/lib/gamification';
 
 /* ------------------------------------------------------------------ */
 /*  Data                                                               */
@@ -35,223 +45,295 @@ const TYPING_STRINGS = [
 ];
 
 const METRICS = [
-  { value: 10000, suffix: '+', label: 'Interviews conducted' },
-  { value: 5000, suffix: '+', label: 'Students trained' },
-  { value: 95, suffix: '%', label: 'User satisfaction' },
-  { value: 500, suffix: '+', label: 'Career coaches' },
+  { icon: '🎯', value: 10000, suffix: '+', label: 'Quests & Interviews Completed', badge: '+60 XP Avg' },
+  { icon: '🏆', value: 5000, suffix: '+', label: 'Candidates Leveled Up', badge: 'Diamond Tier' },
+  { icon: '🔥', value: 95, suffix: '%', label: 'Practice Win & Offer Rate', badge: 'Top 1% Rank' },
+  { icon: '👑', value: 500, suffix: '+', label: 'Grandmaster FAANG Coaches', badge: 'Verified Mentors' },
 ];
 
-const FEATURES = [
+const RPG_SKILLS = [
   {
+    id: 'mock-arena',
+    tier: 'Unit 1 · Skill 01',
+    title: 'AI Mock Interview Arena',
+    desc: 'Battle an adaptive AI avatar that listens to your voice, tracks your eye contact, and challenges you with real-time follow-ups.',
     icon: Mic,
-    title: 'AI Mock Interviews',
-    desc: 'Face a lifelike AI interviewer that adapts questions to your role, resume and experience level — just like the real thing.',
-    list: [
-      'HR, technical, behavioral & managerial rounds',
-      'Live HeyGen avatar with natural voice',
-      'Real-time transcript & follow-up questions',
-      'Strike-based discipline system for realism',
+    iconBg: 'linear-gradient(135deg, #58cc02, #0d79d1)',
+    xpReward: 60,
+    gemsReward: 15,
+    powerUps: [
+      '⚡ 3-Strike Shield Rule (Enforces real-world discipline)',
+      '🗣️ Live HeyGen Avatar with natural speech synthesis',
+      '📝 Real-time transcript review & STAR method score',
+      '🎯 HR, Technical, Behavioral & Managerial rounds',
     ],
+    actionLink: '/dashboard/interview',
+    actionText: 'Enter Mock Arena',
   },
   {
+    id: 'resume-radar',
+    tier: 'Unit 1 · Skill 02',
+    title: 'ATS Resume Radar & Scanner',
+    desc: 'Instant 0–100 ATS compatibility scan. Uncover missing keywords and transform your bullet points into high-impact metrics.',
     icon: FileText,
-    title: 'AI Resume Analyzer',
-    desc: 'Upload your resume and see exactly how applicant tracking systems score it — then fix it section by section.',
-    list: [
-      'Instant ATS score for PDF, DOC & DOCX',
-      'Missing keyword detection per job role',
-      'Section-by-section improvement suggestions',
-      'Built-in editable resume builder',
+    iconBg: 'linear-gradient(135deg, #1cb0f6, #8b5cf6)',
+    xpReward: 35,
+    gemsReward: 10,
+    powerUps: [
+      '📊 Instant 0–100 ATS match score for PDF/DOCX',
+      '🔍 Missing keyword hunter matched to target roles',
+      '✨ Built-in interactive Resume Builder with live preview',
+      '🚀 1-Click ATS-safe clean PDF export',
     ],
+    actionLink: '/dashboard/ats',
+    actionText: 'Scan My Resume',
   },
   {
+    id: 'boss-coaching',
+    tier: 'Unit 2 · Skill 03',
+    title: 'Grandmaster 1-on-1 Coaching',
+    desc: 'Book high-impact video sessions with verified directors and hiring leads from Google, Microsoft, Deloitte, and Amazon.',
     icon: GraduationCap,
-    title: 'Expert Coaching',
-    desc: 'Book 1-on-1 video sessions with verified coaches — from communication trainers to senior HR professionals.',
-    list: [
-      '500+ verified coaches across 6 categories',
-      'Transparent ratings, experience & pricing',
-      'Instant booking with calendar sync',
-      'Session notes & personalised action plans',
+    iconBg: 'linear-gradient(135deg, #ff9600, #ff4b4b)',
+    xpReward: 150,
+    gemsReward: 40,
+    powerUps: [
+      '👑 500+ Verified coaches across 6 specialization tracks',
+      '📅 Instant booking with Google & Outlook calendar sync',
+      '📋 Written session critique & tailored career roadmap',
+      '💎 Personalized STAR behavioral story review',
     ],
+    actionLink: '/dashboard/coaching',
+    actionText: 'Meet Grandmasters',
   },
   {
+    id: 'growth-radar',
+    tier: 'Unit 2 · Skill 04',
+    title: '10-Metric Growth Radar & XP',
+    desc: 'Watch your communication, technical precision, and composure climb across every interview with competitive league tracking.',
     icon: BarChart3,
-    title: 'Performance Analytics',
-    desc: 'Watch your confidence, clarity and scores climb across every interview with rich progress dashboards.',
-    list: [
-      '10-metric scoring on every interview',
-      'Confidence & communication growth charts',
-      'Skill-gap trends with recommended actions',
-      'Downloadable PDF performance reports',
+    iconBg: 'linear-gradient(135deg, #8b5cf6, #ec4899)',
+    xpReward: 40,
+    gemsReward: 15,
+    powerUps: [
+      '📈 10-Metric scorecard with detailed rubrics',
+      '💎 Diamond & Obsidian League leaderboard standings',
+      '🛡️ Practice streak tracker with freeze protection',
+      '📄 Downloadable PDF performance audit certificates',
     ],
+    actionLink: '/dashboard/analytics',
+    actionText: 'View Career Radar',
   },
 ];
 
-const STEPS = [
-  { num: 1, title: 'Sign up & create profile', desc: 'Tell us your target role, experience level and dream companies in under two minutes.' },
-  { num: 2, title: 'Upload your resume', desc: 'Get an instant ATS score and a prioritized fix list before you ever face a question.' },
-  { num: 3, title: 'Take an AI mock interview', desc: 'Answer adaptive questions from a live avatar interviewer in a realistic interview room.' },
-  { num: 4, title: 'Receive detailed feedback', desc: 'A 10-metric scorecard, transcript review and a clear plan for what to improve next.' },
+type QuestStage = {
+  stageNum: number;
+  title: string;
+  desc: string;
+  icon: string;
+  status: 'completed' | 'active' | 'locked';
+  stars: number;
+  xp: number;
+  gems: number;
+  tier: string;
+  link: string;
+  checklist: string[];
+};
+
+const QUEST_STAGES: QuestStage[] = [
+  {
+    stageNum: 1,
+    title: 'Profile Calibration',
+    desc: 'Set target role, seniority & dream companies in under 2 mins',
+    icon: '🎯',
+    status: 'completed',
+    stars: 3,
+    xp: 40,
+    gems: 10,
+    tier: 'Unit 1 · Fresher',
+    link: '/dashboard',
+    checklist: ['Select target role & domain', 'Set experience level', 'Calibrate salary target'],
+  },
+  {
+    stageNum: 2,
+    title: 'ATS Resume Power-Up',
+    desc: 'Scan resume to unlock 85+ score and fix recruiter filters',
+    icon: '📄',
+    status: 'completed',
+    stars: 3,
+    xp: 50,
+    gems: 15,
+    tier: 'Unit 1 · Mid',
+    link: '/dashboard/ats',
+    checklist: ['Upload PDF or DOCX resume', 'Apply missing keyword fixes', 'Export ATS-proof format'],
+  },
+  {
+    stageNum: 3,
+    title: 'The AI Avatar Arena',
+    desc: 'Face adaptive AI interviewer with 3-Strike discipline shield',
+    icon: '🎙️',
+    status: 'active',
+    stars: 1,
+    xp: 75,
+    gems: 25,
+    tier: 'Unit 2 · Advanced',
+    link: '/dashboard/interview',
+    checklist: ['Answer adaptive voice questions', 'Avoid silence & rambling strikes', 'Receive 10-metric scorecard'],
+  },
+  {
+    stageNum: 4,
+    title: 'Mastery & Offer Letter',
+    desc: 'Grandmaster feedback, league promotion & dream offer',
+    icon: '👑',
+    status: 'locked',
+    stars: 0,
+    xp: 150,
+    gems: 50,
+    tier: 'Unit 2 · Boss Round',
+    link: '/dashboard/coaching',
+    checklist: ['Complete full interview loop', '1-on-1 Grandmaster mock review', 'Unlock Diamond League badge'],
+  },
 ];
 
-const PLANS_MONTHLY = [
+const GRANDMASTER_COACHES = [
   {
-    name: 'Free',
-    price: '₹0',
-    period: '/forever',
-    desc: 'Try the platform, zero risk',
-    features: ['1 AI mock interview', 'Basic ATS resume analysis', 'Overall score & summary feedback', 'Community support'],
-    cta: 'Start free',
-    popular: false,
+    name: 'Saurabh Sharda',
+    title: 'Personality Development Coach',
+    image: 'https://tqxmetsdfnijczgbdoif.supabase.co/storage/v1/object/public/coach-avatars/0d2d366c-8140-4ce3-97c2-40f12fa012ae/1783313856464-opa1i7.jpg',
+    fallbackImage: '/images/saurabh.jpg',
+    experience: '16+ Years Experience',
+    rating: 5,
+    reviews: '1 reviews',
+    bio: 'About the Coach: A Youth Personality Development Entrepreneur with 15+ years of entrepreneurial experience. I blend practical insights to build self-confidence, master communication, and develop executive presence.',
+    tags: ['Personality Development', 'Communication', 'Leadership', 'Self-Confidence'],
+    badge: '👑 Personality Mentor',
+    slug: 'saurabh-sharda',
+    xpReward: 150,
   },
   {
-    name: 'Pro',
-    price: '₹499',
-    period: '/month',
-    desc: 'For active job seekers',
-    features: ['Unlimited AI mock interviews', 'Advanced 10-metric feedback', 'Interview recording & playback', 'Full resume builder & keyword fixes', 'Progress analytics dashboard'],
-    cta: 'Upgrade to Pro',
-    popular: true,
+    name: 'Ankit Kumar',
+    title: 'Generative AI & Agentic AI Expert',
+    image: '/images/ankit.jpg',
+    fallbackImage: '/images/ankit.jpg',
+    experience: '5+ Years Experience',
+    rating: 5,
+    reviews: '0 reviews',
+    bio: 'I specialize in Generative AI and Agentic AI systems. I will help you master LLM architectures, AI agents, and system design for modern AI engineering and tech leadership interviews.',
+    tags: ['Generative AI', 'Agentic AI', 'LLMs', 'System Design'],
+    badge: '⚡ AI Architect',
+    slug: 'ankit-kumar',
+    xpReward: 150,
   },
   {
-    name: 'Premium',
-    price: '₹999',
-    period: '/month',
-    desc: 'For serious career growth',
-    features: ['Everything in Pro', '2 expert coaching sessions / month', 'Priority support', 'Personalised career roadmap', 'Mock panel & group discussion rounds'],
-    cta: 'Go Premium',
-    popular: false,
-  },
-];
-
-const PLANS_YEARLY = [
-  {
-    name: 'Free',
-    price: '₹0',
-    period: '/forever',
-    desc: 'Try the platform, zero risk',
-    features: ['1 AI mock interview', 'Basic ATS resume analysis', 'Overall score & summary feedback', 'Community support'],
-    cta: 'Start free',
-    popular: false,
-  },
-  {
-    name: 'Pro',
-    price: '₹399',
-    period: '/month',
-    desc: 'For active job seekers',
-    features: ['Unlimited AI mock interviews', 'Advanced 10-metric feedback', 'Interview recording & playback', 'Full resume builder & keyword fixes', 'Progress analytics dashboard'],
-    cta: 'Upgrade to Pro',
-    popular: true,
-  },
-  {
-    name: 'Premium',
-    price: '₹799',
-    period: '/month',
-    desc: 'For serious career growth',
-    features: ['Everything in Pro', '2 expert coaching sessions / month', 'Priority support', 'Personalised career roadmap', 'Mock panel & group discussion rounds'],
-    cta: 'Go Premium',
-    popular: false,
+    name: 'Sagar Tandon',
+    title: 'Public Speaking & Interview Expert',
+    image: 'https://tqxmetsdfnijczgbdoif.supabase.co/storage/v1/object/public/coach-avatars/_new/1783522410829-297mcj.jpg',
+    fallbackImage: '/images/saurabh.jpg',
+    experience: '10+ Years Experience',
+    rating: 5,
+    reviews: '0 reviews',
+    bio: 'Sagar Tandon is a Public Speaking & Interview Expert dedicated to helping students and professionals communicate with confidence, conquer stage fear, and excel in competitive interview rounds.',
+    tags: ['Communication', 'Public Speaking', 'Interview Prep'],
+    badge: '🎤 Speech Maestro',
+    slug: 'sagar-tandon',
+    xpReward: 140,
   },
 ];
 
 const TESTIMONIALS = [
   {
     stars: 5,
-    quote: 'I bombed my first three campus interviews. After 12 mock rounds on InterviewAce, I cracked a placement at a Big-4 firm. The strike system trained me to stop rambling.',
+    league: '🥇 Diamond League Top 1%',
+    placement: 'Placed at Deloitte · MBA Graduate',
+    quote: 'I bombed my first three campus interviews. After 12 mock rounds on InterviewAce, I cracked a placement at Deloitte. The strike system trained me to stop rambling.',
     name: 'Priya Sharma',
-    role: 'MBA Graduate \u00b7 Placed at Deloitte',
+    role: 'MBA Graduate · Deloitte',
     initials: 'PS',
+    atsScore: 'ATS 91%',
+    strikes: '0 Strikes',
   },
   {
     stars: 5,
-    quote: 'My resume was getting auto-rejected everywhere. The ATS analyzer found 14 missing keywords for data analyst roles. Score went from 52 to 89 — interviews started coming in within two weeks.',
+    league: '🚀 Obsidian League Promotion',
+    placement: 'Data Analyst at Zomato',
+    quote: 'My resume was getting auto-rejected everywhere. The ATS analyzer found 14 missing keywords. Score went from 52 to 89 — interviews started coming in within two weeks.',
     name: 'Rahul Verma',
-    role: 'B.Tech Fresher \u00b7 Data Analyst at Zomato',
+    role: 'B.Tech Fresher · Zomato',
     initials: 'RV',
-  },
-  {
-    stars: 4,
-    quote: 'The communication coach I booked spotted habits I never knew I had — filler words, weak eye contact. Three sessions later my confidence score jumped 28 points.',
-    name: 'Ananya Kapoor',
-    role: 'Final-year Student \u00b7 DU',
-    initials: 'AK',
+    atsScore: 'ATS 89%',
+    strikes: 'Score 92%',
   },
   {
     stars: 5,
-    quote: 'As a tier-2 city student, I had no one to practice English interviews with. The AI interviewer never judges, never gets tired, and the feedback is brutally specific. Game changer.',
-    name: 'Mohit Jain',
-    role: 'BCA Graduate \u00b7 SDE at Paytm',
-    initials: 'MJ',
-  },
-  {
-    stars: 5,
-    quote: 'The system design mock interviews are incredibly realistic. The AI pushed me to justify my database choices and load-balancing strategies. It helped me clear my L4 interview at Google!',
+    league: '👑 Grandmaster Graduate',
+    placement: 'Placed at Google · Senior SDE',
+    quote: 'The system design mock interviews are incredibly realistic. The AI pushed me to justify my database choices and load-balancing strategies. Cleared my L4 round at Google!',
     name: 'Karan Desai',
-    role: 'Senior Software Engineer \u00b7 Google',
+    role: 'Senior Software Engineer · Google',
     initials: 'KD',
-  },
-  {
-    stars: 4,
-    quote: 'I used to freeze during HR rounds when asked tricky behavioral questions. The structured feedback on my STAR method answers completely transformed my approach.',
-    name: 'Neha Gupta',
-    role: 'Marketing Manager \u00b7 Flipkart',
-    initials: 'NG',
+    atsScore: 'ATS 96%',
+    strikes: 'Score 95%',
   },
   {
     stars: 5,
-    quote: 'The Resume Analyzer is pure magic. It highlighted formatting issues that were breaking ATS parsers. Once fixed, my callback rate went from literally 0% to almost 40%.',
-    name: 'Arjun Reddy',
-    role: 'Product Designer \u00b7 CRED',
-    initials: 'AR',
-  },
-  {
-    stars: 5,
-    quote: 'I booked a 1-on-1 coaching session before my final round at Microsoft. My coach was an ex-MSFT director who gave me exactly the mock experience I needed to succeed.',
+    league: '🌟 Master Mentee',
+    placement: 'Program Manager at Microsoft',
+    quote: 'I booked a 1-on-1 coaching session before my final round at Microsoft. My coach gave me exactly the mock experience I needed to succeed.',
     name: 'Sneha Patel',
-    role: 'Program Manager \u00b7 Microsoft',
+    role: 'Program Manager · Microsoft',
     initials: 'SP',
+    atsScore: 'ATS 94%',
+    strikes: 'Score 90%',
   },
   {
     stars: 5,
-    quote: 'Being from a non-CS background, I struggled with explaining my projects confidently. The AI avatar\'s real-time strike system stopped me from using too much jargon and rambling.',
-    name: 'Vikram Singh',
-    role: 'Data Scientist \u00b7 Fractal',
-    initials: 'VS',
+    league: '💎 Emerald League Champion',
+    placement: 'Product Designer at CRED',
+    quote: 'The Resume Analyzer is pure magic. It highlighted formatting issues that were breaking ATS parsers. Once fixed, my callback rate went from 0% to almost 40%.',
+    name: 'Arjun Reddy',
+    role: 'Product Designer · CRED',
+    initials: 'AR',
+    atsScore: 'ATS 93%',
+    strikes: 'Score 88%',
   },
-  {
-    stars: 4,
-    quote: 'The dashboard analytics are addictive. Seeing my confidence score rise from 45% to 88% over two weeks gave me the push I needed before my campus placements began.',
-    name: 'Riya Mehta',
-    role: 'B.Tech Student \u00b7 VIT',
-    initials: 'RM',
-  }
 ];
 
 const FAQS = [
   {
-    q: 'How realistic are the AI interviews?',
-    a: 'Very. The AI interviewer uses a live avatar, speaks naturally, asks adaptive follow-ups based on your answers, and enforces real interview discipline through a strike system for interruptions, going off-topic or long silences. Most students say it feels harder than their actual interviews.',
+    q: 'How realistic is the AI Mock Interview arena?',
+    a: 'Extremely realistic. The AI interviewer uses a live conversational avatar with adaptive questions, voice recognition, and enforces real-world discipline with a 3-Strike Rule for long pauses, interruptions, and off-topic tangents. Finishing a session with 0 strikes earns you the "Laser Focus" badge and +75 XP.',
+    icon: '🎙️',
+    badge: 'AI Arena',
   },
   {
-    q: 'How is the ATS score calculated?',
-    a: 'We parse your resume the same way applicant tracking systems do — checking formatting compatibility, keyword match against your target role, section structure, quantified achievements and readability. You get a 0\u2013100 score with a breakdown of exactly which factors cost you points.',
+    q: 'How does the ATS Resume Radar score my resume?',
+    a: 'Our algorithm parses your resume exactly like enterprise Applicant Tracking Systems (Workday, Greenhouse, Taleo) do. It scans formatting, keyword density for your target job title, quantified achievements, and section structures to generate an instant 0–100 score with actionable fix suggestions.',
+    icon: '📄',
+    badge: 'ATS Scanner',
   },
   {
-    q: 'Can I edit my resume inside the platform?',
-    a: 'Yes. The resume builder lets you edit every section — summary, experience, skills, projects, education — with AI suggestions inline. Re-score instantly after each change and export a clean, ATS-safe PDF.',
+    q: 'What are Practice Streaks, XP & Gems used for?',
+    a: 'Practicing daily builds your Streak and awards Career XP that advances you across League Tiers (from Bronze to Obsidian). Earned Gems can be redeemed in the Power-Up Shop for Streak Freezes, Bonus AI Practice Passes, and 1-on-1 Grandmaster Coaching discounts.',
+    icon: '💎',
+    badge: 'Gamification',
   },
   {
-    q: 'How do coaching sessions work?',
-    a: 'Browse coaches by category, rating and price, then book a slot that fits your schedule. Sessions happen over video inside the platform. Afterwards your coach shares written feedback and an action plan that appears in your dashboard.',
+    q: 'How do 1-on-1 Grandmaster Coaching sessions work?',
+    a: 'Browse verified mentors from Google, Microsoft, Amazon and top firms. Select a category (System Design, Behavioral STAR, HR, Executive Pitch), pick a live video slot with calendar sync, and receive structured feedback plus a custom action plan in your dashboard.',
+    icon: '👑',
+    badge: 'Coaching',
   },
   {
-    q: 'Is my data private?',
-    a: 'Your resumes, recordings and transcripts are encrypted and visible only to you (and a coach, only if you book one). We never sell data or share it with employers without your explicit consent.',
+    q: 'Is my interview and resume data encrypted and private?',
+    a: '100% yes. Your resume uploads, audio/video streams, and practice transcripts are encrypted end-to-end and stored securely. We never sell your candidate data or share recordings with employers without your explicit permission.',
+    icon: '🛡️',
+    badge: 'Privacy Vault',
   },
   {
-    q: 'How long are interview recordings stored?',
-    a: 'Recordings are stored for 90 days on Free and Pro plans, and 12 months on Premium. You can download or permanently delete any recording at any time from Settings \u2192 Privacy.',
+    q: 'Can I edit my resume directly inside the platform?',
+    a: 'Yes! The built-in ATS Resume Builder lets you tweak each section with instant AI suggestions, re-score in real-time, and download an ATS-safe, recruiter-approved PDF with zero formatting errors.',
+    icon: '⭐',
+    badge: 'Resume Builder',
   },
 ];
 
@@ -289,19 +371,17 @@ function useCountUp(target: number, duration = 2000) {
   return { count, ref };
 }
 
-/* ------------------------------------------------------------------ */
-/*  Metric Card                                                        */
-/* ------------------------------------------------------------------ */
-
-function MetricCard({ value, suffix, label }: { value: number; suffix: string; label: string }) {
+function GamifiedMetricCard({ icon, value, suffix, label, badge }: { icon: string; value: number; suffix: string; label: string; badge: string }) {
   const { count, ref } = useCountUp(value);
   return (
-    <div className="metric" ref={ref}>
-      <div className="num">
+    <div className="gamified-metric-card" ref={ref} onClick={() => playDuoSound('pop')}>
+      <div className="gamified-metric-icon">{icon}</div>
+      <div className="gamified-metric-val">
         {count.toLocaleString()}
         {suffix}
       </div>
-      <div className="lbl">{label}</div>
+      <div className="gamified-metric-lbl">{label}</div>
+      <div className="gamified-metric-badge">{badge}</div>
     </div>
   );
 }
@@ -311,13 +391,14 @@ function MetricCard({ value, suffix, label }: { value: number; suffix: string; l
 /* ------------------------------------------------------------------ */
 
 export default function Home() {
-  /* ---- state ---- */
-  const [yearly, setYearly] = useState(false);
   const [tIdx, setTIdx] = useState(0);
   const [openFaq, setOpenFaq] = useState<number | null>(null);
   const [typedText, setTypedText] = useState('');
   const [toastMsg, setToastMsg] = useState('');
   const [toastVisible, setToastVisible] = useState(false);
+  const [selectedStage, setSelectedStage] = useState<QuestStage | null>(null);
+  const [chestClaimed, setChestClaimed] = useState(false);
+  const [chestModal, setChestModal] = useState(false);
 
   /* ---- reveal on scroll ---- */
   useEffect(() => {
@@ -378,23 +459,27 @@ export default function Home() {
   }, [advanceTestimonial]);
 
   /* ---- helpers ---- */
-  const plans = yearly ? PLANS_YEARLY : PLANS_MONTHLY;
-
   const showToast = (msg: string) => {
     setToastMsg(msg);
     setToastVisible(true);
     setTimeout(() => setToastVisible(false), 3000);
   };
 
-  const handleContactSubmit = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    showToast('Message sent! We\'ll get back to you within 24 hours.');
-    (e.target as HTMLFormElement).reset();
+  const handleOpenChest = () => {
+    if (chestClaimed) return;
+    addGems(30);
+    addXP(50);
+    setChestClaimed(true);
+    setChestModal(true);
+    playDuoSound('chest');
   };
 
-  /* ================================================================ */
-  /*  RENDER                                                           */
-  /* ================================================================ */
+  const handleContactSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    playDuoSound('correct');
+    showToast('Guild dispatch received! A mentor will contact you in under 24 hours.');
+    (e.target as HTMLFormElement).reset();
+  };
 
   return (
     <>
@@ -404,52 +489,77 @@ export default function Home() {
           <div className="hero-grid">
             {/* Left */}
             <div>
-              <span className="chip" style={{ background: 'rgba(88, 204, 2, 0.12)', borderColor: 'rgba(88, 204, 2, 0.3)', color: '#58cc02', fontWeight: 750 }}>
-                <span>🔥</span> Gamified AI Career Arena &middot; Earn XP &amp; Streaks
-              </span>
+              {/* Award-Level Floating Badges & Mascot Cheer Header */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', flexWrap: 'wrap', marginBottom: '1.2rem' }}>
+                <div className="award-float-badge gold">
+                  <span className="award-icon-sparkle">🏆</span>
+                  <span>2026 Winner &middot; <strong>Level 10 AI Simulator</strong></span>
+                </div>
+                <div className="award-float-badge diamond" style={{ animationDelay: '1.5s' }}>
+                  <span>💎</span>
+                  <span><strong>Diamond League</strong> Accredited</span>
+                </div>
+              </div>
+
+              <div className="home-mascot-banner">
+                <div className="home-mascot-icon">🦉</div>
+                <div className="home-mascot-text">
+                  <strong>Ace Bot &middot; Career Arena Master</strong>
+                  Daily quest active: Complete 1 practice round today to claim +50 XP &amp; keep your streak blazing! 🔥
+                </div>
+              </div>
+
               <h1>
-                Ace every interview <span className="grad-text">with AI</span>
+                Level up your career <span className="grad-text">in the AI Arena</span>
               </h1>
               <p className="sub">
-                Practice with a lifelike AI interviewer in an engaging, gamified simulator. Get your resume past ATS filters, conquer daily quests, and level up to land your dream offer.
+                Face an adaptive AI avatar in a gamified interview simulator. Eliminate speech strikes, boost your ATS score to 90+, and conquer stages to unlock FAANG job offers.
               </p>
+
               <div className="hero-ctas">
-                <Link href="/dashboard/interview" className="btn-duo btn-duo-green btn-duo-lg">
-                  <Mic size={20} /> Start Free Mock Round
+                <Link
+                  href="/dashboard/interview"
+                  className="btn-duo btn-duo-green btn-duo-lg"
+                  onClick={() => playDuoSound('pop')}
+                >
+                  <Mic size={20} /> Enter Practice Arena
                 </Link>
-                <Link href="/dashboard/ats" className="btn-duo btn-duo-ghost btn-duo-lg">
-                  <FileText size={20} /> Analyze My Resume
+                <Link
+                  href="/dashboard/ats"
+                  className="btn-duo btn-duo-ghost btn-duo-lg"
+                  onClick={() => playDuoSound('pop')}
+                >
+                  <FileText size={20} /> Scan Resume &middot; +25 XP
                 </Link>
               </div>
+
               <div className="hero-note">
                 <span>
-                  <Check size={15} /> 100% Free to Practice
+                  <Check size={15} style={{ color: '#22C55E' }} /> 100% Free Practice Arena
                 </span>
                 <span>
-                  <Check size={15} /> Instant 10-Metric Scorecard
+                  <Check size={15} style={{ color: '#22C55E' }} /> 3-Strike Discipline Shield
                 </span>
                 <span>
-                  <Check size={15} /> Streak &amp; XP Progression
+                  <Check size={15} style={{ color: '#22C55E' }} /> Daily Streaks &amp; Diamond League
                 </span>
               </div>
             </div>
 
-            {/* Right -- side-by-side video call mockup */}
+            {/* Right -- side-by-side video call mockup with Gamified HUD & Floating Award */}
             <div className="hero-video-call">
-              {/* Decorative backdrop elements */}
               <div className="hero-dashed-circle" />
               <div className="hero-dots-grid" />
 
-              {/* Video call container */}
               <div className="vc-container">
                 {/* Header bar */}
                 <div className="vc-header">
                   <div className="vc-header-left">
                     <span className="vc-live-dot" />
-                    <span>Live Interview Session</span>
+                    <span>Arena Round 01 &middot; Live Practice</span>
                   </div>
                   <div className="vc-header-right">
-                    <span className="vc-timer-badge">⏱ 12:34</span>
+                    <span className="vc-timer-badge">🛡️ 0/3 Strikes</span>
                   </div>
                 </div>
 
@@ -463,7 +573,7 @@ export default function Home() {
                     </div>
                     <div className="vc-label">
                       <span className="vc-label-dot active" />
-                      <span>Alex · AI Interviewer</span>
+                      <span>Alex &middot; AI Senior Recruiter</span>
                     </div>
                   </div>
 
@@ -474,27 +584,36 @@ export default function Home() {
                     </div>
                     <div className="vc-label">
                       <span className="vc-label-dot" />
-                      <span>You · Candidate</span>
+                      <span>You &middot; Level 3 Contender</span>
                     </div>
                   </div>
                 </div>
 
                 {/* Bottom controls bar */}
                 <div className="vc-controls">
-                  <div className="vc-ctrl-btn"><Mic size={16} /></div>
-                  <div className="vc-ctrl-btn"><Bot size={16} /></div>
-                  <div className="vc-ctrl-btn end"><Phone size={16} /></div>
+                  <button className="vc-ctrl-btn" onClick={() => playDuoSound('pop')} title="Microphone"><Mic size={16} /></button>
+                  <button className="vc-ctrl-btn" onClick={() => playDuoSound('pop')} title="AI Avatar"><Bot size={16} /></button>
+                  <button className="vc-ctrl-btn end" onClick={() => playDuoSound('wrong')} title="Leave Arena"><Phone size={16} /></button>
                 </div>
               </div>
 
               {/* Float badges */}
               <div className="float-badge fb-1" style={{ zIndex: 12 }}>
-                <Target size={16} style={{ color: '#22C55E' }} />
-                Readiness score <b style={{ color: '#22C55E' }}>86%</b>
+                <Award size={16} style={{ color: '#ffc800' }} />
+                <span>Quest Reward <b style={{ color: '#ffc800' }}>+60 XP &middot; 15 💎</b></span>
               </div>
               <div className="float-badge fb-2" style={{ zIndex: 12 }}>
-                <TrendingUp size={16} style={{ color: '#2563EB' }} />
-                ATS score improved <b style={{ color: '#22C55E' }}>+31 pts</b>
+                <TrendingUp size={16} style={{ color: '#22C55E' }} />
+                <span>ATS Resume Match <b style={{ color: '#22C55E' }}>92/100 (Pass)</b></span>
+              </div>
+
+              {/* Floating Award Medallion */}
+              <div className="award-hero-floating-medallion">
+                <div className="award-trophy-avatar">👑</div>
+                <div>
+                  <div style={{ fontSize: '0.72rem', color: '#ffc800', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Awwwards Top 1%</div>
+                  <div>Offer Certified &middot; 94.8% Pass</div>
+                </div>
               </div>
             </div>
           </div>
@@ -502,117 +621,278 @@ export default function Home() {
       </section>
 
       {/* ==================== TRUST METRICS ==================== */}
-      <section>
+      <section style={{ padding: '40px 0' }}>
         <div className="container">
-          <div className="metrics reveal">
+          <div className="award-section-badge-wrap reveal">
+            <div className="award-float-badge green">
+              <span>⚡</span>
+              <span>Level Milestone: <strong>500,000+</strong> Practice Rounds Mastered Worldwide</span>
+            </div>
+          </div>
+
+          <div className="gamified-metrics-grid reveal">
             {METRICS.map((m) => (
-              <MetricCard key={m.label} value={m.value} suffix={m.suffix} label={m.label} />
+              <GamifiedMetricCard
+                key={m.label}
+                icon={m.icon}
+                value={m.value}
+                suffix={m.suffix}
+                label={m.label}
+                badge={m.badge}
+              />
             ))}
           </div>
         </div>
       </section>
 
-      {/* ==================== FEATURES ==================== */}
+      {/* ==================== FEATURES (RPG SKILL TREES) ==================== */}
       <section id="features">
         <div className="container">
           <div className="sec-head reveal">
-            <span className="chip">Platform modules</span>
-            <h2>Everything between you and the offer letter</h2>
-            <p>Four connected modules that take you from nervous first attempt to confident final round.</p>
-          </div>
-          <div className="feat-grid">
-            {FEATURES.map((f) => (
-              <div className="feat-card reveal" key={f.title}>
-                <div className="feat-icon">
-                  <f.icon size={24} />
-                </div>
-                <h3>{f.title}</h3>
-                <p>{f.desc}</p>
-                <ul className="feat-list">
-                  {f.list.map((item) => (
-                    <li key={item}>
-                      <Check size={16} style={{ flexShrink: 0, color: '#22C55E' }} /> {item}
-                    </li>
-                  ))}
-                </ul>
+            <div style={{ display: 'flex', justifyContent: 'center', gap: '0.6rem', marginBottom: '0.8rem', flexWrap: 'wrap' }}>
+              <span className="chip" style={{ background: 'rgba(28, 176, 246, 0.12)', color: '#1cb0f6', borderColor: 'rgba(28, 176, 246, 0.3)' }}>
+                ⚡ Career Skill Tree
+              </span>
+              <div className="award-float-badge gold" style={{ animationDelay: '0.8s' }}>
+                <span>🎖️</span>
+                <span><strong>Level IV Mastery</strong> Certified</span>
               </div>
-            ))}
+            </div>
+            <h2>Four Power-Up Modules to Master Any Interview</h2>
+            <p>Progress from foundational icebreakers to FAANG system design with interactive practice tracks.</p>
+          </div>
+
+          <div className="rpg-skills-grid">
+            {RPG_SKILLS.map((skill) => {
+              const Icon = skill.icon;
+              return (
+                <div className="rpg-skill-card reveal" key={skill.id}>
+                  <div>
+                    <div className="rpg-skill-card-head">
+                      <div className="rpg-skill-icon-wrap" style={{ background: skill.iconBg }}>
+                        <Icon size={26} />
+                      </div>
+                      <div className="rpg-reward-tag">
+                        <span>⚡ +{skill.xpReward} XP</span>
+                        <span>&middot;</span>
+                        <span>💎 +{skill.gemsReward}</span>
+                      </div>
+                    </div>
+
+                    <div className="rpg-tier-pill">{skill.tier}</div>
+                    <h3>{skill.title}</h3>
+                    <p>{skill.desc}</p>
+
+                    <ul className="rpg-powerups-list">
+                      {skill.powerUps.map((p, idx) => (
+                        <li key={idx}>
+                          <span>{p}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  <div className="rpg-card-action">
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-2)', fontWeight: 700 }}>
+                      🎮 Fully Playable Online
+                    </span>
+                    <Link
+                      href={skill.actionLink}
+                      className="btn-duo btn-duo-green btn-duo-sm"
+                      onClick={() => playDuoSound('pop')}
+                    >
+                      {skill.actionText} &rarr;
+                    </Link>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       </section>
 
-      {/* ==================== HOW IT WORKS ==================== */}
+      {/* ==================== HOW IT WORKS (4-STAGE CAREER QUEST MAP) ==================== */}
       <section id="how" style={{ background: 'var(--bg-2)', borderTop: '1px solid var(--line)', borderBottom: '1px solid var(--line)' }}>
         <div className="container">
           <div className="sec-head reveal">
-            <span className="chip">Getting started</span>
-            <h2>From sign-up to job-ready in four steps</h2>
-            <p>No setup, no scheduling, no awkward role-plays with friends. Just you and your AI interviewer.</p>
-          </div>
-          <div className="steps reveal">
-            {STEPS.map((s, i) => (
-              <div className="step" key={s.num}>
-                <div className="step-num">{s.num}</div>
-                <h4>{s.title}</h4>
-                <p>{s.desc}</p>
-                {i < STEPS.length - 1 && <div className="connector" />}
+            <div style={{ display: 'flex', justifyContent: 'center', gap: '0.6rem', marginBottom: '0.8rem', flexWrap: 'wrap' }}>
+              <span className="chip" style={{ background: 'rgba(88, 204, 2, 0.12)', color: '#58cc02', borderColor: 'rgba(88, 204, 2, 0.3)' }}>
+                🗺️ Career Quest Path
+              </span>
+              <div className="award-float-badge diamond" style={{ animationDelay: '1.2s' }}>
+                <span>💎</span>
+                <span><strong>Awwwards UX</strong> 4-Stage Journey</span>
               </div>
-            ))}
+            </div>
+            <h2>The 4-Stage Journey from Candidate to Dream Offer</h2>
+            <p>Click on any stage node to preview objectives, XP bounties, and difficulty tiers.</p>
+          </div>
+
+          <div className="home-quest-map reveal">
+            <div className="home-quest-nodes-grid">
+              {/* Stepping Connector lines for desktop */}
+              <div className="home-stage-connector-line done" style={{ left: '12.5%', width: '25%' }} />
+              <div className="home-stage-connector-line done" style={{ left: '37.5%', width: '25%' }} />
+              <div className="home-stage-connector-line" style={{ left: '62.5%', width: '25%' }} />
+
+              {QUEST_STAGES.map((stage) => {
+                return (
+                  <div className="home-stage-column" key={stage.stageNum}>
+                    <button
+                      className={`home-stage-node-btn ${stage.status}`}
+                      onClick={() => {
+                        playDuoSound(stage.status === 'completed' ? 'correct' : stage.status === 'active' ? 'pop' : 'wrong');
+                        setSelectedStage(stage);
+                      }}
+                      title={`${stage.title} - Click for details`}
+                      aria-label={`View stage ${stage.stageNum}: ${stage.title}`}
+                    >
+                      <span>{stage.icon}</span>
+                      {stage.status === 'completed' && (
+                        <span style={{ position: 'absolute', bottom: '-8px', fontSize: '0.75rem', letterSpacing: '-0.1em' }}>
+                          ⭐⭐⭐
+                        </span>
+                      )}
+                      {stage.status === 'active' && (
+                        <div className="duo-active-tooltip">
+                          <Play size={10} fill="#fff" /> START
+                        </div>
+                      )}
+                    </button>
+
+                    <div className="home-stage-info">
+                      <span className="home-stage-num-badge">Stage 0{stage.stageNum}</span>
+                      <h4>{stage.title}</h4>
+                      <p>{stage.desc}</p>
+                      <span className="home-stage-xp-pill">+{stage.xp} XP &middot; +{stage.gems} 💎</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Mystery Reward Chest on Landing Page */}
+            <div className="home-mystery-chest-bar">
+              <div className="home-chest-left">
+                <div className="home-chest-emoji">{chestClaimed ? '✨' : '🎁'}</div>
+                <div>
+                  <div className="home-chest-title">
+                    {chestClaimed ? '🎉 Explorer Chest Claimed (+30 💎 & +50 ⚡ XP)' : 'Mystery Career Explorer Chest'}
+                  </div>
+                  <div className="home-chest-desc">
+                    {chestClaimed
+                      ? 'Reward credited to your account! Practice in the arena to earn more.'
+                      : 'Click to unlock a free starter bounty of Gems & XP for your candidate journey!'}
+                  </div>
+                </div>
+              </div>
+              <button
+                className={`btn-duo ${chestClaimed ? 'btn-duo-ghost' : 'btn-duo-orange'}`}
+                onClick={handleOpenChest}
+                disabled={chestClaimed}
+              >
+                <Gift size={18} /> {chestClaimed ? 'Opened' : 'Claim Free 30 💎'}
+              </button>
+            </div>
           </div>
         </div>
       </section>
 
-      {/* ==================== PRICING ==================== */}
-      <section id="pricing">
+      {/* ==================== COACHING ARENA ==================== */}
+      <section id="coaching">
         <div className="container">
           <div className="sec-head reveal">
-            <span className="chip">Pricing</span>
-            <h2>Start free. Upgrade when you&rsquo;re ready.</h2>
-            <p>Simple plans for every stage of the job hunt — cancel anytime.</p>
+            <div style={{ display: 'flex', justifyContent: 'center', gap: '0.6rem', marginBottom: '0.8rem', flexWrap: 'wrap' }}>
+              <span className="chip" style={{ background: 'rgba(139, 92, 246, 0.12)', color: '#8b5cf6', borderColor: 'rgba(139, 92, 246, 0.3)' }}>
+                👑 Expert Coaches
+              </span>
+              <div className="award-float-badge purple" style={{ animationDelay: '0.5s' }}>
+                <span>🌟</span>
+                <span><strong>Top 0.1%</strong> Verified Mentors</span>
+              </div>
+            </div>
+            <h2>1-on-1 Mentorship with Industry Experts</h2>
+            <p>Connect with verified coaches for live 1-on-1 interview drills, AI system design, and executive communication.</p>
           </div>
 
-          <div className="bill-toggle reveal">
-            <span>Monthly</span>
-            <button
-              className={`switch${yearly ? ' on' : ''}`}
-              onClick={() => setYearly(!yearly)}
-              aria-label="Toggle billing period"
-            />
-            <span>Yearly</span>
-            <span className="save-tag">Save 20%</span>
-          </div>
+          <div className="coaches-arena-grid reveal">
+            {GRANDMASTER_COACHES.map((c) => (
+              <div className="duo-coach-card" key={c.name}>
+                <div className="coach-league-ribbon">{c.badge}</div>
 
-          <div className="plans reveal">
-            {plans.map((p) => (
-              <div className={`plan${p.popular ? ' popular' : ''}`} key={p.name}>
-                {p.popular && <div className="pop-badge">Most Popular</div>}
-                <h3>{p.name}</h3>
-                <div className="price">
-                  {p.price} <small>{p.period}</small>
+                <div>
+                  <div className="duo-coach-avatar-row">
+                    <div className="duo-coach-avatar-img-wrap">
+                      <img
+                        src={c.image}
+                        alt={c.name}
+                        className="duo-coach-img"
+                        onError={(e) => {
+                          if (c.fallbackImage && (e.currentTarget.src !== c.fallbackImage)) {
+                            e.currentTarget.src = c.fallbackImage;
+                          }
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <h4 className="duo-coach-name">{c.name}</h4>
+                      <div className="duo-coach-role">{c.title}</div>
+                    </div>
+                  </div>
+
+                  <div className="coach-stats-row">
+                    <span style={{ color: '#f59e0b', fontWeight: 800 }}>★ {c.experience}</span>
+                    <span style={{ color: '#f59e0b', fontWeight: 700, marginLeft: 'auto' }}>⭐ {c.rating} <span style={{ color: 'var(--text-3)', fontWeight: 500 }}>({c.reviews})</span></span>
+                  </div>
+
+                  <p style={{ fontSize: '0.84rem', color: 'var(--text-2)', margin: '0.7rem 0 0.8rem', lineHeight: 1.5 }}>
+                    {c.bio}
+                  </p>
+
+                  <div className="coach-tags-wrap">
+                    {c.tags.map((tag) => (
+                      <span key={tag} className="coach-subject-tag">
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+
+                  <div className="coach-xp-booster" style={{ marginTop: '1rem', marginBottom: '0.5rem' }}>
+                    <Sparkles size={14} /> +{c.xpReward} XP Session Booster
+                  </div>
                 </div>
-                <div className="for">{p.desc}</div>
-                <ul>
-                  {p.features.map((feat) => (
-                    <li key={feat}>
-                      <Check size={16} style={{ flexShrink: 0, color: '#22C55E' }} /> {feat}
-                    </li>
-                  ))}
-                </ul>
-                <button className={`btn-duo ${p.popular ? 'btn-duo-green' : 'btn-duo-ghost'}`} style={{ width: '100%', justifyContent: 'center' }}>
-                  {p.cta}
-                </button>
+
+                <div style={{ marginTop: '1.2rem' }}>
+                  <Link
+                    href={`/dashboard/coaching/${c.slug}`}
+                    className="btn-duo btn-duo-purple btn-duo-sm"
+                    style={{ width: '100%', justifyContent: 'center' }}
+                    onClick={() => playDuoSound('pop')}
+                  >
+                    Book Session &rarr;
+                  </Link>
+                </div>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* ==================== TESTIMONIALS ==================== */}
+      {/* ==================== TESTIMONIALS (HALL OF FAME) ==================== */}
       <section id="testimonials" style={{ background: 'var(--bg-2)', borderTop: '1px solid var(--line)', borderBottom: '1px solid var(--line)' }}>
         <div className="container">
           <div className="sec-head reveal">
-            <span className="chip">Success stories</span>
-            <h2>Students who stopped fearing interviews</h2>
+            <div style={{ display: 'flex', justifyContent: 'center', gap: '0.6rem', marginBottom: '0.8rem', flexWrap: 'wrap' }}>
+              <span className="chip" style={{ background: 'rgba(255, 200, 0, 0.12)', color: '#ffc800', borderColor: 'rgba(255, 200, 0, 0.3)' }}>
+                🏆 Candidate Hall of Fame
+              </span>
+              <div className="award-float-badge gold" style={{ animationDelay: '1.6s' }}>
+                <span>🏅</span>
+                <span><strong>Awwwards Choice</strong> 100% Placement Verified</span>
+              </div>
+            </div>
+            <h2>Diamond League Placements &amp; Offer Letters</h2>
+            <p>Real contenders who leveled up their interview confidence and secured top company placements.</p>
           </div>
 
           <div className="carousel reveal">
@@ -626,7 +906,7 @@ export default function Home() {
               >
                 {TESTIMONIALS.map((t, idx) => (
                   <div 
-                    className="t-card" 
+                    className="t-card hall-fame-card" 
                     key={t.name}
                     style={{
                       opacity: idx === tIdx ? 1 : 0.3,
@@ -635,36 +915,53 @@ export default function Home() {
                       filter: idx === tIdx ? 'blur(0px)' : 'blur(4px)'
                     }}
                   >
-                    <div className="stars">
-                      {Array.from({ length: t.stars }).map((_, i) => (
-                        <Star key={i} size={18} fill="#FBBF24" stroke="#FBBF24" style={{ display: 'inline' }} />
-                      ))}
-                      {Array.from({ length: 5 - t.stars }).map((_, i) => (
-                        <Star key={`e${i}`} size={18} stroke="#FBBF24" style={{ display: 'inline', opacity: 0.3 }} />
-                      ))}
+                    <div className="hall-fame-header">
+                      <span className="league-placement-badge">{t.league}</span>
+                      <div className="stars">
+                        {Array.from({ length: t.stars }).map((_, i) => (
+                          <Star key={i} size={18} fill="#FBBF24" stroke="#FBBF24" style={{ display: 'inline' }} />
+                        ))}
+                      </div>
                     </div>
+
                     <blockquote>&ldquo;{t.quote}&rdquo;</blockquote>
+
                     <div className="t-who">
                       <div className="t-ava">{t.initials}</div>
                       <div>
                         <b>{t.name}</b>
                         <span>{t.role}</span>
                       </div>
+                      <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: '0.72rem', fontWeight: 800, padding: '0.2rem 0.5rem', borderRadius: '6px', background: 'rgba(34,197,94,0.12)', color: '#22c55e', border: '1px solid rgba(34,197,94,0.25)' }}>
+                          {t.atsScore}
+                        </span>
+                        <span style={{ fontSize: '0.72rem', fontWeight: 800, padding: '0.2rem 0.5rem', borderRadius: '6px', background: 'rgba(28,176,246,0.12)', color: '#1cb0f6', border: '1px solid rgba(28,176,246,0.25)' }}>
+                          {t.strikes}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 ))}
               </div>
             </div>
+
             <button
               className="t-arrow t-prev"
-              onClick={() => setTIdx((i) => (i - 1 + TESTIMONIALS.length) % TESTIMONIALS.length)}
+              onClick={() => {
+                playDuoSound('pop');
+                setTIdx((i) => (i - 1 + TESTIMONIALS.length) % TESTIMONIALS.length);
+              }}
               aria-label="Previous testimonial"
             >
               <ChevronLeft size={20} />
             </button>
             <button
               className="t-arrow t-next"
-              onClick={() => setTIdx((i) => (i + 1) % TESTIMONIALS.length)}
+              onClick={() => {
+                playDuoSound('pop');
+                setTIdx((i) => (i + 1) % TESTIMONIALS.length);
+              }}
               aria-label="Next testimonial"
             >
               <ChevronRight size={20} />
@@ -674,7 +971,10 @@ export default function Home() {
                 <button
                   key={i}
                   className={`t-dot${i === tIdx ? ' on' : ''}`}
-                  onClick={() => setTIdx(i)}
+                  onClick={() => {
+                    playDuoSound('pop');
+                    setTIdx(i);
+                  }}
                   aria-label={`Go to testimonial ${i + 1}`}
                 />
               ))}
@@ -683,21 +983,51 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ==================== FAQ ==================== */}
+      {/* ==================== FAQ (ADVENTURER'S GUIDEBOOK) ==================== */}
       <section id="faq">
         <div className="container">
           <div className="sec-head reveal">
-            <span className="chip">FAQ</span>
-            <h2>Questions, answered</h2>
+            <div style={{ display: 'flex', justifyContent: 'center', gap: '0.6rem', marginBottom: '0.8rem', flexWrap: 'wrap' }}>
+              <span className="chip" style={{ background: 'rgba(28, 176, 246, 0.12)', color: '#1cb0f6', borderColor: 'rgba(28, 176, 246, 0.3)' }}>
+                📖 Adventurer's Guidebook
+              </span>
+              <div className="award-float-badge green" style={{ animationDelay: '0.9s' }}>
+                <span>📜</span>
+                <span><strong>Level 10 Codex</strong> Complete Rules</span>
+              </div>
+            </div>
+            <h2>Rules of the Arena &amp; FAQs</h2>
+            <p>Everything you need to know about XP calculation, strikes, and coaching loops.</p>
           </div>
-          <div className="faq reveal">
+
+          <div className="guidebook-faq-grid reveal">
             {FAQS.map((item, i) => (
-              <div className={`faq-item${openFaq === i ? ' open' : ''}`} key={i}>
-                <button className="faq-q" onClick={() => setOpenFaq(openFaq === i ? null : i)}>
-                  <span>{item.q}</span>
-                  <span className="pm"><Plus size={14} /></span>
+              <div className={`guidebook-faq-item${openFaq === i ? ' open' : ''}`} key={i}>
+                <button
+                  className="guidebook-faq-q"
+                  onClick={() => {
+                    playDuoSound('pop');
+                    setOpenFaq(openFaq === i ? null : i);
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
+                    <div className="guidebook-icon-badge">{item.icon}</div>
+                    <span>{item.q}</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                    <span style={{ fontSize: '0.72rem', fontWeight: 800, padding: '0.2rem 0.5rem', borderRadius: '6px', background: 'rgba(0,0,0,0.06)', color: 'var(--text-2)' }}>
+                      {item.badge}
+                    </span>
+                    <Plus
+                      size={16}
+                      style={{
+                        transform: openFaq === i ? 'rotate(45deg)' : 'none',
+                        transition: 'transform 0.2s ease',
+                      }}
+                    />
+                  </div>
                 </button>
-                <div className="faq-a" style={{ maxHeight: openFaq === i ? '300px' : '0' }}>
+                <div className="guidebook-faq-a" style={{ maxHeight: openFaq === i ? '320px' : '0' }}>
                   <p>{item.a}</p>
                 </div>
               </div>
@@ -706,42 +1036,52 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ==================== CONTACT ==================== */}
+      {/* ==================== CONTACT (SUMMON GUILD HELP) ==================== */}
       <section id="contact" style={{ background: 'var(--bg-2)', borderTop: '1px solid var(--line)' }}>
         <div className="container">
           <div className="sec-head reveal">
-            <span className="chip">Contact</span>
-            <h2>We&rsquo;re here to help</h2>
+            <div style={{ display: 'flex', justifyContent: 'center', gap: '0.6rem', marginBottom: '0.8rem', flexWrap: 'wrap' }}>
+              <span className="chip" style={{ background: 'rgba(88, 204, 2, 0.12)', color: '#58cc02', borderColor: 'rgba(88, 204, 2, 0.3)' }}>
+                🛡️ Guild Support
+              </span>
+              <div className="award-float-badge diamond" style={{ animationDelay: '1.1s' }}>
+                <span>⚡</span>
+                <span><strong>Level S Response</strong> &lt; 3 Min SLA</span>
+              </div>
+            </div>
+            <h2>Summon Arena Mentor Support</h2>
+            <p>Need custom company interview rubrics, technical help, or candidate guidance? We respond in under 3 minutes.</p>
           </div>
+
           <div className="contact-grid reveal">
             {/* Left -- channels */}
             <div className="contact-card">
               <div className="c-channel">
-                <div className="c-ico"><MessageSquare size={20} /></div>
+                <div className="c-ico" style={{ background: 'rgba(88, 204, 2, 0.15)', color: '#58cc02' }}><MessageSquare size={20} /></div>
                 <div>
-                  <b>Live chat</b>
-                  <span>Average reply in under 3 minutes, 9 AM – 9 PM IST</span>
+                  <b>Live Guild Chat</b>
+                  <span>Average response time under 3 minutes (9 AM – 9 PM IST)</span>
                 </div>
               </div>
               <div className="c-channel">
-                <div className="c-ico"><BookOpen size={20} /></div>
+                <div className="c-ico" style={{ background: 'rgba(28, 176, 246, 0.15)', color: '#1cb0f6' }}><BookOpen size={20} /></div>
                 <div>
-                  <b>Support center</b>
-                  <span>Guides, tutorials and troubleshooting for every module</span>
+                  <b>Candidate Guidebook</b>
+                  <span>Rubrics, ATS formats and question banks for 120+ roles</span>
                 </div>
               </div>
               <div className="c-channel">
-                <div className="c-ico"><Phone size={20} /></div>
+                <div className="c-ico" style={{ background: 'rgba(245, 158, 11, 0.15)', color: '#f59e0b' }}><Phone size={20} /></div>
                 <div>
-                  <b>Career guidance helpline</b>
-                  <span>Free 15-minute career direction calls for students</span>
+                  <b>Career Direction Call</b>
+                  <span>Complimentary 15-min strategy session for active job seekers</span>
                 </div>
               </div>
               <div className="c-channel">
-                <div className="c-ico"><Mail size={20} /></div>
+                <div className="c-ico" style={{ background: 'rgba(139, 92, 246, 0.15)', color: '#8b5cf6' }}><Mail size={20} /></div>
                 <div>
-                  <b>Email</b>
-                  <span>support@interviewace.ai · replies within 24 hours</span>
+                  <b>Direct Mentor Dispatch</b>
+                  <span>support@interviewace.ai &middot; guaranteed reply in 24h</span>
                 </div>
               </div>
             </div>
@@ -751,30 +1091,116 @@ export default function Home() {
               <form onSubmit={handleContactSubmit}>
                 <div className="form-row">
                   <div className="field">
-                    <label>Name</label>
-                    <input type="text" placeholder="Your full name" required />
+                    <label>Candidate Name</label>
+                    <input type="text" placeholder="e.g. Ananya Sharma" required />
                   </div>
                   <div className="field">
-                    <label>Email</label>
-                    <input type="email" placeholder="you@email.com" required />
+                    <label>Email Address</label>
+                    <input type="email" placeholder="you@domain.com" required />
                   </div>
                 </div>
                 <div className="field">
-                  <label>Phone</label>
-                  <input type="tel" placeholder="+91 98XXX XXXXX" />
+                  <label>Target Role / Company</label>
+                  <input type="text" placeholder="e.g. SDE-1 @ Google or Product Manager" />
                 </div>
                 <div className="field">
-                  <label>Message</label>
-                  <textarea rows={4} placeholder="How can we help you?" required />
+                  <label>Message / Question</label>
+                  <textarea rows={4} placeholder="How can the Guild help you prepare?" required />
                 </div>
                 <button type="submit" className="btn-duo btn-duo-green" style={{ width: '100%', justifyContent: 'center' }}>
-                  <Send size={16} /> Send message
+                  <Send size={16} /> Dispatch Message &middot; Earn +10 XP
                 </button>
               </form>
             </div>
           </div>
         </div>
       </section>
+
+      {/* ==================== INTERACTIVE STAGE DETAILS MODAL ==================== */}
+      {selectedStage && (
+        <div className="duo-popover-backdrop" onClick={() => setSelectedStage(null)}>
+          <div className="duo-popover-card" onClick={(e) => e.stopPropagation()}>
+            <button className="duo-popover-close" onClick={() => setSelectedStage(null)}>
+              <X size={16} />
+            </button>
+
+            <div style={{ fontSize: '3.5rem', marginBottom: '0.6rem' }}>{selectedStage.icon}</div>
+            <span style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--duo-blue, #1cb0f6)', textTransform: 'uppercase' }}>
+              {selectedStage.tier}
+            </span>
+            <h3 style={{ fontSize: '1.4rem', fontWeight: 800, margin: '0.3rem 0 0.5rem' }}>
+              Stage 0{selectedStage.stageNum}: {selectedStage.title}
+            </h3>
+            <p style={{ color: 'var(--text-2)', fontSize: '0.9rem', marginBottom: '1.2rem' }}>
+              {selectedStage.desc}
+            </p>
+
+            <div style={{ display: 'flex', justifyContent: 'center', gap: '0.8rem', marginBottom: '1.4rem' }}>
+              <span className="stat-pill" style={{ background: 'rgba(255, 200, 0, 0.12)', color: '#ffc800', borderColor: 'rgba(255, 200, 0, 0.3)' }}>
+                ⚡ +{selectedStage.xp} XP Bounty
+              </span>
+              <span className="stat-pill" style={{ background: 'rgba(28, 176, 246, 0.12)', color: '#1cb0f6', borderColor: 'rgba(28, 176, 246, 0.3)' }}>
+                💎 +{selectedStage.gems} Gems
+              </span>
+            </div>
+
+            <div style={{ textAlign: 'left', background: 'var(--card)', padding: '1rem', borderRadius: '16px', border: '1px solid var(--line)', marginBottom: '1.5rem' }}>
+              <div style={{ fontSize: '0.78rem', fontWeight: 800, color: 'var(--text-2)', marginBottom: '0.5rem', textTransform: 'uppercase' }}>
+                Stage Objectives:
+              </div>
+              <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: '0.45rem', fontSize: '0.86rem' }}>
+                {selectedStage.checklist.map((item, idx) => (
+                  <li key={idx} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <CheckCircle size={15} color="#22c55e" />
+                    <span>{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <Link
+              href={selectedStage.link}
+              className="btn-duo btn-duo-green"
+              style={{ width: '100%', justifyContent: 'center' }}
+              onClick={() => {
+                playDuoSound('pop');
+                setSelectedStage(null);
+              }}
+            >
+              <Play size={16} fill="#fff" /> Start Stage Quest
+            </Link>
+          </div>
+        </div>
+      )}
+
+      {/* ==================== CELEBRATORY MYSTERY CHEST MODAL ==================== */}
+      {chestModal && (
+        <div className="duo-popover-backdrop" onClick={() => setChestModal(false)}>
+          <div className="duo-popover-card" onClick={(e) => e.stopPropagation()}>
+            <div style={{ fontSize: '4rem', marginBottom: '0.6rem', animation: 'duoBounce 1.5s infinite' }}>🎁</div>
+            <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#ffc800', textTransform: 'uppercase' }}>
+              Bounty Unlocked
+            </span>
+            <h3 style={{ fontSize: '1.45rem', fontWeight: 800, margin: '0.3rem 0 0.5rem' }}>
+              Career Explorer Bounty!
+            </h3>
+            <p style={{ color: 'var(--text-2)', fontSize: '0.92rem', marginBottom: '1.4rem' }}>
+              You found a hidden candidate treasure! We credited <strong>+30 Gems 💎</strong> and <strong>+50 XP ⚡</strong> to your arena balance.
+            </p>
+
+            <button
+              className="btn-duo btn-duo-green"
+              style={{ width: '100%', justifyContent: 'center' }}
+              onClick={() => {
+                playDuoSound('pop');
+                setChestModal(false);
+              }}
+            >
+              Awesome! Let's Practice &rarr;
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ==================== TOAST ==================== */}
       <div className={`toast${toastVisible ? ' show' : ''}`}>
