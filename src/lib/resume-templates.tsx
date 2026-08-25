@@ -14,6 +14,7 @@ import React from 'react';
 
 export interface ResumeExperience { id: number; company: string; role: string; date: string; desc: string }
 export interface ResumeEducation { id: number; school: string; degree: string; date: string }
+export interface ResumeProject { id: number; name: string; date: string; desc: string; technologies: string }
 
 export interface ResumeData {
   name: string;
@@ -25,6 +26,8 @@ export interface ResumeData {
   summary: string;
   experience: ResumeExperience[];
   education: ResumeEducation[];
+  projects?: ResumeProject[];
+  achievements?: string[];
   skills: string;
 }
 
@@ -94,6 +97,29 @@ function Classic({ data, accent }: { data: ResumeData; accent: string }) {
               </ul>
             </div>
           ))}
+        </div>
+      )}
+      {(data.projects?.length || 0) > 0 && (
+        <div style={{ marginBottom: 22 }}>
+          <H>Projects</H>
+          {data.projects?.map((project) => (
+            <div key={project.id} style={{ marginBottom: 13 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                <h3 style={{ fontSize: 14, margin: 0, fontWeight: 700, color: '#111827' }}>{project.name}</h3>
+                <span style={{ fontSize: 12, color: '#6b7280' }}>{project.date}</span>
+              </div>
+              {project.desc && <p style={{ fontSize: 12.8, color: '#374151', margin: '4px 0' }}>{project.desc}</p>}
+              {project.technologies && <p style={{ fontSize: 12.2, color: accent, margin: 0, ...PRINT_EXACT }}>Technologies: {project.technologies}</p>}
+            </div>
+          ))}
+        </div>
+      )}
+      {(data.achievements?.length || 0) > 0 && (
+        <div style={{ marginBottom: 22 }}>
+          <H>Achievements</H>
+          <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12.8, color: '#374151' }}>
+            {data.achievements?.map((achievement, index) => <li key={`${achievement}-${index}`}>{achievement}</li>)}
+          </ul>
         </div>
       )}
       {data.education.length > 0 && (

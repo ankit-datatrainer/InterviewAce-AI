@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { X, Heart, AlertTriangle, CheckCircle, ShieldAlert, Sparkles, ArrowRight } from 'lucide-react';
+import DashboardModal from '@/components/DashboardModal';
 
 export type DuolingoModalProps = {
   isOpen: boolean;
@@ -38,62 +38,16 @@ export default function DuolingoModal({
   onClose,
   children,
 }: DuolingoModalProps) {
-  if (!isOpen) return null;
-
   return (
-    <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 99999,
-        background: 'rgba(5, 20, 36, 0.88)',
-        backdropFilter: 'blur(10px)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '1.25rem',
-        animation: 'duoFadeIn 0.25s cubic-bezier(0.2, 0.9, 0.3, 1)',
-      }}
+    <DashboardModal
+      open={isOpen}
+      onClose={onClose ?? (() => {})}
+      ariaLabel={title}
+      cardClassName="duo-modal-card"
+      maxWidth="480px"
+      showClose={Boolean(onClose)}
+      dismissible={Boolean(onClose)}
     >
-      <div
-        className="duo-modal-card"
-        style={{
-          background: 'var(--surface-solid, #122131)',
-          border: '2px solid var(--line, rgba(255,255,255,0.12))',
-          borderRadius: '28px',
-          padding: '2.2rem 2rem',
-          maxWidth: '480px',
-          width: '100%',
-          textAlign: 'center',
-          boxShadow: '0 24px 60px -12px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(255,255,255,0.05)',
-          position: 'relative',
-          animation: 'duoPopIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)',
-        }}
-      >
-        {onClose && (
-          <button
-            onClick={onClose}
-            aria-label="Close dialog"
-            style={{
-              position: 'absolute',
-              top: '1.2rem',
-              right: '1.2rem',
-              width: '36px',
-              height: '36px',
-              borderRadius: '50%',
-              background: 'var(--card, rgba(255,255,255,0.05))',
-              border: '1px solid var(--line, rgba(255,255,255,0.1))',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: 'var(--text-2, #94a3b8)',
-              cursor: 'pointer',
-              transition: 'all 0.2s',
-            }}
-          >
-            <X size={18} />
-          </button>
-        )}
 
         {/* Mascot / Avatar / Badge Graphic */}
         <div style={{ marginBottom: '1.25rem', display: 'flex', justifyContent: 'center' }}>
@@ -257,7 +211,7 @@ export default function DuolingoModal({
         )}
 
         {/* Rewards pill if earned */}
-        {(xpEarned || gemsEarned) && (
+        {(xpEarned || gemsEarned || streakDays) && (
           <div
             style={{
               display: 'flex',
@@ -302,6 +256,24 @@ export default function DuolingoModal({
                 💎 +{gemsEarned} Gems
               </div>
             )}
+            {streakDays && (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                  padding: '0.45rem 0.9rem',
+                  borderRadius: '14px',
+                  background: 'rgba(255, 150, 0, 0.14)',
+                  border: '1px solid rgba(255, 150, 0, 0.3)',
+                  fontWeight: 800,
+                  color: '#ff9600',
+                  fontSize: '0.92rem',
+                }}
+              >
+                🔥 {streakDays} day streak
+              </div>
+            )}
           </div>
         )}
 
@@ -343,7 +315,6 @@ export default function DuolingoModal({
             </button>
           )}
         </div>
-      </div>
-    </div>
+    </DashboardModal>
   );
 }

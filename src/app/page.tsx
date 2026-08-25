@@ -4,7 +4,6 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import Footer from '@/components/Footer';
 import {
-  Zap,
   Mic,
   FileText,
   Check,
@@ -16,24 +15,19 @@ import {
   BookOpen,
   Phone,
   Mail,
-  Target,
   TrendingUp,
   Bot,
-  Clock,
   GraduationCap,
   BarChart3,
   Send,
-  Flame,
   Award,
   Sparkles,
-  Shield,
   Gift,
-  X,
   Play,
-  Lock,
   CheckCircle,
 } from 'lucide-react';
 import { addGems, addXP, playDuoSound } from '@/lib/gamification';
+import DashboardModal from '@/components/DashboardModal';
 
 /* ------------------------------------------------------------------ */
 /*  Data                                                               */
@@ -405,10 +399,13 @@ export default function Home() {
     const observer = new IntersectionObserver(
       (entries) => {
         entries.forEach((e) => {
-          if (e.isIntersecting) e.target.classList.add('in');
+          if (e.isIntersecting) {
+            e.target.classList.add('in');
+            observer.unobserve(e.target);
+          }
         });
       },
-      { threshold: 0.12 }
+      { threshold: 0.12, rootMargin: '0px 0px -8% 0px' }
     );
     document.querySelectorAll('.reveal').forEach((el) => observer.observe(el));
     return () => observer.disconnect();
@@ -482,9 +479,14 @@ export default function Home() {
   };
 
   return (
-    <>
+    <div className="home-page">
       {/* ==================== HERO ==================== */}
-      <section className="hero">
+      <section className="hero home-hero-motion">
+        <div className="home-hero-aurora" aria-hidden="true">
+          <span className="home-aurora-orb home-aurora-orb-one" />
+          <span className="home-aurora-orb home-aurora-orb-two" />
+          <span className="home-aurora-grid" />
+        </div>
         <div className="container">
           <div className="hero-grid">
             {/* Left */}
@@ -587,6 +589,11 @@ export default function Home() {
                       <span>You &middot; Level 3 Contender</span>
                     </div>
                   </div>
+                </div>
+
+                <div className="vc-live-caption" aria-live="polite">
+                  <span className="vc-live-caption-label">AI coaching live</span>
+                  <p>{typedText}<span className="vc-typing-caret" aria-hidden="true" /></p>
                 </div>
 
                 {/* Bottom controls bar */}
@@ -989,7 +996,7 @@ export default function Home() {
           <div className="sec-head reveal">
             <div style={{ display: 'flex', justifyContent: 'center', gap: '0.6rem', marginBottom: '0.8rem', flexWrap: 'wrap' }}>
               <span className="chip" style={{ background: 'rgba(28, 176, 246, 0.12)', color: '#1cb0f6', borderColor: 'rgba(28, 176, 246, 0.3)' }}>
-                📖 Adventurer's Guidebook
+                📖 Adventurer&apos;s Guidebook
               </span>
               <div className="award-float-badge green" style={{ animationDelay: '0.9s' }}>
                 <span>📜</span>
@@ -1117,13 +1124,14 @@ export default function Home() {
       </section>
 
       {/* ==================== INTERACTIVE STAGE DETAILS MODAL ==================== */}
-      {selectedStage && (
-        <div className="duo-popover-backdrop" onClick={() => setSelectedStage(null)}>
-          <div className="duo-popover-card" onClick={(e) => e.stopPropagation()}>
-            <button className="duo-popover-close" onClick={() => setSelectedStage(null)}>
-              <X size={16} />
-            </button>
-
+      <DashboardModal
+        open={Boolean(selectedStage)}
+        onClose={() => setSelectedStage(null)}
+        ariaLabel={selectedStage ? `${selectedStage.title} stage details` : 'Stage details'}
+        maxWidth="500px"
+      >
+        {selectedStage && (
+          <>
             <div style={{ fontSize: '3.5rem', marginBottom: '0.6rem' }}>{selectedStage.icon}</div>
             <span style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--duo-blue, #1cb0f6)', textTransform: 'uppercase' }}>
               {selectedStage.tier}
@@ -1169,14 +1177,17 @@ export default function Home() {
             >
               <Play size={16} fill="#fff" /> Start Stage Quest
             </Link>
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </DashboardModal>
 
       {/* ==================== CELEBRATORY MYSTERY CHEST MODAL ==================== */}
-      {chestModal && (
-        <div className="duo-popover-backdrop" onClick={() => setChestModal(false)}>
-          <div className="duo-popover-card" onClick={(e) => e.stopPropagation()}>
+      <DashboardModal
+        open={chestModal}
+        onClose={() => setChestModal(false)}
+        ariaLabel="Career explorer bounty unlocked"
+        showClose={false}
+      >
             <div style={{ fontSize: '4rem', marginBottom: '0.6rem', animation: 'duoBounce 1.5s infinite' }}>🎁</div>
             <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#ffc800', textTransform: 'uppercase' }}>
               Bounty Unlocked
@@ -1196,11 +1207,9 @@ export default function Home() {
                 setChestModal(false);
               }}
             >
-              Awesome! Let's Practice &rarr;
+              Awesome! Let&apos;s Practice &rarr;
             </button>
-          </div>
-        </div>
-      )}
+      </DashboardModal>
 
       {/* ==================== TOAST ==================== */}
       <div className={`toast${toastVisible ? ' show' : ''}`}>
@@ -1208,6 +1217,6 @@ export default function Home() {
       </div>
 
       <Footer />
-    </>
+    </div>
   );
 }

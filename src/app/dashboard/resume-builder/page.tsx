@@ -1,29 +1,42 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { Download, Plus, Trash2, Upload, Loader2, Sparkles, FileText, CheckCircle, Palette, Check } from 'lucide-react';
+import { Download, Plus, Trash2, Upload, Loader2, Sparkles, FileText, CheckCircle, Palette, Check, ChevronDown } from 'lucide-react';
 import { useToast } from '@/components/Toast';
 import ResumeTemplate, { TEMPLATES, ACCENTS, getTemplate } from '@/lib/resume-templates';
 import TemplateGallery from '@/components/TemplateGallery';
+import ResumeKeywordLab from '@/components/ResumeKeywordLab';
+import { getLatestResume, updateResumeRecord } from '@/lib/resume-store';
+import {
+  normalizeResumeProfile,
+  resumeProfileToText,
+  saveResumeBuilderProfile,
+  type ResumeProfile,
+} from '@/lib/resume-profile';
+import { addXP, playDuoSound, updateQuestProgress } from '@/lib/gamification';
+
+const STARTER_PROFILE: ResumeProfile = {
+  name: 'Jane Doe',
+  title: 'Software Engineer',
+  email: 'jane@example.com',
+  phone: '(555) 123-4567',
+  location: 'San Francisco, CA',
+  linkedin: 'linkedin.com/in/janedoe',
+  summary: 'A passionate and results-driven software engineer with 4+ years of experience building scalable web applications. Proficient in React, Node.js, and TypeScript.',
+  experience: [
+    { id: 1, company: 'TechNova', role: 'Frontend Developer', date: 'Jan 2021 - Present', desc: 'Led the development of a new React-based dashboard. Improved load times by 40%. Mentored junior developers.' },
+  ],
+  education: [
+    { id: 1, school: 'State University', degree: 'B.S. in Computer Science', date: '2017 - 2021' },
+  ],
+  projects: [],
+  achievements: [],
+  skills: 'JavaScript, TypeScript, React, Next.js, Node.js, PostgreSQL, Git',
+};
 
 export default function ResumeBuilderPage() {
   const { toast } = useToast();
   const [enhancing, setEnhancing] = useState(false);
-  const [data, setData] = useState({
-    name: 'Jane Doe',
-    title: 'Software Engineer',
-    email: 'jane@example.com',
-    phone: '(555) 123-4567',
-    location: 'San Francisco, CA',
-    linkedin: 'linkedin.com/in/janedoe',
-    summary: 'A passionate and results-driven software engineer with 4+ years of experience building scalable web applications. Proficient in React, Node.js, and TypeScript.',
-    experience: [
-      { id: 1, company: 'TechNova', role: 'Frontend Developer', date: 'Jan 2021 - Present', desc: 'Led the development of a new React-based dashboard. Improved load times by 40%. Mentored junior developers.' }
-    ],
-    education: [
-      { id: 1, school: 'State University', degree: 'B.S. in Computer Science', date: '2017 - 2021' }
-    ],
-    skills: 'JavaScript, TypeScript, React, Next.js, Node.js, PostgreSQL, Git'
-  });
+  const [data, setData] = useState<ResumeProfile>(STARTER_PROFILE);
   const [uploading, setUploading] = useState(false);
   const [uploadStep, setUploadStep] = useState('');
   const [isLoaded, setIsLoaded] = useState(false);
@@ -33,6 +46,9 @@ export default function ResumeBuilderPage() {
   const [templateId, setTemplateId] = useState('classic');
   const [accent, setAccent] = useState(getTemplate('classic').defaultAccent);
   const [galleryOpen, setGalleryOpen] = useState(false);
+  const [keywordSuggestions, setKeywordSuggestions] = useState<string[]>([]);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exporting, setExporting] = useState<string | null>(null);
 
   const pickTemplate = (id: string, color: string) => {
     setTemplateId(id);
@@ -81,21 +97,9 @@ export default function ResumeBuilderPage() {
       await new Promise(resolve => setTimeout(resolve, 800)); // smooth visual transition
 
       const d = parseData.data;
-      const experience = (d.experience || []).map((ex: any, i: number) => ({ ...ex, id: Date.now() + i }));
-      const education = (d.education || []).map((ed: any, i: number) => ({ ...ed, id: Date.now() + i }));
-
-      setData({
-        name: d.name || '',
-        title: d.title || '',
-        email: d.email || '',
-        phone: d.phone || '',
-        location: d.location || '',
-        linkedin: d.linkedin || '',
-        summary: d.summary || '',
-        skills: d.skills || '',
-        experience,
-        education
-      });
+      const profile = normalizeResumeProfile(d);
+      setData(profile);
+      saveResumeBuilderProfile(profile, 'resume-builder-upload');
 
       toast('Resume loaded successfully!');
     } catch (err) {
@@ -114,7 +118,7 @@ export default function ResumeBuilderPage() {
       if (stored) {
         try {
           const parsed = JSON.parse(stored);
-          setData((prev) => ({ ...prev, ...parsed }));
+          setData((prev) => normalizeResumeProfile(parsed, prev));
         } catch (e) {
           console.error('Failed to parse stored resume data', e);
         }
@@ -125,13 +129,15 @@ export default function ResumeBuilderPage() {
         if (style.templateId) setTemplateId(style.templateId);
         if (style.accent) setAccent(style.accent);
       } catch { /* fall back to defaults */ }
+      const latest = getLatestResume();
+      if (latest?.missingKeywords) setKeywordSuggestions(latest.missingKeywords);
       setIsLoaded(true);
     }
   }, []);
 
   useEffect(() => {
     if (isLoaded && typeof window !== 'undefined') {
-      localStorage.setItem('resumeBuilderData', JSON.stringify(data));
+      saveResumeBuilderProfile(data, 'resume-builder-edit');
     }
   }, [data, isLoaded]);
 
@@ -179,6 +185,79 @@ export default function ResumeBuilderPage() {
 
   const removeEducation = (id: number) => {
     setData((prev) => ({ ...prev, education: prev.education.filter(e => e.id !== id) }));
+  };
+
+  const addProject = () => {
+    setData((prev) => ({
+      ...prev,
+      projects: [...prev.projects, { id: Date.now(), name: '', date: '', desc: '', technologies: '' }],
+    }));
+  };
+
+  const handleProjectChange = (id: number, field: string, value: string) => {
+    setData((prev) => ({
+      ...prev,
+      projects: prev.projects.map((project) => project.id === id ? { ...project, [field]: value } : project),
+    }));
+  };
+
+  const removeProject = (id: number) => {
+    setData((prev) => ({ ...prev, projects: prev.projects.filter((project) => project.id !== id) }));
+  };
+
+  const addAchievement = () => setData((prev) => ({ ...prev, achievements: [...prev.achievements, ''] }));
+  const updateAchievement = (index: number, value: string) => setData((prev) => ({
+    ...prev,
+    achievements: prev.achievements.map((item, itemIndex) => itemIndex === index ? value : item),
+  }));
+  const removeAchievement = (index: number) => setData((prev) => ({
+    ...prev,
+    achievements: prev.achievements.filter((_, itemIndex) => itemIndex !== index),
+  }));
+
+  const downloadBlob = (blob: Blob, filename: string) => {
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename;
+    anchor.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1_000);
+  };
+
+  const exportResume = async (format: 'pdf' | 'docx' | 'rtf' | 'txt') => {
+    setExportOpen(false);
+    setExporting(format);
+    const filename = (data.name || 'resume').replace(/[^a-z0-9_-]+/gi, '-').replace(/^-+|-+$/g, '') || 'resume';
+    try {
+      if (format === 'pdf') {
+        const preview = document.getElementById('resume-preview-container');
+        if (!preview) throw new Error('Resume preview is unavailable.');
+        const html2pdf = (await import('html2pdf.js')).default;
+        await html2pdf().set({
+          margin: 0,
+          filename: `${filename}.pdf`,
+          image: { type: 'jpeg', quality: 0.98 },
+          html2canvas: { scale: 2, useCORS: true },
+          jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+        }).from(preview).save();
+      } else if (format === 'txt') {
+        downloadBlob(new Blob([resumeProfileToText(data)], { type: 'text/plain;charset=utf-8' }), `${filename}.txt`);
+      } else {
+        const response = await fetch('/api/resume/export', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ profile: data, format }),
+        });
+        if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || 'Export failed.');
+        downloadBlob(await response.blob(), `${filename}.${format}`);
+      }
+      playDuoSound('correct');
+      toast(`Resume downloaded as ${format.toUpperCase()}.`);
+    } catch (error) {
+      toast(error instanceof Error ? error.message : 'Could not export your resume.');
+    } finally {
+      setExporting(null);
+    }
   };
 
   const generateWithAI = async () => {
@@ -316,14 +395,48 @@ export default function ResumeBuilderPage() {
             <Palette size={15} /> Templates
           </button>
           <label className="btn btn-secondary btn-sm" style={{ cursor: 'pointer' }}>
-            <Upload size={15} /> {uploading ? 'Uploading...' : 'Auto-fill from PDF'}
-            <input type="file" accept="application/pdf" style={{ display: 'none' }} onChange={handleFileUpload} disabled={uploading} />
+            <Upload size={15} /> {uploading ? 'Uploading...' : 'Auto-fill from resume'}
+            <input type="file" accept=".pdf,.docx,.txt,.md" style={{ display: 'none' }} onChange={handleFileUpload} disabled={uploading} />
           </label>
-          <button className="btn btn-primary btn-sm" onClick={() => window.print()}>
-            <Download size={15} /> Export PDF
-          </button>
+          <div style={{ position: 'relative' }}>
+            <button className="btn btn-primary btn-sm" onClick={() => setExportOpen((open) => !open)} disabled={Boolean(exporting)}>
+              {exporting ? <Loader2 size={15} className="spin" /> : <Download size={15} />}
+              {exporting ? `Creating ${exporting.toUpperCase()}…` : 'Download'} <ChevronDown size={14} />
+            </button>
+            {exportOpen && (
+              <div className="resume-export-menu">
+                <button type="button" onClick={() => exportResume('pdf')}><b>PDF</b><span>Best for applications</span></button>
+                <button type="button" onClick={() => exportResume('docx')}><b>MS Word (.docx)</b><span>Fully editable document</span></button>
+                <button type="button" onClick={() => exportResume('rtf')}><b>Rich text (.rtf)</b><span>Opens in Word and most editors</span></button>
+                <button type="button" onClick={() => exportResume('txt')}><b>Accessible text (.txt)</b><span>Plain text for speech and ATS tools</span></button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
+
+      {keywordSuggestions.length > 0 && (
+        <div style={{ marginBottom: '1.25rem' }}>
+          <ResumeKeywordLab
+            keywords={keywordSuggestions}
+            profile={data}
+            onChange={(profile, keyword, section) => {
+              setData(profile);
+              saveResumeBuilderProfile(profile, `keyword-${section}`);
+              setKeywordSuggestions((items) => items.filter((item) => item !== keyword));
+              const latest = getLatestResume();
+              if (latest) updateResumeRecord({
+                ...latest,
+                extractedData: profile,
+                missingKeywords: latest.missingKeywords.filter((item) => item !== keyword),
+                presentKeywords: Array.from(new Set([...latest.presentKeywords, keyword])),
+              });
+              try { addXP(3); updateQuestProgress('resume_scan', 1); playDuoSound('correct'); } catch {}
+              toast(`“${keyword}” added to ${section}. Keep it only if it is accurate.`);
+            }}
+          />
+        </div>
+      )}
 
       <div className="rb-layout">
         {/* LEFT: FORM */}
@@ -382,6 +495,35 @@ export default function ResumeBuilderPage() {
               </div>
             ))}
             <button className="btn btn-ghost btn-sm" onClick={addEducation}><Plus size={15}/> Add Education</button>
+          </div>
+
+          <div style={{ marginBottom: '1.5rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid var(--line)', paddingBottom: '.5rem' }}>
+              <h3 style={{ margin: 0 }}>Projects</h3>
+            </div>
+            {data.projects.map((project) => (
+              <div key={project.id} style={{ background: 'var(--bg-2)', padding: '1rem', borderRadius: 'var(--r-md)', marginBottom: '1rem', position: 'relative' }}>
+                <button aria-label="Remove project" onClick={() => removeProject(project.id)} style={{ position: 'absolute', top: '.5rem', right: '.5rem', background: 'transparent', border: 'none', color: 'var(--text-3)', cursor: 'pointer' }}><Trash2 size={16} /></button>
+                <div className="dash-grid-2" style={{ marginBottom: '.5rem' }}>
+                  <div><label>Project</label><input type="text" className="input" value={project.name} onChange={(e) => handleProjectChange(project.id, 'name', e.target.value)} /></div>
+                  <div><label>Date</label><input type="text" className="input" value={project.date} onChange={(e) => handleProjectChange(project.id, 'date', e.target.value)} /></div>
+                </div>
+                <div style={{ marginBottom: '.5rem' }}><label>Description</label><textarea className="input" rows={3} value={project.desc} onChange={(e) => handleProjectChange(project.id, 'desc', e.target.value)} /></div>
+                <div><label>Technologies</label><input type="text" className="input" value={project.technologies} onChange={(e) => handleProjectChange(project.id, 'technologies', e.target.value)} /></div>
+              </div>
+            ))}
+            <button className="btn btn-ghost btn-sm" onClick={addProject}><Plus size={15}/> Add Project</button>
+          </div>
+
+          <div style={{ marginBottom: '1.5rem' }}>
+            <h3 style={{ marginBottom: '1rem', borderBottom: '1px solid var(--line)', paddingBottom: '.5rem' }}>Achievements</h3>
+            {data.achievements.map((achievement, index) => (
+              <div key={index} style={{ display: 'flex', gap: '.5rem', alignItems: 'center', marginBottom: '.6rem' }}>
+                <input className="input" value={achievement} onChange={(event) => updateAchievement(index, event.target.value)} placeholder="Add a truthful, measurable achievement" />
+                <button type="button" aria-label="Remove achievement" className="btn btn-ghost btn-sm" onClick={() => removeAchievement(index)}><Trash2 size={15} /></button>
+              </div>
+            ))}
+            <button className="btn btn-ghost btn-sm" onClick={addAchievement}><Plus size={15}/> Add Achievement</button>
           </div>
 
           <div style={{ marginBottom: '1.5rem' }}>

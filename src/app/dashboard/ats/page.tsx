@@ -17,18 +17,15 @@ import {
 } from 'lucide-react';
 import { useToast } from '@/components/Toast';
 import RoleCombobox, { COMMON_ROLES } from '@/components/RoleCombobox';
-import { saveResume, getLatestResume, type ResumeRecord } from '@/lib/resume-store';
+import { saveResume, getLatestResume, updateResumeRecord, type ResumeRecord } from '@/lib/resume-store';
 import { addXP, addGems, updateQuestProgress, playDuoSound } from '@/lib/gamification';
-
-function downloadFile(content: string, filename: string, type = 'text/plain') {
-  const blob = new Blob([content], { type });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
+import ResumeKeywordLab from '@/components/ResumeKeywordLab';
+import {
+  EMPTY_RESUME_PROFILE,
+  normalizeResumeProfile,
+  saveResumeBuilderProfile,
+  type ResumeProfile,
+} from '@/lib/resume-profile';
 
 /* ----------- keyword banks per role ----------- */
 const roleKeywordBank: Record<string, { all: string[]; common: string[] }> = {
@@ -61,50 +58,6 @@ const roleKeywordBank: Record<string, { all: string[]; common: string[] }> = {
 const targetRoles = Object.keys(roleKeywordBank);
 
 /* ----------- helpers ----------- */
-function randBetween(min: number, max: number) {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
-}
-
-function generateAnalysis(fileName: string, targetRole: string): ResumeRecord {
-  const bank = roleKeywordBank[targetRole] || roleKeywordBank['Product Manager'];
-
-  const formatting = randBetween(75, 95);
-  const keywords = randBetween(55, 85);
-  const achievements = randBetween(60, 90);
-  const structure = randBetween(72, 95);
-  const readability = randBetween(70, 92);
-
-  const atsScore = Math.round(
-    formatting * 0.15 + keywords * 0.3 + achievements * 0.25 + structure * 0.15 + readability * 0.15
-  );
-
-  // pick random subset as missing / present
-  const shuffled = [...bank.all].sort(() => Math.random() - 0.5);
-  const missingCount = randBetween(4, 7);
-  const missingKeywords = shuffled.slice(0, missingCount);
-  const presentKeywords = [...bank.common.slice(0, randBetween(2, 4)), ...shuffled.slice(missingCount, missingCount + randBetween(1, 3))];
-
-  const suggestionTemplates = [
-    { text: `Add quantified metrics to your work-experience bullets (e.g. "increased retention by 18%")`, impact: 'high', points: randBetween(4, 7) },
-    { text: `Include "${missingKeywords[0]}" and "${missingKeywords[1]}" in your skills or summary section`, impact: 'medium', points: randBetween(3, 5) },
-    { text: `Shorten summary to 2-3 concise sentences for better ATS parsing`, impact: 'low', points: randBetween(1, 3) },
-    { text: `Use standard section headings (Experience, Education, Skills) for better ATS recognition`, impact: 'medium', points: randBetween(2, 4) },
-    { text: `Remove graphics/icons that ATS software cannot parse`, impact: 'high', points: randBetween(3, 6) },
-  ];
-
-  return {
-    id: crypto.randomUUID(),
-    fileName,
-    uploadDate: new Date().toISOString(),
-    targetRole,
-    atsScore,
-    breakdown: { formatting, keywords, achievements, structure, readability },
-    missingKeywords,
-    presentKeywords,
-    suggestions: suggestionTemplates.slice(0, randBetween(3, 5)),
-  };
-}
-
 function impactColor(impact: string) {
   if (impact === 'high') return 'red';
   if (impact === 'medium') return 'amber';
@@ -128,6 +81,7 @@ export default function ATSPage() {
   const [currentFile, setCurrentFile] = useState<File | null>(null);
   const [progress, setProgress] = useState(0);
   const [errorModal, setErrorModal] = useState<{ title: string; message: string } | null>(null);
+  const [builderProfile, setBuilderProfile] = useState<ResumeProfile>(EMPTY_RESUME_PROFILE);
   const fileRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const router = useRouter();
@@ -135,7 +89,7 @@ export default function ATSPage() {
   const openInBuilder = (section: string) => {
     // The analysis flow already stores extracted data under `resumeBuilderData`.
     if (result?.extractedData && typeof window !== 'undefined') {
-      localStorage.setItem('resumeBuilderData', JSON.stringify(result.extractedData));
+      saveResumeBuilderProfile(normalizeResumeProfile(result.extractedData), 'ats-report');
     }
     toast(`Opening ${section} in the Resume Builder…`);
     router.push('/dashboard/resume-builder');
@@ -147,6 +101,7 @@ export default function ATSPage() {
     if (latest) {
       setResult(latest);
       setTargetRole(latest.targetRole);
+      if (latest.extractedData) setBuilderProfile(normalizeResumeProfile(latest.extractedData));
       setView('result');
     }
   }, []);
@@ -226,13 +181,21 @@ export default function ATSPage() {
         presentKeywords: analysisData.presentKeywords,
         suggestions: analysisData.suggestions,
         extractedData: analysisData.extractedData,
+        executiveSummary: analysisData.executiveSummary,
+        strengths: analysisData.strengths,
+        risks: analysisData.risks,
+        sectionFeedback: analysisData.sectionFeedback,
+        rewriteSuggestions: analysisData.rewriteSuggestions,
+        analysisModel: analysisData.analysisModel,
       };
 
       setProgress(100);
       setTimeout(() => {
         saveResume(analysis);
         if (analysisData.extractedData && typeof window !== 'undefined') {
-          localStorage.setItem('resumeBuilderData', JSON.stringify(analysisData.extractedData));
+          const profile = normalizeResumeProfile(analysisData.extractedData);
+          setBuilderProfile(profile);
+          saveResumeBuilderProfile(profile, 'ats-upload');
         }
         try {
           addXP(25);
@@ -243,9 +206,9 @@ export default function ATSPage() {
         setResult(analysis);
         setView('result');
       }, 500);
-    } catch (err: any) {
+    } catch (err: unknown) {
       setView('upload');
-      if (err?.name === 'AbortError') {
+      if (err instanceof DOMException && err.name === 'AbortError') {
         setErrorModal({
           title: 'Taking longer than usual',
           message: 'The analyzer is busy right now. Please wait a moment and try uploading your resume again.',
@@ -253,7 +216,7 @@ export default function ATSPage() {
       } else {
         setErrorModal({
           title: 'Could not analyze the file',
-          message: err?.message || 'Something went wrong while analyzing your resume. Please try uploading it again.',
+            message: err instanceof Error ? err.message : 'Something went wrong while analyzing your resume. Please try uploading it again.',
         });
       }
     }
@@ -559,6 +522,74 @@ export default function ATSPage() {
         </div>
       </div>
 
+      {/* Deep AI report */}
+      <div className="widget" style={{ marginTop: '1rem' }}>
+        <h4>
+          <span style={{ display: 'flex', alignItems: 'center', gap: '.45rem' }}><Loader2 size={17} /> Deep resume report</span>
+          {result?.analysisModel && <span className="tag purple" style={{ fontSize: '.68rem' }}>{result.analysisModel}</span>}
+        </h4>
+        <p style={{ color: 'var(--text-2)', lineHeight: 1.65, margin: '.6rem 0 1rem' }}>
+          {result?.executiveSummary || 'Your report combines ATS parsing, role keywords, evidence quality, structure, and recruiter readability.'}
+        </p>
+        <div className="dash-grid-2" style={{ alignItems: 'start' }}>
+          <div className="ats-insight-panel positive">
+            <strong>What is working</strong>
+            <ul>{(result?.strengths || []).map((item) => <li key={item}>{item}</li>)}</ul>
+          </div>
+          <div className="ats-insight-panel risk">
+            <strong>Recruiter and ATS risks</strong>
+            <ul>{(result?.risks || []).map((item) => <li key={item}>{item}</li>)}</ul>
+          </div>
+        </div>
+        <div className="ats-section-feedback">
+          {(result?.sectionFeedback || []).map((item) => (
+            <div key={`${item.section}-${item.finding}`} className="ats-section-row">
+              <div className="ats-section-score"><b>{item.score}</b><small>/100</small></div>
+              <div><strong>{item.section}</strong><p>{item.finding}</p><span>Next edit: {item.action}</span></div>
+            </div>
+          ))}
+        </div>
+        {(result?.rewriteSuggestions?.length || 0) > 0 && (
+          <div style={{ marginTop: '1rem' }}>
+            <h4 style={{ marginBottom: '.65rem' }}>Truth-preserving rewrite examples</h4>
+            <div className="ats-rewrite-grid">
+              {result?.rewriteSuggestions?.map((item, index) => (
+                <div className="ats-rewrite-card" key={`${item.section}-${index}`}>
+                  <span className="tag blue">{item.section}</span>
+                  {item.original && <p><small>Before</small>{item.original}</p>}
+                  <p className="improved"><small>Stronger version</small>{item.improved}</p>
+                  <em>{item.reason}</em>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div style={{ marginTop: '1rem' }}>
+        <ResumeKeywordLab
+          keywords={result?.missingKeywords || []}
+          profile={builderProfile}
+          onChange={(profile, keyword, section) => {
+            setBuilderProfile(profile);
+            saveResumeBuilderProfile(profile, `ats-keyword-${section}`);
+            setResult((current) => {
+              if (!current) return current;
+              const next: ResumeRecord = {
+                ...current,
+                extractedData: profile,
+                missingKeywords: current.missingKeywords.filter((item) => item !== keyword),
+                presentKeywords: Array.from(new Set([...current.presentKeywords, keyword])),
+              };
+              updateResumeRecord(next);
+              return next;
+            });
+            try { addXP(3); playDuoSound('correct'); } catch {}
+            toast(`“${keyword}” added to ${section}. Verify it before applying.`);
+          }}
+        />
+      </div>
+
       {/* Resume builder */}
       <div className="widget" style={{ marginTop: '1rem' }}>
         <h4>Resume builder &middot; edit sections directly</h4>
@@ -685,11 +716,11 @@ export default function ATSPage() {
               filename:     `ats-report-${result.fileName.replace(/\.[^.]+$/, '')}.pdf`,
               image:        { type: 'jpeg' as const, quality: 0.98 },
               html2canvas:  { scale: 2, useCORS: true },
-              jsPDF:        { unit: 'in', format: 'letter', orientation: 'portrait' },
+              jsPDF:        { unit: 'in', format: 'letter', orientation: 'portrait' as const },
               pagebreak:    { mode: 'css' }
             };
           
-            html2pdf().set(opt as any).from(container).save().then(() => {
+            html2pdf().set(opt).from(container).save().then(() => {
               document.body.removeChild(container);
               toast('ATS Report downloaded as PDF');
             });

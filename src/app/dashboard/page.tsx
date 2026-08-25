@@ -4,15 +4,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import {
   GraduationCap,
-  MessageCircle,
-  Target,
-  FileText,
   Plus,
-  Flame,
-  CheckCircle2,
-  Sparkles,
-  Trophy,
-  Award,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 import { getInterviews, hydrateInterviews } from '@/lib/interview-store';
@@ -105,9 +97,13 @@ export default function DashboardPage() {
     setLoaded(true);
     loadUser();
 
+    const handleGameUpdate = () => setGameState(getGamificationState());
+    window.addEventListener('gamification_updated', handleGameUpdate);
+
     hydrateInterviews().then((all) => setInterviews([...all])).catch(() => {});
     hydrateResumes().then((all) => setLatestResume(all.length > 0 ? all[all.length - 1] : null)).catch(() => {});
     hydrateBookings().then((all) => setUpcomingBookings(all.filter((b) => b.status === 'upcoming'))).catch(() => {});
+    return () => window.removeEventListener('gamification_updated', handleGameUpdate);
   }, []);
 
   const count = interviews.length;
@@ -135,6 +131,7 @@ export default function DashboardPage() {
       : null;
 
   const goalRemaining = Math.max(0, 5 - count);
+  const bestScore = interviews.reduce((best, interview) => Math.max(best, interview.score), 0);
 
   if (!loaded) return null;
 
@@ -153,7 +150,7 @@ export default function DashboardPage() {
         {/* Main Center Stage (Path & Main Stats) */}
         <div className="duo-main-stage">
           {/* App Head Banner */}
-          <div className="app-head" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.2rem' }}>
+          <div className="app-head dashboard-command-bar">
             <div>
               <h2 style={{ margin: 0, fontSize: '1.45rem' }}>
                 Welcome back{firstName ? `, ${firstName}` : ''} 👋
@@ -172,7 +169,7 @@ export default function DashboardPage() {
           </div>
 
           {/* Compact 4-KPI Row */}
-          <div className="dash-grid" style={{ marginBottom: '1.4rem' }}>
+          <div className="dash-grid dashboard-kpi-grid">
             <div className="widget kpi">
               <span className="v grad-text">{readiness > 0 ? `${readiness}%` : '--'}</span>
               <span className="l">Interview readiness score</span>
@@ -214,7 +211,7 @@ export default function DashboardPage() {
           </div>
 
           {/* Duolingo Winding Career Quest Road */}
-          <CareerQuestPath />
+          <CareerQuestPath completedInterviews={count} bestScore={bestScore} />
 
           {/* Recent Interviews List */}
           <div className="widget" style={{ marginTop: '1.4rem' }}>

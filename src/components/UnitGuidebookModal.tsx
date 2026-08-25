@@ -1,8 +1,9 @@
 'use client';
 
 import React from 'react';
-import { X, BookOpen, Sparkles, CheckCircle2, Lightbulb } from 'lucide-react';
+import { Sparkles, Lightbulb } from 'lucide-react';
 import { playDuoSound } from '@/lib/gamification';
+import DashboardModal from '@/components/DashboardModal';
 
 type GuidebookProps = {
   unitNumber: number;
@@ -64,49 +65,16 @@ export default function UnitGuidebookModal({
   isOpen,
   onClose,
 }: GuidebookProps) {
-  if (!isOpen) return null;
-
   const content = UNIT_CONTENT[unitNumber] || UNIT_CONTENT[1];
 
   return (
-    <div className="duo-popover-backdrop" onClick={onClose}>
-      <div
-        className="duo-guidebook-card"
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          background: 'var(--surface-solid, #0f172a)',
-          border: '2px solid var(--line, rgba(255,255,255,0.12))',
-          borderRadius: '24px',
-          maxWidth: '560px',
-          width: '92%',
-          maxHeight: '85vh',
-          overflowY: 'auto',
-          padding: '1.8rem',
-          position: 'relative',
-          boxShadow: '0 24px 60px rgba(0,0,0,0.5)',
-          animation: 'duoPopIn 0.25s cubic-bezier(0.34, 1.56, 0.64, 1)',
-        }}
-      >
-        <button
-          onClick={onClose}
-          style={{
-            position: 'absolute',
-            top: '1.2rem',
-            right: '1.2rem',
-            background: 'var(--card, rgba(255,255,255,0.06))',
-            border: '1px solid var(--line)',
-            borderRadius: '50%',
-            width: '32px',
-            height: '32px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: 'var(--text-2)',
-            cursor: 'pointer',
-          }}
-        >
-          <X size={18} />
-        </button>
+    <DashboardModal
+      open={isOpen}
+      onClose={onClose}
+      ariaLabel={`Unit ${unitNumber} guidebook: ${unitTitle}`}
+      cardClassName="duo-guidebook-card"
+      maxWidth="620px"
+    >
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.6rem' }}>
           <span style={{ fontSize: '1.8rem' }}>📖</span>
@@ -184,7 +152,6 @@ export default function UnitGuidebookModal({
         >
           Got It! Let&apos;s Practice
         </button>
-      </div>
-    </div>
+    </DashboardModal>
   );
 }

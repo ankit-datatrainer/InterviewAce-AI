@@ -38,6 +38,7 @@ import { saveInterview } from '@/lib/interview-store';
 import { saveRecording } from '@/lib/recording-store';
 import type { InterviewRecord } from '@/lib/interview-store';
 import type { InterviewDecision, InterviewTranscriptMessage } from '@/lib/interview-decision';
+import { normalizeResumeProfile, saveResumeBuilderProfile, type ResumeProfile } from '@/lib/resume-profile';
 import { FaceDetector, FilesetResolver } from '@mediapipe/tasks-vision';
 import { LiveAvatarSession, SessionEvent, AgentEventsEnum } from '@heygen/liveavatar-web-sdk';
 
@@ -137,6 +138,15 @@ function quoteClaim(value: string): string {
   return clean.length > 120 ? `${clean.slice(0, 117)}...` : clean;
 }
 
+function answerReward(answer: string, decision: InterviewDecision): { xp: number; strong: boolean } {
+  const words = answer.split(/\s+/).filter(Boolean).length;
+  const hasEvidence = /(?:\b\d+(?:\.\d+)?%?|\$\s?\d|₹\s?\d|increased|reduced|improved|saved|grew|delivered)/i.test(answer);
+  const hasOwnership = /\b(?:I|my|personally|led|built|designed|implemented|decided|owned|managed)\b/i.test(answer);
+  const hasReflection = /\b(?:learned|would|trade-?off|because|result|outcome)\b/i.test(answer);
+  const strong = words >= 35 && hasOwnership && (hasEvidence || hasReflection) && decision !== 'CLARIFY';
+  return { xp: Math.min(18, 5 + (words >= 25 ? 3 : 0) + (hasOwnership ? 3 : 0) + (hasEvidence ? 4 : 0) + (hasReflection ? 3 : 0)), strong };
+}
+
 export default function InterviewPage() {
   const router = useRouter();
   const { toast } = useToast();
@@ -155,12 +165,16 @@ export default function InterviewPage() {
   const [hasSavedResume, setHasSavedResume] = useState(false);
   const [replaceResume, setReplaceResume] = useState(false);
   const [isUploadingResume, setIsUploadingResume] = useState(false);
+  const [resumeBuilderReady, setResumeBuilderReady] = useState(false);
   const [demoStrikes, setDemoStrikes] = useState(0);
 
   // Room state
   const [seconds, setSeconds] = useState(0);
   const [questionIdx, setQuestionIdx] = useState(0);
   const [strikes, setStrikes] = useState(0);
+  const [liveXp, setLiveXp] = useState(0);
+  const [answerCombo, setAnswerCombo] = useState(0);
+  const [answerPulse, setAnswerPulse] = useState(0);
   const [transcript, setTranscript] = useState<InterviewTranscriptMessage[]>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
@@ -178,6 +192,8 @@ export default function InterviewPage() {
         const latest = getLatestResume();
         if (latest && latest.extractedData) {
           const d = latest.extractedData;
+          saveResumeBuilderProfile(normalizeResumeProfile(d), 'saved-resume-interview');
+          setResumeBuilderReady(true);
           const text = [
             d.name && `Name: ${d.name}`,
             d.title && `Title: ${d.title}`,
@@ -248,6 +264,7 @@ export default function InterviewPage() {
   const pendingInterruptionReasonRef = useRef<InterruptionReason | null>(null);
   const interruptionTraceRef = useRef<InterruptionTrace[]>([]);
   const decisionTraceRef = useRef<DecisionTrace[]>([]);
+  const liveXpRef = useRef(0);
   const unresolvedAreasRef = useRef<string[]>([]);
   const unresolvedRevisitDoneRef = useRef(false);
   const closingStageRef = useRef<'none' | 'candidate_questions' | 'complete'>('none');
@@ -763,6 +780,12 @@ export default function InterviewPage() {
       if (claims.length > 0) candidateMessage.claims = claims;
 
       const decision = (data?.decision || 'MOVE_ON') as InterviewDecision;
+      const reward = answerReward(answer, decision);
+      liveXpRef.current += reward.xp;
+      setLiveXp(liveXpRef.current);
+      setAnswerCombo((combo) => reward.strong ? combo + 1 : 0);
+      setAnswerPulse((pulse) => pulse + 1);
+      if (reward.strong) playDuoSound('correct');
       decisionTraceRef.current.push({
         timestampSeconds: secondsRef.current,
         decision,
@@ -1195,7 +1218,7 @@ export default function InterviewPage() {
     }
     // Gamification awards & progress
     try {
-      addXP(80);
+      addXP(80 + Math.min(100, liveXpRef.current), 'interview_complete');
       addGems(20);
       updateQuestProgress('daily_interview', 1);
       if (score >= 90) unlockBadge('score_90');
@@ -1559,19 +1582,35 @@ export default function InterviewPage() {
         const formData = new FormData();
         formData.append('file', file);
         const res = await fetch('/api/resume/extract', { method: 'POST', body: formData });
+        let parsedProfile: ResumeProfile | undefined;
         if (res.ok) {
           const { text } = await res.json();
           if (text) {
             setResumeText(text);
             localStorage.setItem('interview_resume_text', text);
             setHasSavedResume(true);
-            toast('Résumé processed and saved.');
+            const parseResponse = await fetch('/api/resume/parse', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ text }),
+            });
+            const parsePayload = await parseResponse.json().catch(() => ({}));
+            if (parseResponse.ok && parsePayload?.data) {
+              parsedProfile = normalizeResumeProfile(parsePayload.data);
+              saveResumeBuilderProfile(parsedProfile, 'interview-upload');
+              setResumeBuilderReady(true);
+              toast('Résumé personalized your interview and was added to Resume Builder.');
+            } else {
+              toast('Résumé personalized your interview. Builder details can be refined after the session.');
+            }
           }
         } else {
           toast('Failed to extract text from résumé.');
         }
 
-        // Fire and forget DB save
+        // Complete the ATS report in the background while the user continues
+        // setup. The structured builder profile above is reused so details do
+        // not get lost if the analyzer returns a leaner extraction.
         const atsFormData = new FormData();
         atsFormData.append('file', file);
         atsFormData.append('targetRole', selectedRole === 'Custom Job Description' ? (customJD.slice(0, 50) || 'Custom Role') : selectedRole);
@@ -1592,7 +1631,13 @@ export default function InterviewPage() {
                   missingKeywords: data.missingKeywords || [],
                   presentKeywords: data.presentKeywords || [],
                   suggestions: data.suggestions || [],
-                  extractedData: data.extractedData,
+                  extractedData: parsedProfile || (data.extractedData ? normalizeResumeProfile(data.extractedData) : undefined),
+                  executiveSummary: data.executiveSummary,
+                  strengths: data.strengths,
+                  risks: data.risks,
+                  sectionFeedback: data.sectionFeedback,
+                  rewriteSuggestions: data.rewriteSuggestions,
+                  analysisModel: data.analysisModel,
                 });
               });
             }
@@ -1671,21 +1716,6 @@ export default function InterviewPage() {
     setShowTerminatedModal(false);
     router.push('/dashboard');
   }, [router, stopHeygen]);
-
-  const endInterview = () => {
-    if (endingRef.current) return;
-    if (document.fullscreenElement && document.exitFullscreen) {
-      document.exitFullscreen().catch(e => console.log(e));
-    }
-    // Run the full cleanup+report flow. If it ever throws synchronously, still
-    // take the user out of the room so they are never stuck on this screen.
-    Promise.resolve()
-      .then(() => endInterviewCleanup())
-      .catch((e) => {
-        console.error('endInterviewCleanup crashed; navigating to history.', e);
-        router.push('/dashboard/history');
-      });
-  };
 
   // ─── Cleanup on unmount ───
   useEffect(() => {
@@ -1866,7 +1896,6 @@ export default function InterviewPage() {
         try { heygenVideoRef.current.pause(); } catch { /* ignore */ }
       }
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [strikes]);
 
   const formattedTime = `${pad(Math.floor(seconds / 60))}:${pad(seconds % 60)}`;
@@ -1907,6 +1936,10 @@ export default function InterviewPage() {
       lastInterruptionAtRef.current = 0;
       timeWarningShownRef.current = false;
       closingReminderShownRef.current = false;
+      liveXpRef.current = 0;
+      setLiveXp(0);
+      setAnswerCombo(0);
+      setAnswerPulse(0);
 
       // Unlock audio context for TTS
       const unlockAudio = new Audio('data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA');
@@ -2154,6 +2187,11 @@ export default function InterviewPage() {
                     style={{ padding: '0.8rem', background: 'var(--card)', borderRadius: 'var(--r-md)', border: '1px solid var(--line)', opacity: isUploadingResume ? 0.6 : 1, cursor: isUploadingResume ? 'not-allowed' : 'pointer' }}
                   />
                   {isUploadingResume && <small style={{ display: 'block', marginTop: '0.4rem', color: 'var(--accent)' }}>Uploading and analyzing your résumé... Please wait.</small>}
+                  {resumeBuilderReady && !isUploadingResume && (
+                    <small style={{ display: 'block', marginTop: '0.45rem', color: 'var(--duo-green, #58cc02)', fontWeight: 750 }}>
+                      ✓ Details were added to Resume Builder. You can customize and export them after the interview.
+                    </small>
+                  )}
                   <small style={{ display: 'block', marginTop: '0.4rem', color: 'var(--text-2)' }}>
                     Optional — upload a PDF, DOCX, or plain-text résumé and the AI will tailor questions to your actual experience. Skip it and you&apos;ll be interviewed on the target role alone.
                   </small>
@@ -2318,6 +2356,22 @@ export default function InterviewPage() {
           {conversationStatus}
         </span>
         {sessionNotice && <span style={{ color: 'var(--text-2)', textAlign: 'right' }}>{sessionNotice}</span>}
+      </div>
+
+      <div className="interview-game-hud" aria-label="Live interview mission progress">
+        <div className="interview-mission-copy">
+          <strong>🎯 Interview mission · Build evidence-backed answers</strong>
+          <div className="interview-mission-track" aria-hidden="true">
+            <div className="interview-mission-fill" style={{ width: `${Math.min(100, Math.max(4, (questionIdx / MAX_QUESTIONS) * 100))}%` }} />
+          </div>
+          <span>{questionIdx} turns completed · rewards are saved when the interview finishes</span>
+        </div>
+        <div key={`xp-${answerPulse}`} className={`interview-live-xp${answerPulse > 0 ? ' answer-xp-pop' : ''}`} title="Practice XP earned in this interview">
+          <b>+{liveXp} XP</b><small>this round</small>
+        </div>
+        <div className="interview-combo" title="Consecutive answers with clear ownership and evidence">
+          <b>{answerCombo > 1 ? `🔥 ${answerCombo}x` : '—'}</b><small>evidence combo</small>
+        </div>
       </div>
 
       <div className="room-layout">

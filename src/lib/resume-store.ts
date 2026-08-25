@@ -1,4 +1,19 @@
 import { createClient } from '@/lib/supabase';
+import type { ResumeProfile } from '@/lib/resume-profile';
+
+export type ResumeSectionFeedback = {
+  section: string;
+  score: number;
+  finding: string;
+  action: string;
+};
+
+export type ResumeRewriteSuggestion = {
+  section: string;
+  original: string;
+  improved: string;
+  reason: string;
+};
 
 export interface ResumeRecord {
   id: string;
@@ -17,18 +32,13 @@ export interface ResumeRecord {
   missingKeywords: string[];
   presentKeywords: string[];
   suggestions: { text: string; impact: string; points: number }[];
-  extractedData?: {
-    name: string;
-    title: string;
-    email: string;
-    phone: string;
-    location: string;
-    linkedin: string;
-    summary: string;
-    experience: { id: number; company: string; role: string; date: string; desc: string }[];
-    education: { id: number; school: string; degree: string; date: string }[];
-    skills: string;
-  };
+  extractedData?: ResumeProfile;
+  executiveSummary?: string;
+  strengths?: string[];
+  risks?: string[];
+  sectionFeedback?: ResumeSectionFeedback[];
+  rewriteSuggestions?: ResumeRewriteSuggestion[];
+  analysisModel?: string;
   dbId?: string; // Supabase resumes.id once synced (for cross-device)
 }
 
@@ -47,6 +57,12 @@ interface DatabaseResumeRow {
     presentKeywords: string[];
     suggestions: ResumeRecord['suggestions'];
     extractedData?: ResumeRecord['extractedData'];
+    executiveSummary?: string;
+    strengths?: string[];
+    risks?: string[];
+    sectionFeedback?: ResumeSectionFeedback[];
+    rewriteSuggestions?: ResumeRewriteSuggestion[];
+    analysisModel?: string;
   };
   extracted_data?: ResumeRecord['extractedData'];
 }
@@ -66,6 +82,12 @@ function mapResume(r: DatabaseResumeRow): ResumeRecord {
     presentKeywords: analysis.presentKeywords,
     suggestions: analysis.suggestions,
     extractedData: r.extracted_data || analysis.extractedData,
+    executiveSummary: analysis.executiveSummary,
+    strengths: analysis.strengths,
+    risks: analysis.risks,
+    sectionFeedback: analysis.sectionFeedback,
+    rewriteSuggestions: analysis.rewriteSuggestions,
+    analysisModel: analysis.analysisModel,
   };
 }
 
@@ -89,6 +111,12 @@ export async function persistResumeToDb(record: ResumeRecord): Promise<string | 
           presentKeywords: record.presentKeywords,
           suggestions: record.suggestions,
           extractedData: record.extractedData,
+          executiveSummary: record.executiveSummary,
+          strengths: record.strengths,
+          risks: record.risks,
+          sectionFeedback: record.sectionFeedback,
+          rewriteSuggestions: record.rewriteSuggestions,
+          analysisModel: record.analysisModel,
         },
         created_at: record.uploadDate,
       })
@@ -152,7 +180,9 @@ export async function hydrateResumes(): Promise<ResumeRecord[]> {
 
 export function saveResume(record: ResumeRecord): void {
   const resumes = getResumes();
-  resumes.push(record);
+  const existingIndex = resumes.findIndex((item) => item.id === record.id);
+  if (existingIndex >= 0) resumes[existingIndex] = { ...resumes[existingIndex], ...record };
+  else resumes.push(record);
   if (typeof window !== 'undefined') {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(resumes));
   }
@@ -166,6 +196,35 @@ export function saveResume(record: ResumeRecord): void {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(recs));
     }
   });
+}
+
+export function updateResumeRecord(record: ResumeRecord): void {
+  const resumes = getResumes();
+  const index = resumes.findIndex((item) => item.id === record.id || (record.dbId && item.dbId === record.dbId));
+  if (index >= 0) resumes[index] = { ...resumes[index], ...record };
+  else resumes.push(record);
+  if (typeof window !== 'undefined') localStorage.setItem(STORAGE_KEY, JSON.stringify(resumes));
+
+  if (record.dbId) {
+    const supabase = createClient();
+    void supabase.from('resumes').update({
+      target_role: record.targetRole,
+      ats_score: record.atsScore,
+      analysis: {
+        breakdown: record.breakdown,
+        missingKeywords: record.missingKeywords,
+        presentKeywords: record.presentKeywords,
+        suggestions: record.suggestions,
+        extractedData: record.extractedData,
+        executiveSummary: record.executiveSummary,
+        strengths: record.strengths,
+        risks: record.risks,
+        sectionFeedback: record.sectionFeedback,
+        rewriteSuggestions: record.rewriteSuggestions,
+        analysisModel: record.analysisModel,
+      },
+    }).eq('id', record.dbId);
+  }
 }
 
 export function getResumes(): ResumeRecord[] {

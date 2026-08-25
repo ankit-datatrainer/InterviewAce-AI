@@ -1,18 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import {
-  Flame,
-  Sparkles,
-  Heart,
-  Volume2,
-  VolumeX,
-  Trophy,
-  Zap,
-  Info,
-  CheckCircle2,
-  X,
-} from 'lucide-react';
+import { Volume2, VolumeX } from 'lucide-react';
 import {
   getGamificationState,
   calculateLevel,
@@ -20,6 +9,7 @@ import {
   refillHearts,
   GamificationState,
 } from '@/lib/gamification';
+import DashboardModal from '@/components/DashboardModal';
 
 export default function GamificationBar() {
   const [state, setState] = useState<GamificationState | null>(null);
@@ -113,10 +103,11 @@ export default function GamificationBar() {
       </div>
 
       {/* Popovers / Modals */}
-      {activeModal === 'streak' && (
-        <div className="duo-popover-backdrop" onClick={() => setActiveModal(null)}>
-          <div className="duo-popover-card" onClick={(e) => e.stopPropagation()}>
-            <button className="duo-popover-close" onClick={() => setActiveModal(null)}><X size={16} /></button>
+      <DashboardModal
+        open={activeModal === 'streak'}
+        onClose={() => setActiveModal(null)}
+        ariaLabel="Daily practice streak details"
+      >
             <div style={{ fontSize: '2.5rem', marginBottom: '.5rem', animation: 'duoBounce 1.5s infinite' }}>🔥</div>
             <h3>{state.streak} Day Practice Streak!</h3>
             <p style={{ color: 'var(--text-2)', fontSize: '.9rem', margin: '.5rem 0 1rem' }}>
@@ -133,14 +124,13 @@ export default function GamificationBar() {
             <button className="btn-duo btn-duo-green" style={{ width: '100%', marginTop: '1.2rem' }} onClick={() => setActiveModal(null)}>
               Keep Practicing
             </button>
-          </div>
-        </div>
-      )}
+      </DashboardModal>
 
-      {activeModal === 'gems' && (
-        <div className="duo-popover-backdrop" onClick={() => setActiveModal(null)}>
-          <div className="duo-popover-card" onClick={(e) => e.stopPropagation()}>
-            <button className="duo-popover-close" onClick={() => setActiveModal(null)}><X size={16} /></button>
+      <DashboardModal
+        open={activeModal === 'gems'}
+        onClose={() => setActiveModal(null)}
+        ariaLabel="Interview gems balance"
+      >
             <div style={{ fontSize: '2.5rem', marginBottom: '.5rem' }}>💎</div>
             <h3>{state.gems} Interview Gems</h3>
             <p style={{ color: 'var(--text-2)', fontSize: '.9rem', margin: '.5rem 0 1rem' }}>
@@ -163,14 +153,13 @@ export default function GamificationBar() {
             <button className="btn-duo btn-duo-blue" style={{ width: '100%', marginTop: '1.2rem' }} onClick={() => setActiveModal(null)}>
               Awesome!
             </button>
-          </div>
-        </div>
-      )}
+      </DashboardModal>
 
-      {activeModal === 'hearts' && (
-        <div className="duo-popover-backdrop" onClick={() => setActiveModal(null)}>
-          <div className="duo-popover-card" onClick={(e) => e.stopPropagation()}>
-            <button className="duo-popover-close" onClick={() => setActiveModal(null)}><X size={16} /></button>
+      <DashboardModal
+        open={activeModal === 'hearts'}
+        onClose={() => setActiveModal(null)}
+        ariaLabel="Practice lives details"
+      >
             <div style={{ fontSize: '2.5rem', marginBottom: '.5rem' }}>❤️</div>
             <h3>{state.hearts} of {state.maxHearts} Practice Lives</h3>
             <p style={{ color: 'var(--text-2)', fontSize: '.9rem', margin: '.5rem 0 1rem' }}>
@@ -192,14 +181,13 @@ export default function GamificationBar() {
             <button className="btn-duo btn-duo-ghost" style={{ width: '100%' }} onClick={() => setActiveModal(null)}>
               Got it
             </button>
-          </div>
-        </div>
-      )}
+      </DashboardModal>
 
-      {activeModal === 'level' && (
-        <div className="duo-popover-backdrop" onClick={() => setActiveModal(null)}>
-          <div className="duo-popover-card" onClick={(e) => e.stopPropagation()}>
-            <button className="duo-popover-close" onClick={() => setActiveModal(null)}><X size={16} /></button>
+      <DashboardModal
+        open={activeModal === 'level'}
+        onClose={() => setActiveModal(null)}
+        ariaLabel={`Level ${levelInfo.level} candidate progress`}
+      >
             <div style={{ fontSize: '2.5rem', marginBottom: '.5rem' }}>⚡</div>
             <h3>Level {levelInfo.level} Candidate</h3>
             <p style={{ color: 'var(--text-2)', fontSize: '.9rem', margin: '.5rem 0 1rem' }}>
@@ -211,9 +199,7 @@ export default function GamificationBar() {
             <button className="btn-duo btn-duo-green" style={{ width: '100%' }} onClick={() => setActiveModal(null)}>
               Level Up On Next Round!
             </button>
-          </div>
-        </div>
-      )}
+      </DashboardModal>
     </>
   );
 }

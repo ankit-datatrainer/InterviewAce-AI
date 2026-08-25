@@ -49,6 +49,13 @@ export function isNimConfigured(): boolean {
   return !!(process.env.OPENROUTER_API_KEY || process.env.NVIDIA_NIM_API_KEY);
 }
 
+/** Safe provider metadata for reports and telemetry; never exposes credentials. */
+export function getConfiguredModelIdentity(): { provider: 'OpenRouter' | 'NVIDIA NIM' | 'Local fallback'; model: string } {
+  if (process.env.OPENROUTER_API_KEY) return { provider: 'OpenRouter', model: OPENROUTER_MODEL };
+  if (process.env.NVIDIA_NIM_API_KEY) return { provider: 'NVIDIA NIM', model: NIM_MODEL };
+  return { provider: 'Local fallback', model: 'deterministic-resume-analysis-v2' };
+}
+
 interface NimOptions {
   temperature?: number;
   maxTokens?: number;

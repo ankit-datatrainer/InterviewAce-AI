@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Sparkles, Heart, Shield, Zap, Check } from 'lucide-react';
-import { addGems, refillHearts, playDuoSound, GamificationState } from '@/lib/gamification';
+import { Check } from 'lucide-react';
+import { addGems, refillHearts, playDuoSound, activateDoubleXp, activateStreakFreeze, GamificationState } from '@/lib/gamification';
 
 type PowerUpShopProps = {
   gameState: GamificationState | null;
@@ -22,6 +22,10 @@ export default function PowerUpShopWidget({ gameState, onStateChange }: PowerUpS
     addGems(-cost);
     if (item === 'hearts') {
       refillHearts();
+    } else if (item === 'freeze') {
+      activateStreakFreeze();
+    } else if (item === 'potion') {
+      activateDoubleXp();
     }
     playDuoSound('levelup');
     setPurchased(item);
@@ -64,10 +68,10 @@ export default function PowerUpShopWidget({ gameState, onStateChange }: PowerUpS
           <button
             className="btn-duo btn-duo-blue btn-duo-sm"
             onClick={() => handleBuy('freeze', 20)}
-            disabled={gems < 20}
+            disabled={gems < 20 || Boolean(gameState?.streakFrozen)}
             style={{ padding: '0.35rem 0.65rem', fontSize: '0.75rem' }}
           >
-            {purchased === 'freeze' ? <Check size={14} /> : '20 💎'}
+            {purchased === 'freeze' ? <Check size={14} /> : gameState?.streakFrozen ? 'Ready' : '20 💎'}
           </button>
         </div>
 
@@ -110,10 +114,10 @@ export default function PowerUpShopWidget({ gameState, onStateChange }: PowerUpS
           <button
             className="btn-duo btn-duo-orange btn-duo-sm"
             onClick={() => handleBuy('potion', 30)}
-            disabled={gems < 30}
+            disabled={gems < 30 || Boolean(gameState?.doubleXpReady)}
             style={{ padding: '0.35rem 0.65rem', fontSize: '0.75rem' }}
           >
-            {purchased === 'potion' ? <Check size={14} /> : '30 💎'}
+            {purchased === 'potion' ? <Check size={14} /> : gameState?.doubleXpReady ? 'Ready' : '30 💎'}
           </button>
         </div>
       </div>

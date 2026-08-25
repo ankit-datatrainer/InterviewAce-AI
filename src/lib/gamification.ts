@@ -25,6 +25,8 @@ export type GamificationState = {
   streak: number;
   lastActiveDate: string | null;
   streakFrozen: boolean;
+  doubleXpReady?: boolean;
+  questDate?: string;
   xp: number;
   level: number;
   gems: number;
@@ -142,6 +144,8 @@ export function getGamificationState(): GamificationState {
       streak: 3,
       lastActiveDate: new Date().toISOString(),
       streakFrozen: false,
+      doubleXpReady: false,
+      questDate: new Date().toISOString().split('T')[0],
       xp: 450,
       level: 3,
       gems: 120,
@@ -160,6 +164,8 @@ export function getGamificationState(): GamificationState {
         streak: 1,
         lastActiveDate: new Date().toISOString().split('T')[0],
         streakFrozen: false,
+        doubleXpReady: false,
+        questDate: new Date().toISOString().split('T')[0],
         xp: 120,
         level: 1,
         gems: 50,
@@ -177,6 +183,10 @@ export function getGamificationState(): GamificationState {
     
     // Check streak reset or maintenance
     const today = new Date().toISOString().split('T')[0];
+    if (parsed.questDate !== today) {
+      parsed.quests = DEFAULT_QUESTS.map((quest) => ({ ...quest }));
+      parsed.questDate = today;
+    }
     if (parsed.lastActiveDate) {
       const lastDate = new Date(parsed.lastActiveDate);
       const nowDate = new Date(today);
@@ -198,6 +208,8 @@ export function getGamificationState(): GamificationState {
       streak: 1,
       lastActiveDate: new Date().toISOString().split('T')[0],
       streakFrozen: false,
+      doubleXpReady: false,
+      questDate: new Date().toISOString().split('T')[0],
       xp: 100,
       level: 1,
       gems: 50,
@@ -223,7 +235,9 @@ export function saveGamificationState(state: GamificationState): void {
 export function addXP(amount: number, reason?: string): { newXp: number; levelUp: boolean } {
   const current = getGamificationState();
   const oldLevel = current.level;
-  const newXp = current.xp + amount;
+  const earned = reason === 'interview_complete' && current.doubleXpReady ? amount * 2 : amount;
+  if (reason === 'interview_complete' && current.doubleXpReady) current.doubleXpReady = false;
+  const newXp = current.xp + earned;
   const newLevelInfo = calculateLevel(newXp);
   const levelUp = newLevelInfo.level > oldLevel;
 
@@ -244,6 +258,18 @@ export function addXP(amount: number, reason?: string): { newXp: number; levelUp
   }
 
   return { newXp, levelUp };
+}
+
+export function activateStreakFreeze(): void {
+  const current = getGamificationState();
+  current.streakFrozen = true;
+  saveGamificationState(current);
+}
+
+export function activateDoubleXp(): void {
+  const current = getGamificationState();
+  current.doubleXpReady = true;
+  saveGamificationState(current);
 }
 
 export function addGems(amount: number): number {

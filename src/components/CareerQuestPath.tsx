@@ -1,23 +1,15 @@
 'use client';
 
-import React, { useState } from 'react';
-import Link from 'next/link';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  Sparkles,
   Lock,
-  CheckCircle,
   Play,
-  Award,
-  Flame,
-  Star,
-  ChevronRight,
-  Gift,
-  X,
   BookOpen,
 } from 'lucide-react';
 import { addGems, playDuoSound } from '@/lib/gamification';
 import UnitGuidebookModal from '@/components/UnitGuidebookModal';
+import DashboardModal from '@/components/DashboardModal';
 
 type StageNode = {
   id: string;
@@ -124,17 +116,46 @@ const UNIT_2_STAGES: StageNode[] = [
   },
 ];
 
-export default function CareerQuestPath() {
+type CareerQuestPathProps = {
+  completedInterviews?: number;
+  bestScore?: number;
+};
+
+export default function CareerQuestPath({ completedInterviews = 0, bestScore = 0 }: CareerQuestPathProps) {
   const router = useRouter();
   const [selectedStage, setSelectedStage] = useState<StageNode | null>(null);
   const [chestClaimed, setChestClaimed] = useState(false);
   const [chestModal, setChestModal] = useState(false);
   const [guidebookUnit, setGuidebookUnit] = useState<{ number: number; title: string } | null>(null);
 
+  useEffect(() => {
+    setChestClaimed(localStorage.getItem('interviewace_unit1_chest') === 'claimed');
+  }, []);
+
+  const progressedStages = useMemo(() => {
+    const unlockedThrough = Math.min(6, completedInterviews);
+    return [...UNIT_1_STAGES, ...UNIT_2_STAGES].map((stage) => {
+      const status: StageNode['status'] = stage.number <= unlockedThrough
+        ? 'completed'
+        : stage.number === unlockedThrough + 1
+          ? 'active'
+          : 'locked';
+      const stars = status === 'completed' ? (bestScore >= 85 ? 3 : bestScore >= 70 ? 2 : 1) : 0;
+      return { ...stage, status, stars };
+    });
+  }, [bestScore, completedInterviews]);
+
+  const unit1Stages = progressedStages.slice(0, 3);
+  const unit2Stages = progressedStages.slice(3);
+
   const handleOpenChest = () => {
-    if (chestClaimed) return;
+    if (chestClaimed || completedInterviews < 2) {
+      if (completedInterviews < 2) playDuoSound('wrong');
+      return;
+    }
     addGems(30);
     setChestClaimed(true);
+    localStorage.setItem('interviewace_unit1_chest', 'claimed');
     setChestModal(true);
     playDuoSound('chest');
   };
@@ -209,12 +230,12 @@ export default function CareerQuestPath() {
               {isUnit1 && idx === 1 && (
                 <div className="duo-chest-wrapper" style={{ transform: 'translateX(-30px)' }}>
                   <button
-                    className={`duo-chest-btn ${chestClaimed ? 'claimed' : 'ready'}`}
+                    className={`duo-chest-btn ${chestClaimed ? 'claimed' : completedInterviews >= 2 ? 'ready' : 'locked'}`}
                     onClick={handleOpenChest}
-                    title={chestClaimed ? 'Claimed +30 Gems' : 'Click to open Bonus Reward Chest!'}
+                    title={chestClaimed ? 'Claimed +30 Gems' : completedInterviews >= 2 ? 'Click to open Bonus Reward Chest!' : 'Complete two interview milestones to unlock'}
                   >
-                    <span className="chest-emoji">{chestClaimed ? '🎁' : '✨ 🎁 ✨'}</span>
-                    <span className="chest-tag">{chestClaimed ? 'Claimed' : '+30 💎 Chest'}</span>
+                    <span className="chest-emoji">{chestClaimed ? '🎁' : completedInterviews >= 2 ? '✨ 🎁 ✨' : '🔒'}</span>
+                    <span className="chest-tag">{chestClaimed ? 'Claimed' : completedInterviews >= 2 ? '+30 💎 Chest' : '2 rounds to unlock'}</span>
                   </button>
                 </div>
               )}
@@ -253,7 +274,7 @@ export default function CareerQuestPath() {
       </div>
 
       {/* Unit 1 Path */}
-      {renderStagesList(UNIT_1_STAGES, true)}
+      {renderStagesList(unit1Stages, true)}
 
       {/* Unit 2 Header */}
       <div className="duo-unit-banner unit-2-bg" style={{ marginTop: '2.5rem' }}>
@@ -273,15 +294,16 @@ export default function CareerQuestPath() {
       </div>
 
       {/* Unit 2 Path */}
-      {renderStagesList(UNIT_2_STAGES, false)}
+      {renderStagesList(unit2Stages, false)}
 
       {/* Stage Launch Modal */}
-      {selectedStage && (
-        <div className="duo-popover-backdrop" onClick={() => setSelectedStage(null)}>
-          <div className="duo-popover-card" onClick={(e) => e.stopPropagation()}>
-            <button className="duo-popover-close" onClick={() => setSelectedStage(null)}>
-              <X size={16} />
-            </button>
+      <DashboardModal
+        open={Boolean(selectedStage)}
+        onClose={() => setSelectedStage(null)}
+        ariaLabel={selectedStage ? `${selectedStage.title} milestone` : 'Career milestone'}
+      >
+        {selectedStage && (
+          <>
             <div style={{ fontSize: '2.8rem', marginBottom: '.6rem' }}>{selectedStage.icon}</div>
             <div style={{ fontSize: '.78rem', fontWeight: 800, color: 'var(--duo-blue, #1cb0f6)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: '.3rem' }}>
               Milestone {selectedStage.number} &middot; Unit {selectedStage.unit}
@@ -304,17 +326,16 @@ export default function CareerQuestPath() {
             >
               <Play size={18} style={{ fill: 'currentColor' }} /> Practice Milestone Now
             </button>
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </DashboardModal>
 
       {/* Chest Reward Modal */}
-      {chestModal && (
-        <div className="duo-popover-backdrop" onClick={() => setChestModal(false)}>
-          <div className="duo-popover-card" onClick={(e) => e.stopPropagation()}>
-            <button className="duo-popover-close" onClick={() => setChestModal(false)}>
-              <X size={16} />
-            </button>
+      <DashboardModal
+        open={chestModal}
+        onClose={() => setChestModal(false)}
+        ariaLabel="Reward chest unlocked"
+      >
             <div style={{ fontSize: '3rem', marginBottom: '.5rem', animation: 'duoBounce 1.5s infinite' }}>💎</div>
             <h3 style={{ fontSize: '1.4rem', margin: '0 0 .5rem' }}>Reward Chest Unlocked!</h3>
             <p style={{ color: 'var(--text-2)', fontSize: '.92rem', margin: '0 0 1.2rem' }}>
@@ -323,9 +344,7 @@ export default function CareerQuestPath() {
             <button className="btn-duo btn-duo-blue" style={{ width: '100%' }} onClick={() => setChestModal(false)}>
               Claim &amp; Continue
             </button>
-          </div>
-        </div>
-      )}
+      </DashboardModal>
 
       {/* Guidebook Modal */}
       {guidebookUnit && (
