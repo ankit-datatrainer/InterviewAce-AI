@@ -15,7 +15,6 @@ import {
   BookOpen,
   Phone,
   Mail,
-  TrendingUp,
   Bot,
   GraduationCap,
   BarChart3,
@@ -25,6 +24,7 @@ import {
   Gift,
   Play,
   CheckCircle,
+  ArrowRight,
 } from 'lucide-react';
 import { addGems, addXP, playDuoSound } from '@/lib/gamification';
 import DashboardModal from '@/components/DashboardModal';
@@ -32,11 +32,6 @@ import DashboardModal from '@/components/DashboardModal';
 /* ------------------------------------------------------------------ */
 /*  Data                                                               */
 /* ------------------------------------------------------------------ */
-
-const TYPING_STRINGS = [
-  'I applied a structured approach using the STAR method to keep my answer concise and relevant...',
-  'For the system design question, I broke the problem into components: load balancer, cache layer, database sharding...',
-];
 
 const METRICS = [
   { icon: '🎯', value: 10000, suffix: '+', label: 'Quests & Interviews Completed', badge: '+60 XP Avg' },
@@ -387,7 +382,6 @@ function GamifiedMetricCard({ icon, value, suffix, label, badge }: { icon: strin
 export default function Home() {
   const [tIdx, setTIdx] = useState(0);
   const [openFaq, setOpenFaq] = useState<number | null>(null);
-  const [typedText, setTypedText] = useState('');
   const [toastMsg, setToastMsg] = useState('');
   const [toastVisible, setToastVisible] = useState(false);
   const [selectedStage, setSelectedStage] = useState<QuestStage | null>(null);
@@ -409,40 +403,6 @@ export default function Home() {
     );
     document.querySelectorAll('.reveal').forEach((el) => observer.observe(el));
     return () => observer.disconnect();
-  }, []);
-
-  /* ---- hero typing effect ---- */
-  useEffect(() => {
-    let strIdx = 0;
-    let charIdx = 0;
-    let deleting = false;
-    let timeout: ReturnType<typeof setTimeout>;
-
-    const tick = () => {
-      const current = TYPING_STRINGS[strIdx];
-      if (!deleting) {
-        charIdx++;
-        setTypedText(current.slice(0, charIdx));
-        if (charIdx === current.length) {
-          deleting = true;
-          timeout = setTimeout(tick, 2000);
-          return;
-        }
-        timeout = setTimeout(tick, 32);
-      } else {
-        charIdx--;
-        setTypedText(current.slice(0, charIdx));
-        if (charIdx === 0) {
-          deleting = false;
-          strIdx = (strIdx + 1) % TYPING_STRINGS.length;
-          timeout = setTimeout(tick, 400);
-          return;
-        }
-        timeout = setTimeout(tick, 18);
-      }
-    };
-    timeout = setTimeout(tick, 800);
-    return () => clearTimeout(timeout);
   }, []);
 
   /* ---- testimonial auto-advance ---- */
@@ -490,32 +450,17 @@ export default function Home() {
         <div className="container">
           <div className="hero-grid">
             {/* Left */}
-            <div>
-              {/* Award-Level Floating Badges & Mascot Cheer Header */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', flexWrap: 'wrap', marginBottom: '1.2rem' }}>
-                <div className="award-float-badge gold">
-                  <span className="award-icon-sparkle">🏆</span>
-                  <span>2026 Winner &middot; <strong>Level 10 AI Simulator</strong></span>
-                </div>
-                <div className="award-float-badge diamond" style={{ animationDelay: '1.5s' }}>
-                  <span>💎</span>
-                  <span><strong>Diamond League</strong> Accredited</span>
-                </div>
+            <div className="hero-copy">
+              <div className="hero-kicker">
+                <span className="hero-kicker-dot" />
+                AI interview practice
               </div>
-
-              <div className="home-mascot-banner">
-                <div className="home-mascot-icon">🦉</div>
-                <div className="home-mascot-text">
-                  <strong>Ace Bot &middot; Career Arena Master</strong>
-                  Daily quest active: Complete 1 practice round today to claim +50 XP &amp; keep your streak blazing! 🔥
-                </div>
-              </div>
-
               <h1>
-                Level up your career <span className="grad-text">in the AI Arena</span>
+                Practice smarter.<br />
+                <span className="grad-text">Get hired.</span>
               </h1>
               <p className="sub">
-                Face an adaptive AI avatar in a gamified interview simulator. Eliminate speech strikes, boost your ATS score to 90+, and conquer stages to unlock FAANG job offers.
+                Realistic interviews. Instant feedback. Better answers.
               </p>
 
               <div className="hero-ctas">
@@ -526,24 +471,21 @@ export default function Home() {
                 >
                   <Mic size={20} /> Enter Practice Arena
                 </Link>
-                <Link
-                  href="/dashboard/ats"
-                  className="btn-duo btn-duo-ghost btn-duo-lg"
+                <a
+                  href="#features"
+                  className="btn-duo btn-duo-ghost btn-duo-lg hero-next-btn"
                   onClick={() => playDuoSound('pop')}
                 >
-                  <FileText size={20} /> Scan Resume &middot; +25 XP
-                </Link>
+                  Next <ArrowRight size={18} />
+                </a>
               </div>
 
-              <div className="hero-note">
+              <div className="hero-mini-proof">
                 <span>
-                  <Check size={15} style={{ color: '#22C55E' }} /> 100% Free Practice Arena
+                  <Check size={15} /> Free to start
                 </span>
                 <span>
-                  <Check size={15} style={{ color: '#22C55E' }} /> 3-Strike Discipline Shield
-                </span>
-                <span>
-                  <Check size={15} style={{ color: '#22C55E' }} /> Daily Streaks &amp; Diamond League
+                  <Check size={15} /> Instant feedback
                 </span>
               </div>
             </div>
@@ -552,13 +494,15 @@ export default function Home() {
             <div className="hero-video-call">
               <div className="hero-dashed-circle" />
               <div className="hero-dots-grid" />
+              <span className="hero-orbit-dot hero-orbit-dot-one" aria-hidden="true" />
+              <span className="hero-orbit-dot hero-orbit-dot-two" aria-hidden="true" />
 
               <div className="vc-container">
                 {/* Header bar */}
                 <div className="vc-header">
                   <div className="vc-header-left">
                     <span className="vc-live-dot" />
-                    <span>Arena Round 01 &middot; Live Practice</span>
+                    <span>AI Interview &middot; Live</span>
                   </div>
                   <div className="vc-header-right">
                     <span className="vc-timer-badge">🛡️ 0/3 Strikes</span>
@@ -591,9 +535,10 @@ export default function Home() {
                   </div>
                 </div>
 
-                <div className="vc-live-caption" aria-live="polite">
-                  <span className="vc-live-caption-label">AI coaching live</span>
-                  <p>{typedText}<span className="vc-typing-caret" aria-hidden="true" /></p>
+                <div className="vc-compact-feedback" aria-label="Live answer feedback: strong answer, 92 percent">
+                  <span className="vc-feedback-icon"><Check size={15} /></span>
+                  <strong>Strong answer</strong>
+                  <span className="vc-feedback-score">92%</span>
                 </div>
 
                 {/* Bottom controls bar */}
@@ -607,20 +552,7 @@ export default function Home() {
               {/* Float badges */}
               <div className="float-badge fb-1" style={{ zIndex: 12 }}>
                 <Award size={16} style={{ color: '#ffc800' }} />
-                <span>Quest Reward <b style={{ color: '#ffc800' }}>+60 XP &middot; 15 💎</b></span>
-              </div>
-              <div className="float-badge fb-2" style={{ zIndex: 12 }}>
-                <TrendingUp size={16} style={{ color: '#22C55E' }} />
-                <span>ATS Resume Match <b style={{ color: '#22C55E' }}>92/100 (Pass)</b></span>
-              </div>
-
-              {/* Floating Award Medallion */}
-              <div className="award-hero-floating-medallion">
-                <div className="award-trophy-avatar">👑</div>
-                <div>
-                  <div style={{ fontSize: '0.72rem', color: '#ffc800', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Awwwards Top 1%</div>
-                  <div>Offer Certified &middot; 94.8% Pass</div>
-                </div>
+                <span><b style={{ color: '#ffc800' }}>+60 XP</b></span>
               </div>
             </div>
           </div>
